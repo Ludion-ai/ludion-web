@@ -414,6 +414,30 @@ test.describe('MCP サーバー /mcp', () => {
     expect(saved.structuredContent).toMatchObject({ work_id: part, visibility: 'private' });
     expect(d1(`SELECT via FROM revisions WHERE work_id = ${quote(part)}`)).toEqual([{ via: 'MCP' }]);
   });
+
+  test('つないだトークンで /api/v1 に置く：X-Ludion-Client があればそれが印（鍵と同じ整え方）、なければつないだときの名前（VIA001）', async () => {
+    const { visitor } = await person();
+    const token = (await connect(visitor, 'Claude Code')).tokens.access_token;
+    const part = unique('via-');
+    const auth = { Authorization: `Bearer ${token}` };
+    const via = () => d1<{ via: string }>(`SELECT via FROM revisions WHERE work_id = ${quote(part)} ORDER BY created_at DESC, rowid DESC LIMIT 1`)[0].via;
+
+    // 見出しなし：今までどおり、つないだときの名前
+    const first = await json('/api/v1/works', { html: workHtml(part) }, auth);
+    expect(first.status, await first.clone().text()).toBe(201);
+    expect(via()).toBe('Claude Code');
+
+    // 見出しあり：それが印（同じつながりを分け合う ld など）
+    const put = async (client: string, color: string) => {
+      const r = await json(`/api/v1/works/${part}/versions`, { html: workHtml(part, { color }) }, { ...auth, 'X-Ludion-Client': client });
+      expect(r.status, await r.clone().text()).toBe(201);
+      return via();
+    };
+    expect(await put('ld', '#3d7bff')).toBe('ld');
+    // 整え方は鍵のときと同じ：空白をまとめ、40 文字まで
+    expect(await put('ld \t  desk', '#33aa66')).toBe('ld desk');
+    expect(await put('x'.repeat(50), '#aa3366')).toBe('x'.repeat(40));
+  });
 });
 
 test.describe('つないでいる AI（アカウント）', () => {
