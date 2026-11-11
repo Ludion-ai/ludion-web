@@ -55,7 +55,14 @@ jobs:
         run: npx playwright install --with-deps chromium webkit firefox
       - name: ブラウザが使う OS の部品を入れる
         if: steps.browsers.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium webkit firefox
+        # apt が止まることがあるので、1回5分で切り、3回まで試す。3回とも落ちたら失敗（FIX-ci-apt）
+        run: |
+          for i in 1 2 3; do
+            timeout 300 npx playwright install-deps chromium webkit firefox && exit 0
+            echo "install-deps の ${i} 回目が落ちた"
+            if [ "$i" -lt 3 ]; then sleep 20; fi
+          done
+          exit 1
       - name: テスト
         run: npm test -w @ludion/web -- --shard=${{ matrix.shard }}/6
       - name: 落ちたときの報告を残す
@@ -93,7 +100,14 @@ jobs:
         run: npx playwright install --with-deps chromium webkit firefox
       - name: ブラウザが使う OS の部品を入れる
         if: steps.browsers.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium webkit firefox
+        # apt が止まることがあるので、1回5分で切り、3回まで試す。3回とも落ちたら失敗（FIX-ci-apt）
+        run: |
+          for i in 1 2 3; do
+            timeout 300 npx playwright install-deps chromium webkit firefox && exit 0
+            echo "install-deps の ${i} 回目が落ちた"
+            if [ "$i" -lt 3 ]; then sleep 20; fi
+          done
+          exit 1
       - name: テスト
         # 報告の形だけを足す（render と rules の設定は node の型を持たないので、設定ではなく引数で渡す）
         run: npm test -w @ludion/ld -w @ludion/render -w @ludion/rules -- --reporter=list,html
