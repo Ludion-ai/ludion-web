@@ -29,8 +29,8 @@ async function countsOf(request: APIRequestContext, id: string) {
   return { views: work.views, copies: work.copies };
 }
 
-/** ページの JSON に入っている、コピーされるコード（「コードをコピー」と同じもの）。 */
-const snippetOf = async (page: Page) => (JSON.parse((await page.locator('#ld-page').textContent())!) as { snippet: string }).snippet;
+/** 開いている作品の、コピーされるコード（「コードをコピー」と同じもの。/p/:id/code）。 */
+const snippetOf = async (page: Page) => (await page.request.get(`/p/${/\/p\/([^/?#]+)/.exec(page.url())![1]}/code`)).text();
 
 type Sent = [name: string, params: Record<string, unknown>];
 
