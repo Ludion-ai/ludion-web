@@ -1,0 +1,83 @@
+/*
+ * 埋め込みの印（worker/embed.ts の .ld-badge）の3案。絵を撮るためだけに、/e/<id> の文書に後から足す（scripts/shots-embed-badge.mjs）。
+ * 印の形（a.ld-badge > svg + span）と、押すと /p/<id> が新しいタブで開くことは、どの案も同じ。
+ *
+ * A：今のまま（右下に「Ludion · Remix」の帯）。足すものはない。
+ * B：右下に小さなマークだけ。マウスを乗せる・指で触れる・キーボードで選ぶと「Ludion · Remix」に広がる。
+ * C：読み込んで3秒は帯。その後は B のマークだけに縮む。縮んだ後は B と同じ。
+ */
+
+/* ---- B と C：縮んだ形（マークだけ。24×24px の丸。縦は字の行の高さ 16px ＋ 4px ×2） ---- */
+html[data-badge='b'] .ld-badge,
+html[data-badge='c'] .ld-badge {
+  gap: 0;
+  padding: 4px 6px;
+  transition:
+    gap 180ms ease,
+    padding 180ms ease,
+    background-color 180ms ease;
+}
+html[data-badge='b'] .ld-badge span,
+html[data-badge='c'] .ld-badge span {
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  transition:
+    max-width 180ms ease,
+    opacity 180ms ease;
+}
+
+/* ---- 広がった形（今の帯と同じ大きさ） ---- */
+html[data-badge='b'] .ld-badge:is(:hover, :focus-visible, :active),
+html[data-badge='c'] .ld-badge:is(:hover, :focus-visible, :active) {
+  gap: 5px;
+  padding: 3px 8px 3px 6px;
+}
+html[data-badge='b'] .ld-badge:is(:hover, :focus-visible, :active) span,
+html[data-badge='c'] .ld-badge:is(:hover, :focus-visible, :active) span {
+  max-width: 120px;
+  opacity: 1;
+}
+
+/* ---- C：はじめの3秒は帯。最後の 0.3 秒で縮む（3.3 秒の 91% まで広がったまま）。
+   終わった後は残さない（backwards）。残すと、終わった後に乗せても広がらない ---- */
+html[data-badge='c'] .ld-badge {
+  animation: ld-badge-intro 3.3s ease backwards;
+}
+html[data-badge='c'] .ld-badge span {
+  animation: ld-badge-intro-label 3.3s ease backwards;
+}
+@keyframes ld-badge-intro {
+  0%,
+  91% {
+    gap: 5px;
+    padding: 3px 8px 3px 6px;
+  }
+  100% {
+    gap: 0;
+    padding: 4px 6px;
+  }
+}
+@keyframes ld-badge-intro-label {
+  0%,
+  91% {
+    max-width: 120px;
+    opacity: 1;
+  }
+  100% {
+    max-width: 0;
+    opacity: 0;
+  }
+}
+
+/* 端末の「動きを減らす」：広がる・縮むは一瞬で替える（C の3秒はそのまま） */
+@media (prefers-reduced-motion: reduce) {
+  html[data-badge='b'] .ld-badge,
+  html[data-badge='b'] .ld-badge span,
+  html[data-badge='c'] .ld-badge,
+  html[data-badge='c'] .ld-badge span {
+    transition: none;
+    animation-timing-function: step-end;
+  }
+}
