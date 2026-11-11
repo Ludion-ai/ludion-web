@@ -3,6 +3,8 @@
 // 退会と手段の足し引きは、直近10分以内のログインを求める（SEC001 B2-3、B2-5）。
 
 import { Hono, type Context } from 'hono';
+import { createAiKey, deleteAiKey, listAiKeys, MAX_KEYS_PER_USER, parseKeyName } from './aiKeys';
+import { apiQuotaKeys } from './quota';
 import { CATALOG_TAG, workTag } from './cachePolicy';
 import { listCreatorWorks } from './catalog';
 import type { Env } from './env';
@@ -53,7 +55,7 @@ account.get('/', async (c) => {
     db.prepare('SELECT credential_id AS id, label, created_at, last_used_at FROM passkeys WHERE user_id = ? ORDER BY created_at').bind(user.id),
     db.prepare('SELECT COUNT(*) AS n FROM recovery_codes WHERE user_id = ?').bind(user.id),
   ]);
-  const identities = await listIdentities(db, user.id);
+  const [identities, aiKeys] = await Promise.all([listIdentities(db, user.id), listAiKeys(db, user.id)]);
   return c.json({
     profile: profile.results[0],
     identities: identities.map(({ provider, label, created_at, last_used_at }) => ({ provider, label, created_at, last_used_at })),
@@ -65,6 +67,7 @@ account.get('/', async (c) => {
     })),
     passkeys: passkeys.results,
     has_recovery_code: Number(recovery.results[0].n) > 0,
+    ai_keys: aiKeys,
     works_count: works.results[0].n,
     recent_auth: isRecentAuth(user),
     available: { google: isGoogleAvailable(c.env, c.req.url), passkey: isPasskeyAvailable(c.env, c.req.url) },
@@ -208,8 +211,29 @@ account.post('/identities/:provider/remove', async (c) => {
 });
 
 /**
+ * AI の鍵を作る（docs/tasks/T037.md「1」）。名前と、投稿の同意の3つ（自分のもの、MIT、利用規約）が要る。
+ * その鍵で置くものは、同意したものとして扱う。鍵の生の値は、この応答でしか見せない。
+ */
+account.post('/ai-keys', async (c) => {
+  const body = await readJson(c);
+  if (!body) return c.json({ error: 'bad_request' }, 400);
+  const name = parseKeyName(body.name);
+  if (name === null) return c.json({ error: 'bad_name' }, 400);
+  if (body.own !== true || body.mit !== true || body.terms !== true) return c.json({ error: 'confirm_required' }, 400);
+  const made = await createAiKey(c.env.DB, c.get('user').id, name);
+  if (!made) return c.json({ error: 'too_many', max: MAX_KEYS_PER_USER }, 409);
+  return c.json(made, 201);
+});
+
+/** AI の鍵を消す。消した鍵はすぐ使えなくなる（401）。 */
+account.post('/ai-keys/:id/delete', async (c) => {
+  if (!(await deleteAiKey(c.env.DB, c.get('user').id, c.req.param('id')))) return c.json({ error: 'not_found' }, 404);
+  return c.body(null, 204);
+});
+
+/**
  * 退会。直近のログインを求める。
- * 消すもの：人、手段、パスキー、回復のコード、セッション、いいね、しおり、前の handle の記録。
+ * 消すもの：人、手段、パスキー、回復のコード、セッション、AI の鍵、いいね、しおり、前の handle の記録。
  * 結ばれた作者の作品は Ludion から取り下げる（CEO の確認待ち）。作者の行は handle だけを残し、ほかの人に取られないようにする。
  */
 account.post('/delete', async (c) => {
@@ -228,6 +252,7 @@ account.post('/delete', async (c) => {
     db.prepare('DELETE FROM passkeys WHERE user_id = ?').bind(user.id),
     db.prepare('DELETE FROM recovery_codes WHERE user_id = ?').bind(user.id),
     db.prepare('DELETE FROM handle_history WHERE user_id = ?').bind(user.id),
+    db.prepare('DELETE FROM ai_keys WHERE user_id = ?').bind(user.id),
     // 自分だけの作品も同じに取り下げる（docs/tasks/T036.md「6」）。持ち主が外れるので、だれにも見えなくなる
     db
       .prepare(`UPDATE works SET status = 'rejected', reject_reason = ? WHERE status IN ('approved', 'private') AND creator_id IN (SELECT id FROM creators WHERE user_id = ?)`)
@@ -236,7 +261,7 @@ account.post('/delete', async (c) => {
     db
       .prepare(`UPDATE revisions SET status = 'revoked', updated_at = ? WHERE status IN ('draft', 'submitted', 'approved', 'private') AND work_id IN (SELECT w.id FROM works w JOIN creators c ON c.id = w.creator_id WHERE c.user_id = ?)`)
       .bind(Date.now(), user.id),
-    db.prepare('DELETE FROM quotas WHERE key IN (?, ?)').bind(`save:${user.id}`, `revision:${user.id}`),
+    db.prepare('DELETE FROM quotas WHERE key IN (?, ?, ?, ?)').bind(`save:${user.id}`, `revision:${user.id}`, ...apiQuotaKeys(user.id)),
     db.prepare('UPDATE creators SET user_id = NULL, name = NULL, avatar_url = NULL, x_url = NULL, site_url = NULL WHERE user_id = ?').bind(user.id),
     db.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
   ]);

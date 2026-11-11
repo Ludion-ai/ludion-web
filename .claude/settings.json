@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push *)",
+      "Bash(gh pr create)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr merge *)",
+      "Bash(gh pr view)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr checks *)"
+    ],
+    "deny": [
+      "Bash(git push)",
+      "Bash(git push origin)",
+      "Bash(git push * main)",
+      "Bash(git push * main *)",
+      "Bash(git push *:main)",
+      "Bash(git push *:main *)",
+      "Bash(git push *refs/heads/main*)",
+      "Bash(git push *--force*)",
+      "Bash(git push * -f)",
+      "Bash(git push * -f *)",
+      "Bash(git push -f *)",
+      "Bash(git push * +*)",
+      "Bash(git push *--delete*)",
+      "Bash(git push * -d *)",
+      "Bash(git push * :*)",
+      "Bash(git push *--mirror*)",
+      "Bash(git push *--all*)",
+      "Bash(gh pr merge *--admin*)"
+    ]
+  }
+}
