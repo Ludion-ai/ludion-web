@@ -98,8 +98,9 @@ for (const phone of PHONES) {
       expect(now.transform).toBe('none');
       expect(now.frame.width).toBeCloseTo(now.box.width - 2, 1);
       expect(now.frame.height).toBeCloseTo(now.box.height - 2, 1);
-      expect(now.frame.width).toBeCloseTo(now.frameClient[0], 1);
-      expect(now.frame.height).toBeCloseTo(now.frameClient[1], 1);
+      // clientWidth と clientHeight は整数に丸まる（高さは 613.6px などの端数になる）
+      expect(Math.abs(now.frame.width - now.frameClient[0])).toBeLessThan(1);
+      expect(Math.abs(now.frame.height - now.frameClient[1])).toBeLessThan(1);
 
       // 高さは「見えている画面の高さ − ヘッダー − 余白」。3. 縦÷横は 1.3 から 1.8
       const wanted = Math.min(Math.max(height - HEADER - TOP_GAP - BELOW, now.box.width * 1.3), now.box.width * 1.8);
