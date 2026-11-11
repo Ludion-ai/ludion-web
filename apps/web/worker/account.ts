@@ -4,7 +4,7 @@
 
 import { Hono, type Context } from 'hono';
 import { createAiKey, deleteAiKey, listAiKeys, MAX_KEYS_PER_USER, parseKeyName } from './aiKeys';
-import { apiQuotaKeys } from './quota';
+import { apiQuotaKeys, postQuotaKeys } from './quota';
 import { CATALOG_TAG, workTag } from './cachePolicy';
 import { listCreatorWorks } from './catalog';
 import type { Env } from './env';
@@ -274,7 +274,7 @@ account.post('/delete', async (c) => {
     db
       .prepare(`UPDATE revisions SET status = 'revoked', updated_at = ? WHERE status IN ('draft', 'submitted', 'approved', 'private') AND work_id IN (SELECT w.id FROM works w JOIN creators c ON c.id = w.creator_id WHERE c.user_id = ?)`)
       .bind(Date.now(), user.id),
-    db.prepare('DELETE FROM quotas WHERE key IN (?, ?, ?, ?)').bind(`save:${user.id}`, `revision:${user.id}`, ...apiQuotaKeys(user.id)),
+    db.prepare('DELETE FROM quotas WHERE key IN (?, ?, ?, ?, ?, ?)').bind(...postQuotaKeys(user.id), ...apiQuotaKeys(user.id)),
     db.prepare('UPDATE creators SET user_id = NULL, name = NULL, avatar_url = NULL, x_url = NULL, site_url = NULL WHERE user_id = ?').bind(user.id),
     db.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
   ]);

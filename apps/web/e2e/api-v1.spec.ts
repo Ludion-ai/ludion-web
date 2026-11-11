@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { API_LIMITS } from '../worker/quotaLimits';
+import { API_LIMITS, POST_LIMITS, PRIVATE_LIMITS } from '../worker/quotaLimits';
 import { Visitor, ownOrigin } from './visitor';
 
 const WEB = join(import.meta.dirname, '..');
@@ -416,6 +416,39 @@ test.describe('AI の口 /api/v1', () => {
     const readLimited = await api(key, '/api/v1/works');
     expect(readLimited.status).toBe(429);
     expect(await readLimited.json()).toMatchObject({ error: 'rate_limited', retry_at: expect.any(String) });
+  });
+
+  test('1日の版：自分だけの版は100まで（公開に回す10とは別に数える）。自分だけから公開するときは、公開の10で数える', async () => {
+    const { visitor, id } = await person();
+    const key = (await makeKey(visitor)).secret;
+    const today = new Date().toISOString().slice(0, 10);
+    const expires = Date.now() + 86_400_000;
+    const fill = (name: string, n: number) =>
+      d1(`INSERT INTO quotas (key, bucket, n, expires_at) VALUES (${quote(name)}, ${quote(today)}, ${n}, ${expires}) ON CONFLICT (key, bucket) DO UPDATE SET n = ${n}`);
+
+    // 公開に回す版の数（10）が尽きていても、自分だけの版は置ける
+    fill(`revision:${id}`, POST_LIMITS.revisionsPerUserDay);
+    fill(`save:${id}`, POST_LIMITS.savesPerUserDay);
+    const own = await put(key, { html: workHtml(unique('daily-')) });
+    expect(own.visibility).toBe('private');
+    const next = await api(key, `/api/v1/works/${own.id}/versions`, { method: 'POST', body: { html: workHtml(own.id, { label: '次' }) } });
+    expect(next.status).toBe(201);
+    expect(d1<{ n: number }>(`SELECT n FROM quotas WHERE key = ${quote(`revision-private:${id}`)} AND bucket = ${quote(today)}`)[0].n).toBe(2);
+
+    // 自分だけから公開する：公開の10で数えるので、尽きていれば 429。空けば出せる
+    const current = d1<{ id: string }>(`SELECT id FROM revisions WHERE work_id = ${quote(own.id)} AND version = '2'`)[0];
+    d1(`UPDATE revisions SET thumb_w = 800, thumb_h = 600 WHERE id = ${quote(current.id)}`);
+    const refused = await visitor.post(`/api/post/works/${own.id}/publish`, CONFIRM);
+    expect(refused.status).toBe(429);
+    expect(await refused.json()).toEqual({ error: 'rate_limited', limit: 'revisions' });
+    fill(`revision:${id}`, POST_LIMITS.revisionsPerUserDay - 1);
+    expect((await visitor.post(`/api/post/works/${own.id}/publish`, CONFIRM)).status).toBe(200);
+
+    // 自分だけの版が100に達すると 429
+    fill(`revision-private:${id}`, PRIVATE_LIMITS.revisionsPerUserDay);
+    const over = await api(key, '/api/v1/works', { method: 'POST', body: { html: workHtml(unique('daily-over-')) } });
+    expect(over.status).toBe(429);
+    expect(await over.json()).toMatchObject({ error: 'rate_limited', limit: 'revisions', retry_at: expect.any(String) });
   });
 
   test('鍵の生の値は、D1 と R2 に残らない（ハッシュは D1 にある）', async () => {
