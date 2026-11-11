@@ -98,10 +98,11 @@ review.get('/revisions/:rid', async (c) => {
     },
     creator,
     remix_of: source && { id: source.id, title: source.title, handle: source.handle, public: source.status === 'approved' },
-    code: { html: files.html, css: files.css, js: files.js ?? null },
-    previous: previous && previousRow ? { version: previousRow.version, html: previous.html, css: previous.css, js: previous.js ?? null } : null,
-    check: checkSubmission({ id: revision.work_id, type: revision.type, tags, html: files.html, css: files.css, js: files.js ?? null }),
-    flags: reviewFlags({ html: files.html, css: files.css, js: files.js ?? null }),
+    // 文書の作品（DOC001）は、文書の全部を html に入れる。作品の契約の検査はしない。気になる書き方は、文書の全部を HTML と JS の両方の印で探す
+    code: { html: files.document ?? files.html, css: files.css, js: files.js ?? null },
+    previous: previous && previousRow ? { version: previousRow.version, html: previous.document ?? previous.html, css: previous.css, js: previous.js ?? null } : null,
+    check: typeof files.document === 'string' ? { required: [], optional: [] } : checkSubmission({ id: revision.work_id, type: revision.type, tags, html: files.html, css: files.css, js: files.js ?? null }),
+    flags: typeof files.document === 'string' ? reviewFlags({ html: files.document, css: files.document, js: files.document }) : reviewFlags({ html: files.html, css: files.css, js: files.js ?? null }),
   });
 });
 

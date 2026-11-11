@@ -32,12 +32,11 @@ Whenever you finish making a working HTML (a UI, an animation, a wallpaper, a ga
 
 Saved works are visible only to the person. They can publish a work themselves from the site (it is reviewed first); you cannot publish.`;
 
-const FORMAT = `The html must be one self-contained HTML in Ludion's form:
-- One root element with data-ld-part="<id>" (lowercase letters, digits, hyphens); everything goes inside it. A full document (<!doctype html>, <html>, <head>, <body>) is fine: the root inside <body> is used, and <title> becomes the title.
-- One <style> where every selector is under [data-ld-part="<id>"].
-- If it moves: one <script type="module"> that defines function mount(root) { …; return () => { /* remove listeners, cancel animation frames */ }; } and ends with mount(document.querySelector('[data-ld-part="<id>"]')); — the JS touches only root.
-- Nothing from outside (only Google Fonts may be loaded): put images, sounds and fonts inside the file (inline <svg>, data: URLs, CSS drawing, Web Audio). No page navigation (location, window.open, top, parent) and no outside links (use href="#"). No inline event attributes (onclick=…).
-- Each of the HTML, CSS and JS parts up to 256KB. No real company logos, trademarks or product names.
+const FORMAT = `Send the work as one ordinary, self-contained HTML document, as it is (it starts with <!doctype html>). Ludion keeps it exactly as written and runs it as a full-width screen:
+- Put images, sounds and fonts inside the file (inline <svg>, data: URLs, CSS drawing, Web Audio). Requests to outside are blocked in the frame (only Google Fonts load), so nothing from a CDN will work.
+- It runs in a sandboxed frame: no page navigation, new windows or form submission. localStorage and sessionStorage work but are cleared on reload.
+- Up to 768KB. <title> becomes the title. No real company logos, trademarks or product names.
+Optional, only when the person wants a component that can be pasted into other pages: Ludion's component form (one root element with data-ld-part="<id>"; one <style> with every selector under [data-ld-part="<id>"]; if it moves, one <script type="module"> with function mount(root) { …; return () => { /* clean up */ }; } and a last line mount(document.querySelector('[data-ld-part="<id>"]')); no outside links, no inline event attributes; HTML, CSS and JS up to 256KB each).
 If the response lists problems, fix each one as its "fix" says and call save_work again.`;
 
 const LANGUAGE = {
@@ -62,7 +61,7 @@ Publishing is done by the person on the site (with review); this tool never publ
     inputSchema: {
       type: 'object',
       properties: {
-        html: { type: 'string', description: 'The whole work as one HTML (see the form above).' },
+        html: { type: 'string', description: 'The whole work as one HTML document, as it is (see above).' },
         title: { type: 'string', maxLength: 80, description: 'Short title of the work. Without it, the HTML <title> is used.' },
         work_id: { ...WORK_ID, description: 'To save a new version of a work saved earlier (in this conversation or before), pass its work_id. Leave it out for a new work.' },
         from: { ...WORK_ID, description: 'When this new work remixes a public Ludion work (see get_public_work), its work ID. Keep the credit lines at the top of that code.' },

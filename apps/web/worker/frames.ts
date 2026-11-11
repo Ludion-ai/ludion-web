@@ -5,10 +5,11 @@
 // wall.html は全画面の住所（/p/<id>/wall。WALL001）の形。枠いっぱいに置き、いつも動かす。守りは同じ。
 // 応答の頭の CSP に sandbox が入るので、ludion.ai のオリジンでは動かない。frame-ancestors で、ほかのサイトの枠にも入らない。
 // 親からは <iframe sandbox="allow-scripts allow-forms"> で読む。allow-same-origin は付けない。
+// 文書の作品（DOC001）は、文書をそのまま返す（頭にサイトの小さなスクリプトだけを差し込む。packages/render/src/document.ts）。守りは同じ。
 // 枠の外から開くと（Sec-Fetch-Dest が iframe でない）、作品を返さず作品のページへ戻す。
 // 作品の JS が自分のタブを外へ移せるので、URL を直接開かせると、ludion.ai のリンクが外への入口になるため（docs/tasks/T008.md「1」）。
 
-import { FRAME_RESPONSE_CSP, buildFrameHtml, type Work } from '@ludion/render';
+import { FRAME_RESPONSE_CSP, buildDocumentFrameHtml, buildFrameHtml, type Work } from '@ludion/render';
 import { Hono, type Context } from 'hono';
 import type { Env } from './env';
 import { approvedPrefix, loadRevisionFiles, readableRevision } from './revisions';
@@ -34,7 +35,9 @@ function frameResponse(c: FrameContext, work: Work, file: string): Response {
       : file === 'wall.html'
         ? { palette: 'author' as const, placement: 'fill' as const, motion: true }
         : { palette: 'author' as const, width: FRAME_WIDTHS[file === 'mobile.html' ? 'mobile' : 'desktop'], motion };
-  return new Response(buildFrameHtml(work, options), {
+  // 文書の作品は、置き方（中央、幅、ヘッダー、全画面）を文書が自分で決める。変えるのは「動きを見る」だけ
+  const html = typeof work.document === 'string' ? buildDocumentFrameHtml(work.document, { motion: options.motion }) : buildFrameHtml(work, options);
+  return new Response(html, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Content-Security-Policy': FRAME_RESPONSE_CSP,

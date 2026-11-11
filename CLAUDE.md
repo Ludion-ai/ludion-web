@@ -52,7 +52,7 @@ LudionはUIのPinterest。作り手が置いたUIの作品（画面と部品）�
 - 親の見張りは2枚目の守り。枠が自分で移ったら、親が元の URL で読み直す。目印は、枠の `load` が2回目に起きたこと（読み込みの後の移動）と、`load` が起きたのに枠の文書から「読み込めた」の `postMessage` が来ないこと（読み込みの途中の移動）。3回読み直しても移るなら、枠を空にする（`apps/web/src/frameGuard.ts`）。
 - `frame-src 'self'` は同じサイトの中の移動を通すので、公開前の審査でも見る。作品の配信を別のドメインに分けることは T028 で決める。
 - 公開前の版（下書き、審査待ち）の枠（`/draft-frame/...`）も同じ守りにする。持ち主と運営だけが見られ、ほかの人には 404。
-- iframeの中では、作品をShadow DOMに入れる。
+- iframeの中では、作品をShadow DOMに入れる。文書の作品（下の「文書の作品」）は、文書をそのまま枠にし、Shadow DOM には入れない（Shadow DOM は CSS を分けるだけで、守りではない。守りは sandbox と CSP）。
 - 幅を見せる枠（1280pxと390px）は、それぞれ別のiframeにする。メディアクエリを効かせるため。
 - 親とiframeのやりとりは `postMessage` だけ。受け取る側は、送り元と形を必ず確かめる。
 
@@ -177,6 +177,25 @@ mount(document.querySelector('[data-ld-part="toggle-aurora"]'));
 ```
 
 投稿の箱（`/new`）は、この形の逆で分ける（`packages/rules` の `splitSnippet`）。頭のクレジット行と「Remixed by」の行は外し、載せるときにサーバーが作り直す。
+
+### 文書の作品（11/12、DOC001）
+
+AI がふつうに書いた1つの HTML 文書を、そのまま置き、そのまま動かす形。上の契約（根、トークン、セレクタ、mount）は、部品にしたいときの任意の形として残す。
+
+- 受けるのは AI の口（`/api/v1` の `POST /works`、`POST /works/:id/versions`、MCP の `save_work`）だけ。`/new` の箱は、まだ契約の形だけ。
+- 分け方（`packages/rules` の `htmlForm`）：`<!doctype` か `<html` で始まる文書は、文書の作品。ただし、`<body>` の一番外の要素が1つで作者が `data-ld-part` を書き、JS がないか `mount` を export している文書は、今までどおり契約の形。断片は、いつも契約の形。
+- 検査は、大きさ（768KB まで。今の3つの上限の合計）と、読める文字（NUL と壊れたサロゲートがない）だけ（`checkDocument`）。契約の検査はしない。外への通信も検査では落とさない（枠の CSP が止める）。人をだます作りかは、公開の前に運営が見る。
+- 種類は画面（`screen`）。部品の種類（`Components`）の作品やリミックスの元から来ても、文書の版は `Web` にする（中央寄せだと背景が縮むため）。ID は題（`<title>`）の英数字から作る。
+- 持ち方：R2 の版の置き場に `meta.json`（`"format": "document"`）と `index.html` だけ。D1 は変えない（migration なし）。`loadRevisionFiles` は `part.html` がないときだけ `index.html` を読むので、今ある作品の読み方は変わらない。
+- 枠（`/frame/...`、`/draft-frame/...`）は、文書を1文字も変えずに返し、`<!doctype>` の直後（なければ頭）に、サイトの小さなスクリプト（CSP の meta、storage の代わり、DPR、「読み込めた」の知らせ、「動きを見る」のときの matchMedia）だけを差し込む（`packages/render/src/document.ts`）。応答の頭、`Sec-Fetch-Dest` の確かめ、sandbox、`frame-ancestors` は今の枠と同じ。文書の CSS の `@media (prefers-reduced-motion)` は書き換えない。
+- コピーされるコードは、その文書。クレジット行は `<!doctype html>` の直後に入れる（前に入れると互換モードになるため。だから文書の作品では、クレジット行は2行目になる）。リミックスの2行目も同じ場所。置くときは、その場所にあるクレジット行を外す（取ったコードを送り直しても重ならない）。
+
+```html
+<!doctype html>
+<!-- UI by @creator — ludion.ai/p/glass-counter (MIT) -->
+<!-- Remix of UI by @someone — ludion.ai/p/first-counter (MIT) -->
+<html lang="en">…</html>
+```
 
 ## 置き場（11/11 に CEO が決定。PUB002）
 
