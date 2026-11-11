@@ -6,10 +6,24 @@
  * 2. 作品のページのプレビューの倍率を決める（枠の幅に合わせて iframe を縮める）。
  * 3. スマホでは、Web の画面の Desktop の枠を Mobile の枠に替える（React が載る前に。lib/frame.ts の PHONE_QUERY）。
  * 4. プレビューの枠を、見えている細かさ（実際の DPR × 縮めた割合）を付けた URL で読み始める（PREVIEW-DPR。lib/frame.ts の startFrame）。
+ * 5. iPhone の消音モードでも、作品の音が鳴るようにする（下の audioSession）。
  */
 import { BOX_CLASS, FRAME_CLASS, frameScale, isPhone, previewScale, startFrame, type FrameSize } from './lib/frame';
 import { gridShape, WIDE_QUERY } from './lib/gridShape';
 import { layoutMasonry } from './lib/masonry';
+
+// iPhone は、消音モードのとき、作品が AudioContext で作る音を鳴らさない（動画の音は鳴る）。
+// 親のページが「このページの音は、再生するための音」と宣言すると、消音モードでも鳴る（Safari の navigator.audioSession）。
+// 作品の枠の中からは宣言できない（Safari は、マイクを許した枠でしか受け付けない）ので、ここでやる。作品のファイルは変えない。
+// 音が鳴るのは、今までどおり、見る人が作品を触ってから。鳴っている間は、ほかのアプリの音楽が止まる（iPhone の決まり）
+const audioSession = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+if (audioSession) {
+  try {
+    audioSession.type = 'playback';
+  } catch {
+    // 宣言できない Safari では、今までどおり（消音モードでは鳴らない）
+  }
+}
 
 const phone = isPhone();
 const frameBox = document.querySelector<HTMLElement>('[data-frame-size]');
