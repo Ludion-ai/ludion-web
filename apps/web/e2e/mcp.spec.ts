@@ -1,7 +1,7 @@
 // AI につなぐ（MCP001）。OAuth（登録 → 許可 → トークン → 取り直し → 切る）と、MCP サーバー /mcp の道具。
 // 手元の偽の GitHub と本物の workerd で通す。1つのテストごとに別の人でログインするので、互いの行に触らない。
 
-import { expect, test } from '@playwright/test';
+import { chromium, expect, firefox, test, webkit } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -195,6 +195,7 @@ test.describe('AI につなぐ：許可とトークン', () => {
     expect(page.status).toBe(200);
     expect(page.headers.get('cache-control')).toBe('private, no-store');
     expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
+    expect(page.headers.get('referrer-policy')).toBe('same-origin');
     const html = await page.text();
     expect(html).toContain('<span data-client-name>Claude</span>');
     expect(html).toContain(`@${handle}`);
@@ -202,9 +203,10 @@ test.describe('AI につなぐ：許可とトークン', () => {
     expect(html).toContain('許可する');
 
     // 外のサイトから送られた「許可」は受けない（証を出さない）
-    const forged = await visitor.fetch('/oauth/authorize', { method: 'POST', headers: { Origin: 'https://evil.example', 'Content-Type': 'application/x-www-form-urlencoded' }, body: `${params}&decision=allow` });
+    const forged = await visitor.fetch('/oauth/authorize', { method: 'POST', headers: { Origin: 'https://evil.example', 'Content-Type': 'application/x-www-form-urlencoded', 'Accept-Language': 'ja' }, body: `${params}&decision=allow` });
     expect(forged.status).toBe(400);
     expect(forged.headers.get('location')).toBeNull();
+    expect(await forged.text()).toContain('送り元を確かめられませんでした。AI の設定から、もう一度つないでください。');
     // 「やめる」：戻り先へ access_denied
     const denied = await allow(visitor, params, 'deny');
     expect(denied.origin + denied.pathname).toBe(REDIRECT);
@@ -264,6 +266,48 @@ test.describe('AI につなぐ：許可とトークン', () => {
     expect(Object.keys(row).sort()).toEqual(['access_expires_at', 'access_hash', 'client_id', 'client_name', 'created_at', 'id', 'last_used_at', 'refresh_expires_at', 'refresh_hash', 'user_id']);
     expect(database).toContain(row.access_hash as string);
   });
+});
+
+// 許可の画面のボタンを、本物のブラウザで押す。form の POST に付く Origin は、画面の Referrer-Policy で変わるので
+// （no-referrer だと Origin: null になり、自分のサイトからでも断られる）、3つのブラウザで確かめる
+test.describe('AI につなぐ：許可の画面を本物のブラウザで押す', () => {
+  for (const [name, browserType] of [['chromium', chromium], ['webkit', webkit], ['firefox', firefox]] as const) {
+    test(`${name}：「許可する」で戻り先に code、「やめる」で access_denied`, async () => {
+      const { visitor } = await person(`click${name.slice(0, 2)}`);
+      const browser = await browserType.launch();
+      try {
+        const context = await browser.newContext({ baseURL: ownOrigin(), locale: 'ja-JP' });
+        await context.addCookies([...visitor.cookies].map(([cookie, value]) => ({ name: cookie, value, url: ownOrigin() })));
+        // 戻り先（AI の側）は、手元で小さな画面を返す
+        await context.route(`${new URL(REDIRECT).origin}/**`, (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>back</title>' }));
+        /** 許可の画面を新しいタブで開いてボタンを押し、ブラウザが戻り先へ向かった URL を返す。 */
+        const press = async (params: URLSearchParams, button: string) => {
+          const page = await context.newPage();
+          await page.goto(`/oauth/authorize?${params}`);
+          const back = page.waitForRequest((request) => request.url().startsWith(REDIRECT));
+          await page.getByRole('button', { name: button }).click();
+          return new URL((await back).url());
+        };
+
+        const client = await register(`Claude ${name}`);
+        const { verifier, challenge } = pkce();
+        const back = await press(authorizeParams(client.client_id, challenge), '許可する');
+        expect(back.searchParams.get('code')).toMatch(/^ldc_[A-Za-z0-9]{40}$/);
+        expect(back.searchParams.get('state')).toBe('st4te');
+        expect(back.searchParams.get('error')).toBeNull();
+        // 押して出た証で、トークンが取れる
+        const token = await form('/oauth/token', { grant_type: 'authorization_code', code: back.searchParams.get('code')!, redirect_uri: REDIRECT, client_id: client.client_id, code_verifier: verifier, resource: `${ownOrigin()}/mcp` });
+        expect(token.status, await token.clone().text()).toBe(200);
+
+        const denied = await press(authorizeParams(client.client_id, pkce().challenge), 'やめる');
+        expect(denied.searchParams.get('error')).toBe('access_denied');
+        expect(denied.searchParams.get('state')).toBe('st4te');
+        expect(denied.searchParams.get('code')).toBeNull();
+      } finally {
+        await browser.close();
+      }
+    });
+  }
 });
 
 test.describe('MCP サーバー /mcp', () => {
