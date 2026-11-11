@@ -255,6 +255,7 @@ AI がふつうに書いた1つの HTML 文書を、そのまま置き、その�
 - **main に直接 push しない。** 枝を push して、main への pull request を作る（`gh pr create`）。main の守りで、pull request と「テストの全部」の通過が必須になっている。
 - pull request のテスト（「テストの全部」）が通るのを待つ（`gh pr checks <番号> --watch`）。落ちたら、Actions の成果物（Playwright の報告、7日）を見て直し、同じ枝に push する。
 - 通ったら main に入れる（`gh pr merge <番号> --merge --auto` でよい）。main が先に進んでいて取り込みが要るときは、`origin/main` を枝に取り込んで push し、テストを待ち直す。
+- **pull request を main に入れる（merge）のと、auto-merge を付けるのは、その pull request を作った持ち主のセッションだけ**（11/12 に CTO が決定）。ほかのセッションとほかの AI の道具は、人の pull request を merge しない。auto-merge も付けない。段階ごとに分けた pull request は、持ち主が順に入れて本番で確かめるため。
 - 同じファイルを触るタスクが並ぶときは、後から main に入れる方が取り込みで解く。
 - 外の人の pull request の workflow は、運営が承認してから流れる。`pull_request_target` は使わない。秘密の値は、environment `production`（承認あり）と `production-auto`（承認なし。main の枝だけが使える）にだけ置き、リポジトリの Secrets には置かない。使ってよい Action は、GitHub のものと、認証済みの作者のものだけ。
 - **本番に出す**（11/11 の CEO の決定、DEPLOY002）：main に入ったものは、ふだんは承認なしで自動で本番に出る。D1 の migration を含むときだけ、CEO が承認する。タスクの側で出す作業はしない。
