@@ -3,14 +3,15 @@
 
 import { authorBackground, buildCopySnippet } from '@ludion/render';
 import type { Context } from 'hono';
+import type { CreatorProfile } from '../src/data/pages';
 import type { Work } from '../src/data/works';
 import { copyFor, localeOfPath, localizedPath } from '../src/i18n';
 import { shareOrigin } from './cachePolicy';
 import { isGoogleAvailable, isPasskeyAvailable } from './methods';
 import { safeNext } from './loginFlow';
-import { findMovedCreator, getApprovedWork, getCreator, getCreatorTotals, listApprovedWorks, listCreatorWorks } from './catalog';
+import { findMovedCreator, getApprovedWork, getCreator, getCreatorTotals, getPrivateWork, listApprovedWorks, listCreatorWorks } from './catalog';
 import type { Env } from './env';
-import { canPost, loadRevisionFiles } from './revisions';
+import { canPost, draftFrameUrls, loadRevisionFiles, ownedWork, privateCurrentRevision } from './revisions';
 import { getSessionUser } from './session';
 import { renderDocument } from './ssr';
 
@@ -23,48 +24,75 @@ const ogImage = (c: PageContext, work: Pick<Work, 'id' | 'version'>) => `${share
 export const renderNotFound = (c: PageContext) =>
   renderDocument(c, { page: { kind: 'not-found' }, head: { title: copyOf(c).notFound.pageTitle }, status: 404 });
 
-/** 承認済みの作品の今の版と、その「コピーされるコード」。作品のページの「コードをコピー」と /p/:id/code は、この同じ文字列を出す。 */
-async function loadApprovedWork(c: PageContext) {
-  const found = await getApprovedWork(c.env.DB, c.req.param('id') ?? '');
+/** 自分だけの作品の応答の頭（docs/tasks/T036.md「2」）。どの層にも残さず、次のページの参照元にも住所を残さない。 */
+const PRIVATE_HEADERS = { 'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' };
+
+/**
+ * 作品の今の版と、その「コピーされるコード」。作品のページの「コードをコピー」と /p/:id/code は、この同じ文字列を出す。
+ * 承認済みの作品はだれにでも。自分だけの作品（docs/tasks/T036.md）は持ち主にだけ返し、ほかの人（運営も）には null（ない作品と同じ 404）。
+ */
+async function loadWork(c: PageContext) {
+  const db = c.env.DB;
+  const id = c.req.param('id') ?? '';
+  const approved = await getApprovedWork(db, id);
+  let found: { work: Work; creator: CreatorProfile; creatorId: string; prefix: string; private: { revisionId: string } | null } | null = approved && { ...approved, private: null };
+  if (!found) {
+    // 公開されていない作品だけ、cookie を読む。公開の作品のページは人によって変えない（キャッシュするため）
+    const user = await getSessionUser(c);
+    const revision = user && (await privateCurrentRevision(db, id, user));
+    const own = revision && (await getPrivateWork(db, id, user.id));
+    found = revision && own ? { ...own, prefix: revision.r2_prefix, private: { revisionId: revision.id } } : null;
+  }
   const files = found && (await loadRevisionFiles(c.env.PARTS, found.prefix));
   if (!found || !files) return null;
   const { creator } = found;
-  // リミックスは2行目に元の作品のクレジット行（docs/tasks/T033.md B4）。remix_of から作るので、作り手がコードから消しても残る。元が取り下げられていても残す
-  const source = await c.env.DB.prepare(
-    `SELECT o.id, oc.handle FROM works w JOIN works o ON o.id = w.remix_of JOIN creators oc ON oc.id = o.creator_id WHERE w.id = ?`,
-  )
+  // リミックスは2行目に元の作品のクレジット行（docs/tasks/T033.md B4）。remix_of から作るので、作り手がコードから消しても残る。
+  // 元が取り下げられていても、自分だけになっていても残す（docs/tasks/T036.md「4」）
+  const source = await db
+    .prepare(`SELECT o.id, o.title, o.status, oc.handle FROM works w JOIN works o ON o.id = w.remix_of JOIN creators oc ON oc.id = o.creator_id WHERE w.id = ?`)
     .bind(found.work.id)
-    .first<{ id: string; handle: string }>();
+    .first<{ id: string; title: string; status: string; handle: string }>();
   const snippet = buildCopySnippet(
     { ...files, meta: { ...files.meta, creator: creator.handle } },
     { handle: creator.handle, name: creator.name, kind: creator.kind, x_url: creator.x_url, site_url: creator.site_url },
-    source,
+    source && { id: source.id, handle: source.handle },
   );
-  return { ...found, files, snippet };
+  // 帯には、公開されている元だけを出す。そうでなければ題も作者も出さない
+  const band = source ? (source.status === 'approved' ? { id: source.id, title: source.title, handle: source.handle } : { hidden: true as const }) : null;
+  return { ...found, files, snippet, source: band };
 }
 
 const PLAIN_TEXT = { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' };
 
 /**
  * 作品の「コピーされるコード」を文字のまま返す（docs/tasks/T031.md「1」）。リミックスの指示文が、コードの全文の代わりにこの URL を渡す。
- * 人によって変えない。開いても数えない（数えるのは、指示文をコピーしたとき）。
+ * 人によって変えない。開いても数えない（数えるのは、指示文をコピーしたとき）。自分だけの作品は持ち主にだけ返し、残さない。
  */
 export async function renderWorkCode(c: PageContext): Promise<Response> {
-  const loaded = await loadApprovedWork(c);
+  const loaded = await loadWork(c);
   if (!loaded) return new Response('Not found\n', { status: 404, headers: PLAIN_TEXT });
-  return new Response(loaded.snippet, { headers: PLAIN_TEXT });
+  return new Response(loaded.snippet, { headers: loaded.private ? { ...PLAIN_TEXT, ...PRIVATE_HEADERS } : PLAIN_TEXT });
 }
 
 export async function renderWorkPage(c: PageContext): Promise<Response> {
   const db = c.env.DB;
-  const loaded = await loadApprovedWork(c);
-  if (!loaded) return renderNotFound(c);
+  // 公開の作品はだれにでも。自分だけの作品（docs/tasks/T036.md）は持ち主にだけ描く
+  const loaded = await loadWork(c);
+  if (!loaded) {
+    // 公開していない作品は、持ち主にだけ、その下書きの画面（/new?work=）へ進める。AI の口が返す url（docs/tasks/T037.md「2」）。
+    // ほかの人には、ない作品と同じ 404。302 も 404 もキャッシュしない（cachePolicy.ts は 200 だけ）
+    const id = c.req.param('id') ?? '';
+    const user = /^[a-z0-9-]{1,60}$/.test(id) ? await getSessionUser(c) : null;
+    const own = user ? await ownedWork(db, id) : null;
+    if (user && own?.owner_id === user.id) return c.redirect(`${localizedPath(localeOfPath(c.req.path), '/new')}?work=${encodeURIComponent(id)}`);
+    return renderNotFound(c);
+  }
 
-  const { work, creator, files, snippet } = loaded;
+  const { work, creator, files, snippet, source } = loaded;
   // 作品のページから行き止まりをなくす（docs/tasks/T018.md「1」）。同じ作者が先で、それぞれ Popular の順
   const rest = (await listApprovedWorks(db)).filter((other) => other.id !== work.id);
 
-  return renderDocument(c, {
+  const response = await renderDocument(c, {
     page: {
       kind: 'work',
       work,
@@ -73,9 +101,16 @@ export async function renderWorkPage(c: PageContext): Promise<Response> {
       others: rest.filter((other) => other.creator.handle !== creator.handle),
       snippet,
       background: authorBackground(files.css),
+      source,
+      private: loaded.private && { frames: draftFrameUrls(loaded.private.revisionId) },
     },
-    head: { title: copyOf(c).work.pageTitle(work.title, creator.handle), image: ogImage(c, work), path: `/p/${encodeURIComponent(work.id)}` },
+    // 自分だけの作品には共有の画像と canonical を付けない（公開の道からは見えない）
+    head: loaded.private
+      ? { title: copyOf(c).work.pageTitle(work.title || copyOf(c).post.untitled, creator.handle) }
+      : { title: copyOf(c).work.pageTitle(work.title, creator.handle), image: ogImage(c, work), path: `/p/${encodeURIComponent(work.id)}` },
   });
+  if (loaded.private) for (const [name, value] of Object.entries(PRIVATE_HEADERS)) response.headers.set(name, value);
+  return response;
 }
 
 /** ログインの画面。ログイン済みなら戻り先へ。使える手段はサイトの設定で決まり、人では変わらない。キャッシュしない。 */

@@ -40,7 +40,9 @@ export function WorkPage() {
 function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
   const copy = useCopy();
   const locale = useLocale();
-  const { work, creator, more, others, snippet, background } = page;
+  const { work, creator, more, others, snippet, background, source } = page;
+  // 自分だけの作品（docs/tasks/T036.md）。数えない、GA4 に送らない、いいねと共有とリミックスを出さない
+  const isPrivate = page.private !== null;
   const { handle } = creator;
   const { isBookmarked, isLiked, likeDelta, toggleBookmark, toggleLike } = useAccount();
   const saved = isBookmarked(work.id);
@@ -65,10 +67,10 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
 
   // 開いたときに1回だけ送る（重複は除かない）。StrictMode で effect が2回動いても1回にする
   useEffect(() => {
-    if (viewSent.current) return;
+    if (viewSent.current || isPrivate) return;
     viewSent.current = true;
     postCount(work.id, 'view');
-  }, [work.id]);
+  }, [work.id, isPrivate]);
 
   useEffect(
     () => () => {
@@ -95,6 +97,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
       return;
     }
     showCopyState('copied');
+    if (isPrivate) return;
     setCopies((count) => count + 1);
     postCount(work.id, 'copy');
     trackEvent('copy_code', { work_id: work.id });
@@ -172,14 +175,23 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
     <>
       <div className="grid grid-cols-1 gap-8 md:mt-[27px] lg:grid-cols-[minmax(0,65fr)_minmax(0,35fr)]">
         <div className="min-w-0">
-          <FramePreview key={work.id} work={work} background={background} />
+          <FramePreview key={work.id} work={work} background={background} frames={page.private?.frames ?? null} />
           {/* 1023px以下：「コードをコピー」は最初の画面の外なので、プレビューのすぐ下に置く。浮かせない（作品の枠に重なるため。docs/tasks/FIX-remix-button.md） */}
-          {remixButton('mt-3 lg:hidden')}
+          {!isPrivate && remixButton('mt-3 lg:hidden')}
         </div>
 
         <div className="min-w-0">
+          {isPrivate && (
+            <div data-private-notice="" role="note" className="mb-4 rounded-control bg-site-field px-3 py-2.5">
+              <p className="font-semibold">{copy.work.privateNotice}</p>
+              <a href={localizedPath(locale, '/account/works')} className="mt-0.5 inline-block text-small underline">
+                {copy.work.privateToWorks}
+              </a>
+            </div>
+          )}
           <h1 className="text-title font-bold text-site-fg">{work.title}</h1>
           <p className="mt-1 text-body text-site-fg-2">{copy.work.meta(work.category, work.subtype)}</p>
+          {source && <SourceBand source={source} />}
 
           <div className="mt-5 flex flex-wrap items-center gap-x-2.5 gap-y-1">
             <img
@@ -212,32 +224,36 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
             </span>
           </p>
 
-          <div className="mt-4 flex gap-3">
-            <button
-              type="button"
-              aria-pressed={liked}
-              aria-label={copy.work.like(likes)}
-              onClick={() => toggleLike(work.id)}
-              className={whiteButton}
-            >
-              <Heart size={18} strokeWidth={1.75} fill={liked ? 'currentColor' : 'none'} aria-hidden="true" />
-              {likes}
-            </button>
-            <button type="button" aria-pressed={saved} onClick={() => toggleBookmark(work.id)} className={whiteButton}>
-              <Bookmark size={18} strokeWidth={1.75} fill={saved ? 'currentColor' : 'none'} aria-hidden="true" />
-              {saved ? copy.work.saved : copy.work.save}
-            </button>
-          </div>
+          {!isPrivate && (
+            <>
+              <div className="mt-4 flex gap-3">
+                <button
+                  type="button"
+                  aria-pressed={liked}
+                  aria-label={copy.work.like(likes)}
+                  onClick={() => toggleLike(work.id)}
+                  className={whiteButton}
+                >
+                  <Heart size={18} strokeWidth={1.75} fill={liked ? 'currentColor' : 'none'} aria-hidden="true" />
+                  {likes}
+                </button>
+                <button type="button" aria-pressed={saved} onClick={() => toggleBookmark(work.id)} className={whiteButton}>
+                  <Bookmark size={18} strokeWidth={1.75} fill={saved ? 'currentColor' : 'none'} aria-hidden="true" />
+                  {saved ? copy.work.saved : copy.work.save}
+                </button>
+              </div>
 
-          <button type="button" onClick={onShare} className={`${whiteButton} mt-3 w-full`}>
-            <Share2 size={18} strokeWidth={1.75} aria-hidden="true" />
-            {shareMessage || copy.work.share}
-          </button>
-          <p role="status" className="sr-only">
-            {shareMessage}
-          </p>
+              <button type="button" onClick={onShare} className={`${whiteButton} mt-3 w-full`}>
+                <Share2 size={18} strokeWidth={1.75} aria-hidden="true" />
+                {shareMessage || copy.work.share}
+              </button>
+              <p role="status" className="sr-only">
+                {shareMessage}
+              </p>
 
-          {remixButton('mt-3 max-lg:hidden')}
+              {remixButton('mt-3 max-lg:hidden')}
+            </>
+          )}
 
           <button
             type="button"
@@ -250,7 +266,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
             {copyState === 'copied' ? copy.work.copied : copyState === 'failed' ? copy.work.copyFailed : ''}
           </p>
           <p className="mt-2 text-meta text-site-fg-2">{copy.work.license}</p>
-          <ReportIssue workId={work.id} />
+          {!isPrivate && <ReportIssue workId={work.id} />}
 
           <pre
             id={codeId}
@@ -305,5 +321,28 @@ function WorkList({ heading, works, onSelect }: { heading: string; works: Work[]
       <Masonry works={works} belowFold onSelect={onSelect} />
       <NoscriptGrid works={works} />
     </section>
+  );
+}
+
+/**
+ * リミックスの元の帯（docs/tasks/T036.md「4」）。元が公開されていれば題と作者と元へのリンク。
+ * 公開されていなければ（自分だけ、取り下げ）「元の作品は見られません」だけで、リンクを付けない。
+ */
+function SourceBand({ source }: { source: NonNullable<Extract<PageData, { kind: 'work' }>['source']> }) {
+  const copy = useCopy();
+  const locale = useLocale();
+  return (
+    <p data-remix-source="" className="mt-2 text-small text-site-fg-2 wrap-anywhere">
+      {'hidden' in source ? (
+        copy.work.source.hidden
+      ) : (
+        <>
+          {copy.work.source.heading}
+          <a href={localizedPath(locale, `/p/${encodeURIComponent(source.id)}`)} className="font-semibold text-site-fg underline">
+            {copy.work.source.work(source.title, source.handle)}
+          </a>
+        </>
+      )}
+    </p>
   );
 }

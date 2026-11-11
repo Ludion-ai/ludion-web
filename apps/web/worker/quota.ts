@@ -3,7 +3,7 @@
 
 import type { Env } from './env';
 import { limitKey } from './limitKey';
-import { POST_LIMITS, SIGNUP_LIMITS } from './quotaLimits';
+import { API_LIMITS, POST_LIMITS, SIGNUP_LIMITS } from './quotaLimits';
 import { LOOPBACK } from './rateLimit';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -48,6 +48,25 @@ export async function takePostQuota(db: D1Database, userId: string, newRevision:
     if (!(await takeQuota(db, 'revision:*', bucket, POST_LIMITS.revisionsAllDay, expires))) return 'revisions';
   }
   return null;
+}
+
+export type ApiLimit = 'put' | 'read';
+
+/** AI の口の、人ごとの数の鍵（退会のときに消す）。 */
+export const apiQuotaKeys = (userId: string): [string, string] => [`api-put:${userId}`, `api-read:${userId}`];
+
+/** 次の UTC の時の頭。1時間の数が戻る時刻。 */
+export const nextHour = (now: number) => (Math.floor(now / HOUR_MS) + 1) * HOUR_MS;
+/** 次の UTC の日の頭。1日の数が戻る時刻。 */
+export const nextDay = (now: number) => (Math.floor(now / DAY_MS) + 1) * DAY_MS;
+
+/** AI の口の回数を数える（1人1時間）。上限に達していれば、数えずに false。 */
+export async function takeApiQuota(db: D1Database, userId: string, kind: ApiLimit, now = Date.now()): Promise<boolean> {
+  await sweepQuotas(db, now);
+  const [putKey, readKey] = apiQuotaKeys(userId);
+  return kind === 'put'
+    ? takeQuota(db, putKey, hourBucket(now), API_LIMITS.putsPerUserHour, now + 2 * HOUR_MS)
+    : takeQuota(db, readKey, hourBucket(now), API_LIMITS.readsPerUserHour, now + 2 * HOUR_MS);
 }
 
 /**

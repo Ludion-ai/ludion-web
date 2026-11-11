@@ -3,7 +3,7 @@
 import type { ProblemText } from '@ludion/rules';
 import type { Locale } from '../i18n';
 
-export type RevisionStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'revoked';
+export type RevisionStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'revoked' | 'private';
 export type IdStatus = 'ok' | 'format' | 'reserved' | 'taken';
 export type MadeWith = 'human' | 'ai-assisted';
 
@@ -16,7 +16,13 @@ export interface FrameUrls {
 export interface OwnWork {
   id: string;
   public: boolean;
+  /** 自分だけの作品（docs/tasks/T036.md）。public_version はこのとき、本人だけが見る今の版 */
+  private: boolean;
   public_version: string;
+  /** 版の数 */
+  versions: number;
+  /** いちばん新しい版を最後に変えた時刻 */
+  updated_at: number;
   revision_id: string;
   version: string;
   status: RevisionStatus;
@@ -35,6 +41,8 @@ export interface OwnWork {
 export interface EditableWork {
   id: string;
   public: boolean;
+  /** 自分だけの作品。新しい版は、審査なしで今の版にできる */
+  private: boolean;
   public_version: string;
   html: string;
   css: string;
@@ -232,7 +240,30 @@ export async function pickWorkId(preferred: string | null, check: (id: string) =
   throw new Error('no free id');
 }
 
-export async function revokeOwnWork(id: string): Promise<void> {
-  const response = await postJson(`/api/post/works/${encodeURIComponent(id)}/revoke`);
-  if (!response.ok) throw new Error(`POST revoke: ${response.status}`);
+export type PlaceAnswer = 'ok' | 'not_draft' | 'title_required' | 'private_limit' | 'public' | 'failed';
+
+/** 自分だけで置く（docs/tasks/T036.md「1」）。審査に出さず、すぐ今の版になる。 */
+export async function placeRevision(revisionId: string): Promise<PlaceAnswer> {
+  const response = await postJson(`/api/post/revisions/${revisionId}/place`, { own: true, mit: true, terms: true });
+  if (response.ok) return 'ok';
+  const error = ((await response.json().catch(() => null)) as { error?: string } | null)?.error;
+  return error === 'not_draft' || error === 'title_required' || error === 'private_limit' || error === 'public' ? error : 'failed';
+}
+
+export type PublishAnswer = 'ok' | 'thumb_required' | 'title_required' | 'has_draft' | 'not_placed' | 'failed';
+
+/** 自分だけ → 公開する。今の版を審査に出す（docs/tasks/T036.md「4」）。 */
+export async function publishWork(id: string): Promise<PublishAnswer> {
+  const response = await postJson(`/api/post/works/${encodeURIComponent(id)}/publish`, { own: true, mit: true, terms: true });
+  if (response.ok) return 'ok';
+  const error = ((await response.json().catch(() => null)) as { error?: string } | null)?.error;
+  return error === 'thumb_required' || error === 'title_required' || error === 'has_draft' || error === 'not_placed' ? error : 'failed';
+}
+
+/** 公開 → 自分だけにする。すぐ（docs/tasks/T036.md「4」）。 */
+export async function makeWorkPrivate(id: string): Promise<'ok' | 'private_limit' | 'failed'> {
+  const response = await postJson(`/api/post/works/${encodeURIComponent(id)}/make-private`);
+  if (response.ok) return 'ok';
+  const error = ((await response.json().catch(() => null)) as { error?: string } | null)?.error;
+  return error === 'private_limit' ? error : 'failed';
 }

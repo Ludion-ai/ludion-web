@@ -245,6 +245,21 @@ test.describe('ログに要求と例外の中身を出さない（原則6）', (
     expectClean(lines, 'internal_error route=api type=Error');
   });
 
+  test('AI の口の例外：AI の鍵の生の値を出さない。名前と道の種類だけ（docs/tasks/T037.md）', async () => {
+    const key = `ld_${'Q'.repeat(20)}${'7'.repeat(20)}`;
+    for (const [path, method] of [['/api/v1/works', 'GET'], ['/api/v1/works', 'POST'], [`/api/v1/works/${LEAKS.query}`, 'GET']] as const) {
+      let response: Response;
+      const lines = await captureConsole(async () => {
+        response = await worker.app.request(path, { method, headers: { ...LEAK_HEADERS, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, ...(method === 'POST' ? { body: '{"html":"x"}' } : {}) }, baseEnv);
+      });
+      expect(response!.status).toBe(500);
+      expect(await response!.json()).toMatchObject({ error: 'internal_error' });
+      expect(lines.join('\n')).not.toContain(key);
+      expect(lines.join('\n')).not.toContain(key.slice(3));
+      expectClean(lines, 'internal_error route=api type=Error');
+    }
+  });
+
   test('作品のページの例外は、作品の id を出さず、道の種類だけ', async () => {
     const lines = await captureConsole(() => worker.app.request(`/p/${LEAKS.query}`, { headers: LEAK_HEADERS }, baseEnv));
     expectClean(lines, 'internal_error route=p type=Error');

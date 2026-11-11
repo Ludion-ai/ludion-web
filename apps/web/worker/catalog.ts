@@ -162,6 +162,17 @@ export async function getApprovedWork(db: D1Database, id: string): Promise<{ wor
   return row ? { work: toWork(row), creator: toProfile(row), creatorId: row.creator_id, prefix: row.thumb_key.replace(/\/thumb\.webp$/, '') } : null;
 }
 
+// 自分だけの作品を1つ。持ち主だけ（docs/tasks/T036.md「2」）。?2 は作品、?3 は本人
+const PRIVATE_SQL = `${SELECT_WORKS}
+  WHERE w.id = ?2 AND w.status = 'private' AND c.user_id = ?3`;
+
+/** 自分だけの作品を1つ、作者と一緒に返す。持ち主でなければ null（ない作品と同じ）。 */
+export async function getPrivateWork(db: D1Database, id: string, userId: string): Promise<{ work: Work; creator: CreatorProfile; creatorId: string } | null> {
+  const since = utcDay(Date.now() - COPY_WINDOW_DAYS * DAY_MS);
+  const row = await db.prepare(PRIVATE_SQL).bind(since, id, userId).first<WorkRow>();
+  return row ? { work: toWork(row), creator: toProfile(row), creatorId: row.creator_id } : null;
+}
+
 /** 作者の承認済みの作品を Popular の順で返す。 */
 export async function listCreatorWorks(db: D1Database, creatorId: string, limit?: number): Promise<Work[]> {
   return (await queryWorks(db, { creatorId, limit })).map(toWork);

@@ -179,6 +179,7 @@ const LATIN_ALLOWED = [
   'HTML',
   'html',
   'ld_session',
+  'LUDION_KEY',
   'Lattice_Node',
   'Lattice',
   'Cloudflare',
@@ -255,8 +256,10 @@ test.describe('サイトの文言は日本語（SPEC 9）', () => {
   test('作り方の文がなく、レーベルと X の文は決めたとおり', () => {
     // 作品を置く画面だけは作り方を聞く（データとして持つだけで、公開には出さない。CLAUDE.md 原則9）
     // リミックスの指示文の形の説明は、貼る先の話で、作品の作り方の文ではない（docs/tasks/T031.md「2」の文のまま）
-    const asked = (path: string) => path.startsWith('copy.post.') || path.startsWith('copy.work.remix.modes.');
-    expect(allCopy(copy).filter(({ path, text }) => !asked(path) && /(?<![A-Za-z])AI(?![A-Za-z])|手で作った/.test(text))).toEqual([]);
+    // AI の鍵は、AI が置くための鍵の話で、作品の作り方の文ではない（docs/tasks/T037.md「1」。鍵の節と、退会で消えるものの1行）
+    const asked = (path: string) => path.startsWith('copy.post.') || path.startsWith('copy.work.remix.modes.') || path.startsWith('copy.account.aiKeys.');
+    const aboutKeys = (text: string) => text.replace(/AI の鍵/g, '');
+    expect(allCopy(copy).filter(({ path, text }) => !asked(path) && /(?<![A-Za-z])AI(?![A-Za-z])|手で作った/.test(aboutKeys(text)))).toEqual([]);
     expect(copy.creator.x).toBe('X を新しいタブで開く');
     expect(copy.work.label).toContain('Ludion Studio のレーベル');
     expect(copy.creator.labelNote).toBe('Ludion Studio のレーベル（運営が制作）');
