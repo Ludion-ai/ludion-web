@@ -262,10 +262,10 @@ test.describe('サイトの文言は日本語（SPEC 9）', () => {
     // 作品を置く画面だけは作り方を聞く（データとして持つだけで、公開には出さない。CLAUDE.md 原則9）
     // リミックスの指示文の形の説明は、貼る先の話で、作品の作り方の文ではない（docs/tasks/T031.md「2」の文のまま）
     // AI の鍵は、AI が置くための鍵の話で、作品の作り方の文ではない（docs/tasks/T037.md「1」。鍵の節と、退会で消えるものの1行）
-    // AI につなぐも同じ（MCP001「3」。つなぎ方の節）
+    // AI につなぐも同じ（MCP001「3」。つなぎ方の節と、プライバシーと退会で消えるものの1行。つないだ AI と、どの AI から置いたかの話）
     const asked = (path: string) =>
       path.startsWith('copy.post.') || path.startsWith('copy.work.remix.modes.') || path.startsWith('copy.account.aiKeys.') || path.startsWith('copy.account.aiConnect.');
-    const aboutKeys = (text: string) => text.replace(/AI の鍵/g, '');
+    const aboutKeys = (text: string) => text.replace(/AI の鍵|どの AI から置いた|AI から置いた|AI につないだ|つないだ AI/g, '');
     expect(allCopy(copy).filter(({ path, text }) => !asked(path) && /(?<![A-Za-z])AI(?![A-Za-z])|手で作った/.test(aboutKeys(text)))).toEqual([]);
     expect(copy.creator.x).toBe('X を新しいタブで開く');
     expect(copy.work.label).toContain('Ludion Studio のレーベル');
