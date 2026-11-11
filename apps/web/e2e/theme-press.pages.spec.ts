@@ -111,6 +111,23 @@ async function drag(page: Page) {
 }
 
 test.describe('押した瞬間に、サイトの色が変わる（作品の aria-checked を待たない）', () => {
+  // 測る前に、同じブラウザで /about を一度開いて温める。shard の切れ目しだいで、この試験がその機械で最初に起こすブラウザになり、
+  // 起こしたばかりのブラウザの最初の描画の遅さ（数百ms）を測ってしまうため（EMBED001 で試験が増えて切れ目がずれ、Actions の WebKit で起きた）。
+  // 測り方と上限（LIMIT_MS）は変えない
+  test.beforeAll(async ({ browser }) => {
+    const context = await browser.newContext({ baseURL: test.info().project.use.baseURL });
+    const page = await context.newPage();
+    await page.addInitScript((pick) => {
+      if (window === window.top) (window as unknown as { __ldThemeSwitch: string }).__ldThemeSwitch = pick;
+    }, WORK);
+    await page.goto('/about');
+    await page.waitForFunction((selector) => {
+      const frame = document.querySelector<HTMLIFrameElement>(selector);
+      return !!frame && !frame.inert;
+    }, SWITCH_FRAME);
+    await context.close();
+  });
+
   for (const scheme of ['light', 'dark'] as const) {
     test(`${scheme} から：押してから ${LIMIT_MS}ms 以内に変わる。aria-checked は約1秒後に追いつき、行ったり来たりしない`, async ({ page }) => {
       const frame = await open(page, scheme);
