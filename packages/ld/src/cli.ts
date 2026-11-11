@@ -14,6 +14,7 @@ import { isWallpaperWork, launchForStills, makeStills, stillTime, type StillsBro
 import { CREATOR_KINDS, HANDLE_PATTERN, ID_PATTERN, MADE_WITH } from '@ludion/rules';
 import { newCss, newHtml, newMeta, today } from './templates.ts';
 import { collectFiles, describeResult, sendWork, uploadTarget, type UploadEnv } from './upload.ts';
+import { describePrivate, hasKey, loginHint, loginTo, privateBase, putPrivate } from './private.ts';
 import {
   creatorDir,
   creatorExists,
@@ -37,6 +38,8 @@ const USAGE = `使い方（リポジトリの根で）：
   npx ld check <id> [<id> …] | --all [--fixtures]
   npx ld add <id> [<id> …]
   npx ld upload <id> [<id> …] [--publish] [--env dev|prod] [--still-time HH:MM]
+  npx ld upload <id> [<id> …] --private [--env dev|prod]   （自分だけの作品として /api/v1 に置く）
+  npx ld login [--env prod|dev]   （--private の鍵。ブラウザで「許可する」を1回押す。既定は prod）
   npx ld list [--fixtures]
   npx ld creator add <handle> --name <名前> [--x <URL>] [--site <URL>] --avatar <画像> [--fixtures]
   npx ld creator add <handle> --name <名前> --label [--x <URL>] [--avatar <画像>]   （運営のレーベル）`;
@@ -209,9 +212,16 @@ async function cmdUpload(args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
-    options: { publish: { type: 'boolean', default: false }, env: { type: 'string', default: 'dev' }, 'still-time': { type: 'string' } },
+    options: {
+      publish: { type: 'boolean', default: false },
+      private: { type: 'boolean', default: false },
+      env: { type: 'string', default: 'dev' },
+      'still-time': { type: 'string' },
+    },
   });
   if (positionals.length === 0) fail('id がない。例：npx ld upload toggle-aurora --publish --env dev');
+  if (values.private && values.publish) fail('--private と --publish は一緒に使えない。自分だけの作品は公開しない（公開するときは、サイトから審査に出す）');
+  if (values.private) return uploadPrivate(positionals, values.env);
   const stillAt = values['still-time'];
   if (stillAt !== undefined && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(stillAt)) fail('--still-time は HH:MM（例：21:00）');
   const env = values.env as UploadEnv;
@@ -284,6 +294,56 @@ async function cmdUpload(args: string[]): Promise<number> {
   }
   if (locations.length > 1) console.log(`\n${locations.length - failed}/${locations.length} を送った`);
   return failed === 0 ? 0 : 1;
+}
+
+/** ld upload --private：check が通った作品を /api/v1 に送り、自分だけの作品として置く（LD002）。 */
+async function uploadPrivate(ids: string[], envValue: string | undefined): Promise<number> {
+  const env = envValue as UploadEnv;
+  if (env !== 'dev' && env !== 'prod') fail('--env は dev か prod');
+  const base = privateBase(env);
+  const locations = ids.map(locate);
+  // 鍵がなければ、ブラウザも開かずに止める
+  if (!(await hasKey(base))) fail(loginHint(env));
+  console.log(`送り先：${base}（${env}）の /api/v1。--private：自分だけの作品として置く（公開しない。審査にも出さない）`);
+  const browser = await launch();
+  let failed = 0;
+  try {
+    for (const location of locations) {
+      const result = await checkWork(location, browser);
+      console.log(formatCheck(result));
+      if (!result.ok) {
+        console.log(`  ${location.id} は check が通らないので送らない`);
+        failed += 1;
+        continue;
+      }
+      const work = toRenderable(readWork(location))!;
+      const sent = await putPrivate(work, location.dir, base, rootDir());
+      for (const line of describePrivate(location.id, sent, env)) console.log(line);
+      if (!sent.ok) failed += 1;
+    }
+  } finally {
+    await browser.close();
+  }
+  if (locations.length > 1) console.log(`
+${locations.length - failed}/${locations.length} を置いた`);
+  return failed === 0 ? 0 : 1;
+}
+
+// ---------------------------------------------------------------- login
+
+async function cmdLogin(args: string[]): Promise<number> {
+  const { values } = parseArgs({ args, options: { env: { type: 'string', default: 'prod' } } });
+  const env = values.env as UploadEnv;
+  if (env !== 'dev' && env !== 'prod') fail('--env は prod か dev');
+  const base = privateBase(env);
+  console.log(`${base} につなぐ。ブラウザで Ludion にログインし、「許可する」を押す`);
+  const result = await loginTo(base);
+  if (!result.ok) {
+    console.log(`  ✗ つながらなかった（${String(result.error)}）：${String(result.message)}`);
+    return 1;
+  }
+  console.log(`  つながった（~/.ludion/auth.json。プラグインと同じつながり）。npx ld upload <id> --private${env === 'prod' ? ' --env prod' : ''} で置ける`);
+  return 0;
 }
 
 // ---------------------------------------------------------------- list
@@ -443,6 +503,8 @@ export async function main(argv: string[]): Promise<number> {
         return await cmdAdd(args);
       case 'upload':
         return await cmdUpload(args);
+      case 'login':
+        return await cmdLogin(args);
       case 'list':
         return await cmdList(args);
       case 'creator':

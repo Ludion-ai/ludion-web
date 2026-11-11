@@ -24,4 +24,15 @@
 - `--env dev`（既定）：`apps/web` で `npm run dev` を動かしておく。送り先は `LD_DEV_URL`（なければ `http://localhost:5173`）、管理トークンは `LD_DEV_TOKEN`（なければ `apps/web/.dev.vars` の `ADMIN_TOKEN`）。`.dev.vars` はコミットしない。
 - `--env prod`：送り先は `https://ludion.ai`、管理トークンは `apps/web/.prod.vars` の `ADMIN_TOKEN`。`.prod.vars` はコミットしない。
 
+## 自分だけに置く（`ld upload --private`）
+
+`npx ld upload <id> [<id> …] --private [--env dev|prod]` → check が通ったものを `/api/v1` に送り、オーナーの人の「自分だけ」の作品として置く。作者はレーベルではなくオーナーの人。公開しない（公開するときは、サイトから審査に出す）。返った住所を出す。測るための写しや、試しの作品に使う。
+
+- `--publish` とは一緒に使えない。サムネイル、OG 画像、壁紙の静止画は送らない（`/api/v1` は HTML と title だけを受ける）。
+- 送るのは、`part.html`、`part.css`、`part.js` を「コピーされるコード」と同じ並びにした1つの HTML（クレジット行はサーバーが作る）と、`meta.json` の title。
+- 鍵の読む順：環境変数 `LUDION_KEY`（AI の鍵）→ `~/.ludion/auth.json`（`npx ld login` かプラグインの login が作る。切れていれば取り直す）。どちらもなければ止まる。
+- 同じ id をもう一度送ると、同じ自分だけの作品の新しい版になる。中身が前と同じなら送らない。対応はリポジトリの根の `.ludion.json`（プラグインと同じ形。コミットしない）に `works/<id>/` の名前で残る。本番でない送り先は `works/<id>/@<送り先>`。
+- `X-Ludion-Client: ld` を付ける（AI の鍵で送ったとき、置き場に「ld」と出る。`auth.json` のつながりで送ったときは、つないだときの名前が出る）。
+- `npx ld login [--env prod|dev]`（既定は prod）：プラグインの login と同じ流れ。ブラウザで Ludion にログインし、「許可する」を1回押す。
+
 全作品の check とサムネイルの有無は `npx ld list` で見られる。中身を変えたら `meta.json` の version を上げて、4〜6 をやり直す。
