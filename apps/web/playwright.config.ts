@@ -85,7 +85,7 @@ export default defineConfig({
     trace: process.env.CI ? 'retain-on-failure' : 'off',
   },
   projects: [
-    { name: 'home', testIgnore: /(upload|pages|accounts|account-page|api-v1|google|login-flow|post|private|passkey|shots-t020|migration|frame-escape|motion|remix-scroll)\.spec\.ts/, use: { baseURL: BASE_URL } },
+    { name: 'home', testIgnore: /(upload|pages|accounts|account-page|api-v1|google|login-flow|post|private|passkey|shots-t020|migration|frame-escape|motion|remix-scroll|wall-size)\.spec\.ts/, use: { baseURL: BASE_URL } },
     { name: 'upload', testMatch: /upload\.spec\.ts/, use: { baseURL: UPLOAD_URL } },
     { name: 'pages', testMatch: /pages\.spec\.ts/, use: { baseURL: PAGES_URL } },
     // 枠の移動を止めるのはブラウザなので、全部のブラウザで確かめる（docs/tasks/T022.md「1」）
@@ -97,6 +97,9 @@ export default defineConfig({
     // 「動きを減らす」の扱いと WebGL の知らせ（docs/tasks/FIX-motion.md「3」）
     { name: 'motion-chromium', testMatch: /motion\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
     { name: 'motion-webkit', testMatch: /motion\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
+    // 全画面の住所（WALL001）。Plash は WebKit、Lively は Chromium で開くので、両方で、FHD と 4K の大きさで確かめる
+    { name: 'wall-chromium', testMatch: /wall-size\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
+    { name: 'wall-webkit', testMatch: /wall-size\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     // 「リミックス」が枠に重ならない（docs/tasks/FIX-remix-button.md）
     { name: 'remix-scroll-chromium', testMatch: /remix-scroll\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
     { name: 'remix-scroll-webkit', testMatch: /remix-scroll\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },

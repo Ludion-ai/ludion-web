@@ -13,6 +13,7 @@ const chips = (copy: Copy): { value: Category | null; label: string }[] => [
   { value: 'minimal', label: copy.filters.minimal },
   { value: 'experimental', label: copy.filters.experimental },
   { value: 'motion', label: copy.filters.motion },
+  { value: 'wallpaper', label: copy.filters.wallpaper },
 ];
 
 const sorts = (copy: Copy): { value: Sort; label: string }[] => [

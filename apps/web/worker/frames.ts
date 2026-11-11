@@ -2,6 +2,7 @@
 //
 // GET /frame/<id>/<version>/<desktop|mobile|inline>.html：R2 の作品から buildFrameHtml で作って返す。
 // inline.html はヘッダーのスイッチの形（docs/tasks/T035.md「3」）。違うのは見た目と、スイッチの知らせだけで、守りは同じ。
+// wall.html は全画面の住所（/p/<id>/wall。WALL001）の形。枠いっぱいに置き、いつも動かす。守りは同じ。
 // 応答の頭の CSP に sandbox が入るので、ludion.ai のオリジンでは動かない。frame-ancestors で、ほかのサイトの枠にも入らない。
 // 親からは <iframe sandbox="allow-scripts allow-forms"> で読む。allow-same-origin は付けない。
 // 枠の外から開くと（Sec-Fetch-Dest が iframe でない）、作品を返さず作品のページへ戻す。
@@ -26,10 +27,13 @@ const FROM_IFRAME = 'iframe';
 function frameResponse(c: FrameContext, work: Work, file: string): Response {
   // ?motion=1：見る人が「動きを見る」を選んだ枠（docs/tasks/FIX-motion.md「1」）。守りとキャッシュの決まりは同じ
   const motion = c.req.query('motion') === '1';
+  // 壁紙は本人が選んで置くものなので、端末の「動きを減らす」設定でも動かす（WALL001「1」）
   const options =
     file === 'inline.html'
       ? { palette: 'author' as const, placement: 'inline' as const, motion }
-      : { palette: 'author' as const, width: FRAME_WIDTHS[file === 'mobile.html' ? 'mobile' : 'desktop'], motion };
+      : file === 'wall.html'
+        ? { palette: 'author' as const, placement: 'fill' as const, motion: true }
+        : { palette: 'author' as const, width: FRAME_WIDTHS[file === 'mobile.html' ? 'mobile' : 'desktop'], motion };
   return new Response(buildFrameHtml(work, options), {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
@@ -39,7 +43,7 @@ function frameResponse(c: FrameContext, work: Work, file: string): Response {
   });
 }
 
-frames.get('/frame/:id/:version{[0-9][0-9.]*}/:file{desktop\\.html|mobile\\.html|inline\\.html}',async (c) => {
+frames.get('/frame/:id/:version{[0-9][0-9.]*}/:file{desktop\\.html|mobile\\.html|inline\\.html|wall\\.html}', async (c) => {
   const { id, version, file } = c.req.param();
   // 見出しがないときも同じ。ここでは D1 も R2 も読まない。ない作品は戻った先の /p/<id> が 404 を返す
   if (c.req.header('Sec-Fetch-Dest') !== FROM_IFRAME) {

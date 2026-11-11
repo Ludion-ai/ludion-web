@@ -47,8 +47,9 @@ export interface FrameOptions {
    * 幅いっぱいの部品のサムネイルで使う。画面（screen）は、もともと幅いっぱいで上から置く。
    * 'inline' はサイトのヘッダーのスイッチ（docs/tasks/T035.md「3」）。地を透明に、余白を0に、根を枠の高さいっぱいに縮めて中央に置き、
    * 親とスイッチの状態を知らせ合う小さなスクリプト（SWITCH_SCRIPT）を足す。CSP と sandbox は同じ。
+   * 'fill' は全画面の住所（/p/<id>/wall。WALL001）。枠の大きさいっぱいに作品を置き、スクロールさせない。CSP と sandbox は同じ。
    */
-  placement?: 'center' | 'top' | 'inline';
+  placement?: 'center' | 'top' | 'inline' | 'fill';
   /** 端末の「動きを減らす」設定を「減らさない」として見せる。見る人が「動きを見る」を選んだときだけ（motion.ts）。 */
   motion?: boolean;
 }
@@ -70,6 +71,9 @@ const COMPONENT_CSS =
 const INLINE_CSS =
   'html,body{height:100%;background:transparent}body{min-height:0;overflow:hidden}' +
   '#ld-host{display:grid;height:100%;place-items:center}';
+// 全画面の形（WALL001）。作品の入れ物を枠の高さいっぱいにし、作品はその高さに合わせて描く（高さ 100% の根が画面いっぱいになる）。
+const FILL_CSS = 'html,body{height:100%;overflow:hidden}body{min-height:0}#ld-host{height:100%}';
+
 const INLINE_ROOT_CSS =
   '[data-ld-part]{width:auto!important;height:100vh!important;max-width:100vw!important;margin:0!important}';
 
@@ -160,7 +164,8 @@ export function buildFrameHtml(work: Work, options: FrameOptions): string {
   const width = options.width ? ` data-ld-width="${Math.round(options.width)}"` : '';
   const inline = options.placement === 'inline';
   const css = (options.motion ? allowMotionCss(work.css) : work.css) + (inline ? `\n${INLINE_ROOT_CSS}` : '');
-  const outerCss = inline ? BASE_CSS + INLINE_CSS : `${BASE_CSS}${meta.type === 'component' && options.placement !== 'top' ? COMPONENT_CSS : ''}`;
+  const fill = options.placement === 'fill' ? FILL_CSS : '';
+  const outerCss = inline ? BASE_CSS + INLINE_CSS : `${BASE_CSS}${fill}${meta.type === 'component' && options.placement !== 'top' ? COMPONENT_CSS : ''}`;
 
   return [
     '<!doctype html>',
