@@ -89,10 +89,9 @@ export const BADGE_COLLAPSE_MS = 3000;
  * 印の動き（EMBED001-c）。はじめは帯「Ludion · Remix」。枠（この文書）が上のページの画面に半分見えてから3秒たったら、マークだけに縮む。
  * 半分見えなくなったら数え直す。マウスが乗っている間（乗せられる端末だけ）と、キーボードで選ばれている間は縮めない。
  * 押した時：名前が見えている（帯）なら、ふつうのリンクとして /p/<id> が新しいタブで開く。
- * マークだけでも、マウスが乗っている、またはキーボードで選ばれている（held。見た目は帯に広がり、名前が見えている）なら、その1回で開く（EMBED001-c2）。
  * 2回にするのは指で触れた時だけ：マークだけの時の1回目は帯に戻すだけで開かない。帯に戻った後は、上と同じ（3秒で、また縮む）。
- * 指かどうかは、その click の前の pointerdown の pointerType で見る。指の後も :hover が残るので、乗せられる端末の触れる画面でも held とみなさないため。
- * キーボード（Enter）の click には pointerdown がないので、held だけで決まる。
+ * 指かどうかは、その click の前の pointerdown の pointerType で見る。指の後も :hover が残るので、:hover では見分けない（乗せられる端末の触れる画面）。
+ * 指でない click（マウス、キーボードの Enter、読み上げの道具の操作のように pointerdown がないもの）は、マークだけでも、held を見ずにその1回で開く（EMBED001-c3）。
  * このスクリプトが動かないブラウザでは、今の帯のまま（1回で開く）。
  */
 const BADGE_SCRIPT =
@@ -104,7 +103,7 @@ const BADGE_SCRIPT =
   `const arm=()=>{clearTimeout(timer);timer=seen&&!b.hasAttribute('data-ld-mark')?setTimeout(shrink,${BADGE_COLLAPSE_MS}):0};` +
   `new IntersectionObserver((es)=>{const e=es[es.length-1];seen=e.isIntersecting&&e.intersectionRatio>=0.499;arm()},{threshold:[0,0.5]}).observe(document.documentElement);` +
   `let touch=false;b.addEventListener('pointerdown',(e)=>{touch=e.pointerType==='touch'});b.addEventListener('keydown',()=>{touch=false});` +
-  `b.addEventListener('click',(e)=>{const t=touch;touch=false;if(!b.hasAttribute('data-ld-mark')||(!t&&held()))return;e.preventDefault();b.removeAttribute('data-ld-mark');arm()})})();`;
+  `b.addEventListener('click',(e)=>{const t=touch;touch=false;if(!b.hasAttribute('data-ld-mark')||!t)return;e.preventDefault();b.removeAttribute('data-ld-mark');arm()})})();`;
 
 function embedDocument(body: string, title: string, background: string): string {
   return [

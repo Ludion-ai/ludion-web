@@ -236,6 +236,28 @@ test.describe('印の形（はじめは帯、半分見えて3秒でマークだ�
     expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
   });
 
+  test('マークだけの時、pointerdown のない click（element.click()。読み上げの道具の操作など）は、乗せず選ばずでも1回で開く。外のページは移らない', async ({ context, page }) => {
+    await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`);
+    await waitForMark(page);
+    const badge = badgeOf(page);
+    // 乗せていない、選んでいない（held が偽）。見た目はマークだけ
+    expect(await badge.evaluate((el) => [el.matches(':hover'), el.matches(':focus-visible')])).toEqual([false, false]);
+    await expect(badge.locator('span')).toBeHidden();
+    await badge.evaluate((el) => {
+      const log: string[] = [];
+      el.addEventListener('pointerdown', (e) => log.push((e as PointerEvent).pointerType));
+      el.addEventListener('click', () => log.push('click'));
+      (window as unknown as { __ldClickLog: string[] }).__ldClickLog = log;
+    });
+    const tabs = countTabs(context);
+    await expectOpensWorkPage(context, () => badge.evaluate((el) => (el as HTMLElement).click()));
+    expect(tabs).toHaveLength(1);
+    // click だけが届いた（pointerdown はない）
+    expect(await badge.evaluate(() => (window as unknown as { __ldClickLog: string[] }).__ldClickLog)).toEqual(['click']);
+    await expect(badge).toHaveAttribute('data-ld-mark', '');
+    expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
+  });
+
   test('動きを減らす設定では、縮む動きを付けずに切り替える', async ({ context, page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`);
