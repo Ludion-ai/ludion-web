@@ -122,6 +122,8 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
       state = 'failed';
     }
     setEmbedState(state);
+    // 押してコピーできた回数（日ごと。EMBED001「6」）。コピー数とは別の数で、画面のコピー数は増やさない
+    if (state === 'copied') postCount(work.id, 'embed_copy');
     clearTimeout(embedTimer.current);
     embedTimer.current = setTimeout(() => setEmbedState('idle'), COPIED_MS);
   };
