@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>波紋ボタン</title>
+<style>
+  :root {
+    --bg: #f4f1ea;
+    --fg: #1f2a2e;
+    --muted: #6b7478;
+    --btn: #1f5f6b;
+    --btn-hover: #194e58;
+    --btn-fg: #ffffff;
+    --ripple: rgba(255, 255, 255, 0.45);
+    --ring: #e0a43a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12181b;
+      --fg: #e6ecee;
+      --muted: #94a0a5;
+      --btn: #3fa3b3;
+      --btn-hover: #4fb5c5;
+      --btn-fg: #0b1214;
+      --ripple: rgba(255, 255, 255, 0.5);
+      --ring: #f0b955;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12181b;
+    --fg: #e6ecee;
+    --muted: #94a0a5;
+    --btn: #3fa3b3;
+    --btn-hover: #4fb5c5;
+    --btn-fg: #0b1214;
+    --ripple: rgba(255, 255, 255, 0.5);
+    --ring: #f0b955;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+  }
+  main { display: grid; gap: 20px; justify-items: center; text-align: center; }
+
+  .ripple-btn {
+    position: relative;
+    overflow: hidden;          /* 波紋をボタンの形で切り抜く */
+    isolation: isolate;
+    border: 0;
+    border-radius: 14px;
+    padding: 18px 44px;
+    font: inherit;
+    font-size: 1.125rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--btn-fg);
+    background: var(--btn);
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    box-shadow: 0 6px 18px -8px rgba(0, 0, 0, 0.45);
+    transition: background-color 0.2s, transform 0.12s, box-shadow 0.2s;
+  }
+  .ripple-btn:hover { background: var(--btn-hover); }
+  .ripple-btn:active { transform: scale(0.97); box-shadow: 0 3px 10px -6px rgba(0, 0, 0, 0.5); }
+  .ripple-btn:focus-visible { outline: 3px solid var(--ring); outline-offset: 3px; }
+
+  .ripple {
+    position: absolute;
+    border-radius: 50%;
+    background: var(--ripple);
+    pointer-events: none;
+    transform: scale(0);
+    animation: ripple 650ms cubic-bezier(0.2, 0.6, 0.3, 1) forwards;
+    z-index: -1;
+  }
+  @keyframes ripple {
+    to { transform: scale(1); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ripple { animation-duration: 1ms; }
+  }
+
+  .count { color: var(--muted); font-size: 0.9rem; min-height: 1.4em; }
+</style>
+</head>
+<body>
+<main>
+  <button class="ripple-btn" type="button" id="btn">押してみて</button>
+  <p class="count" id="count" aria-live="polite"></p>
+</main>
+
+<script>
+  const btn = document.getElementById('btn');
+  const countEl = document.getElementById('count');
+  let count = 0;
+  let pointerTriggered = false;
+
+  // (x, y) はボタン内の座標。そこから一番遠い角まで届く円を作る
+  function spawnRipple(x, y) {
+    const rect = btn.getBoundingClientRect();
+    const radius = Math.hypot(
+      Math.max(x, rect.width - x),
+      Math.max(y, rect.height - y)
+    );
+    const ripple = document.createElement('span');
+    ripple.className = 'ripple';
+    ripple.style.width = ripple.style.height = radius * 2 + 'px';
+    ripple.style.left = x - radius + 'px';
+    ripple.style.top = y - radius + 'px';
+    ripple.addEventListener('animationend', () => ripple.remove());
+    btn.appendChild(ripple);
+  }
+
+  // マウス・タッチ：押した位置から広がる
+  btn.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    const rect = btn.getBoundingClientRect();
+    spawnRipple(e.clientX - rect.left, e.clientY - rect.top);
+    pointerTriggered = true;
+  });
+
+  // キーボード（Enter / Space）：中央から広がる
+  btn.addEventListener('click', () => {
+    if (!pointerTriggered) {
+      const rect = btn.getBoundingClientRect();
+      spawnRipple(rect.width / 2, rect.height / 2);
+    }
+    pointerTriggered = false;
+    count++;
+    countEl.textContent = count + ' 回押しました';
+  });
+</script>
+</body>
+</html>

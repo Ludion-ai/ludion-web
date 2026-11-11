@@ -252,6 +252,9 @@ try {
     const maliciousDir = join(fixturesDir, 'malicious');
     const malicious = readdirSync(maliciousDir).filter((name) => name.startsWith('mal-'));
     for (const id of malicious) await insertFixture(join(maliciousDir, id), join(goodDir, 'fx-button'));
+    // 文書の作品の見本（DOC001。index.html だけ）。ld の検査の外なので直に入れる。画像は良い見本のものを借りる
+    const documentsDir = join(fixturesDir, 'documents');
+    for (const id of readdirSync(documentsDir).filter((name) => name.startsWith('fx-doc-'))) await insertFixture(join(documentsDir, id), join(goodDir, 'fx-button'));
     await insertMissingRevisions();
 
     // 自分だけの作品の見本（scripts/private-fixture.mjs）。悪意のある見本を、見本の持ち主の自分だけの作品として入れる

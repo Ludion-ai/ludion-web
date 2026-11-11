@@ -81,7 +81,9 @@ frames.get('/frame/:id/:version{[0-9][0-9.]*}/embed.html', async (c) => {
   if (!(await takeEmbedView(c.env.DB))) return new Response(EMBED_PAUSED_FRAME, { status: 429, headers });
   const work = await loadRevisionFiles(c.env.PARTS, prefix);
   if (!work) return c.json({ error: 'not_found' }, 404);
-  return new Response(buildFrameHtml(work, { palette: 'author' }), { headers });
+  // 文書の作品（DOC001）は、文書をそのまま返す（作品のページの枠と同じ）。motion は付けない：端末の「動きを減らす」に従う
+  const html = typeof work.document === 'string' ? buildDocumentFrameHtml(work.document) : buildFrameHtml(work, { palette: 'author' });
+  return new Response(html, { headers });
 });
 
 const EMBED_VARY = 'Sec-Fetch-Dest, Sec-Fetch-Site';
