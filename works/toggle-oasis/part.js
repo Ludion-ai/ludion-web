@@ -14,6 +14,7 @@ const CORE_H = 112;
 const HORIZON = 82;
 const MARGIN = 14; // レンズが窓の外を覗いてもよいよう、世界を少し広く描く
 const WORLD_HZ = 30;
+const WORLD_SLACK = 0.004; // 画面の更新の時刻は揺れる。この秒数まで足りなくても、次のコマを出す
 const PILL_RATIO = 1.85; // 縦 : 横
 const CLOCK_DAY = 12;
 const CLOCK_NIGHT = 21.5;
@@ -351,6 +352,8 @@ void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
 
 const FRAG = `#version 300 es
 precision highp float;
+// 指定しないと標本の精度は lowp になる。PC では無視されるが、スマホの GPU では光の場が段になることがある
+precision highp sampler2D;
 uniform sampler2D uWorld, uGlowNear;
 uniform vec2 uRes, uPill, uOrigin, uWorldSize, uGlowSize;
 uniform vec4 uLens;
@@ -382,7 +385,13 @@ vec3 smoothTex(sampler2D t, vec2 uv, vec2 size) {
   return g0.y * (g0.x * texture(t, vec2(h0.x, h0.y)).rgb + g1.x * texture(t, vec2(h1.x, h0.y)).rgb)
        + g1.y * (g0.x * texture(t, vec2(h0.x, h1.y)).rgb + g1.x * texture(t, vec2(h1.x, h1.y)).rgb);
 }
-vec3 glowNear(vec2 frag) { return smoothTex(uGlowNear, vec2(frag.x / uRes.x, 1.0 - frag.y / uRes.y), uGlowSize); }
+vec3 glowNear(vec2 frag) {
+  vec2 uv = vec2(frag.x / uRes.x, 1.0 - frag.y / uRes.y);
+  // 光の届かないところでは、なめらかに読む4回を省く。窓の大半はここを通る
+  vec3 rough = textureLod(uGlowNear, uv, 0.0).rgb;
+  if (rough.r + rough.g + rough.b < 1.0e-4) return vec3(0.0);
+  return smoothTex(uGlowNear, uv, uGlowSize);
+}
 
 // 光る画素の集まりが、まわりをどれだけ照らすか。遠くまでなだらかに届く
 vec3 reach(vec2 p, vec2 pos, vec3 col, float radius) {
@@ -490,12 +499,14 @@ void main() {
     float shadow = 0.24 * (1.0 - smoothstep(-h * 0.2, h * 0.28, wide)) + 0.22 * (1.0 - smoothstep(-h * 0.03, h * 0.07, contact));
     alpha = shadow;
     premul = uInk * shadow;
-    // 漏れた光は、まわりの地を染める
-    vec3 outside = reach(p, uHomePos, uHomeCol, uPill.y * 0.62) * exp(-max(d, 0.0) / (h * 0.2));
-    float amount = clamp(dot(outside, vec3(0.34)) * 2.3, 0.0, 0.85);
-    vec3 tint = outside / max(dot(outside, vec3(0.34)), 1.0e-3) * 0.34;
-    premul = mix(premul, tint * 1.25, amount);
-    alpha = mix(alpha, 1.0, amount);
+    // 漏れた光は、まわりの地を染める。灯りがなければ染まらない
+    if (uHomeCol.r + uHomeCol.g + uHomeCol.b > 0.0) {
+      vec3 outside = reach(p, uHomePos, uHomeCol, uPill.y * 0.62) * exp(-max(d, 0.0) / (h * 0.2));
+      float amount = clamp(dot(outside, vec3(0.34)) * 2.3, 0.0, 0.85);
+      vec3 tint = outside / max(dot(outside, vec3(0.34)), 1.0e-3) * 0.34;
+      premul = mix(premul, tint * 1.25, amount);
+      alpha = mix(alpha, 1.0, amount);
+    }
     // canvas の端までに、なめらかに消す
     vec2 toEdge = 0.5 * uRes - abs(p);
     float room = min(toEdge.x, toEdge.y) / (h * 0.32);
@@ -506,7 +517,8 @@ void main() {
 
   vec3 color = premul;
   if (d < 1.0) {
-    vec3 body = shellColor(p, frag, d);
+    // 殻は細い帯。窓に隠れる画素では計算しない（下の mix で捨てるだけなので、絵は変わらない）
+    vec3 body = dw > -0.8 ? shellColor(p, frag, d) : vec3(0.0);
 
     if (dw < 1.0) {
       // ---- 窓の奥の世界
@@ -600,15 +612,18 @@ void main() {
         lens = mix(lens, envHigh, broad * mix(0.44, 0.1, uNight));
         float fresnel = pow(1.0 - N.z, 3.0);
         float dir = 0.2 + 0.8 * smoothstep(-0.6, 0.85, dot(gr, normalize(vec2(-0.42, 0.9))));
-        lens = mix(lens, studio(R), clamp(fresnel * dir * dir * 0.6, 0.0, 0.42));
+        float mirror = clamp(fresnel * dir * dir * 0.6, 0.0, 0.42);
+        if (mirror > 1.0e-3) lens = mix(lens, studio(R), mirror);
 
-        // 灯りと月や太陽も、レンズの面に映る
-        for (int i = 0; i < 2; i++) {
-          vec2 pos = i == 0 ? uHomePos : uSkyPos;
-          vec3 col = i == 0 ? uHomeCol : uSkyCol;
-          vec2 toL = normalize(pos - p + 1.0e-3);
-          float side = max(dot(gr, toL), 0.0);
-          lens += reach(p, pos, col, uPill.y * 0.9) * side * side * side * smoothstep(0.62, 0.97, rho) * 0.6;
+        // 灯りと月や太陽も、レンズの面に映る。映るのは縁の近くだけ
+        if (rho > 0.62) {
+          for (int i = 0; i < 2; i++) {
+            vec2 pos = i == 0 ? uHomePos : uSkyPos;
+            vec3 col = i == 0 ? uHomeCol : uSkyCol;
+            vec2 toL = normalize(pos - p + 1.0e-3);
+            float side = max(dot(gr, toL), 0.0);
+            lens += reach(p, pos, col, uPill.y * 0.9) * side * side * side * smoothstep(0.62, 0.97, rho) * 0.6;
+          }
         }
 
         c = mix(c, lens, 1.0 - smoothstep(-0.8, 0.8, ld));
@@ -636,7 +651,7 @@ export function mount(root) {
     cleanups.push(() => target.removeEventListener(type, fn, options));
   };
 
-  const canvas = root.querySelector('.scene');
+  let canvas = root.querySelector('.scene');
   const button = root.querySelector('.hit');
   const statusEl = root.querySelector('[data-status]');
   const probe = root.querySelector('.probe');
@@ -644,8 +659,11 @@ export function mount(root) {
   const schemeQuery = matchMedia('(prefers-color-scheme: dark)');
   let calm = motionQuery.matches;
 
+  // 画面に出さない canvas。OffscreenCanvas のない古い Safari（16.3 まで）でも動くようにする
+  const offscreen = (w, h) => (typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(w, h) : Object.assign(root.ownerDocument.createElement('canvas'), { width: w, height: h }));
+
   // ---- パレットをトークンから作る
-  const paint = new OffscreenCanvas(1, 1).getContext('2d', { willReadFrequently: true });
+  const paint = offscreen(1, 1).getContext('2d', { willReadFrequently: true });
   const palette = new Array(20);
   const palette32 = new Uint32Array(20);
   const readPalette = () => {
@@ -708,6 +726,7 @@ export function mount(root) {
   let thrA = new Uint8Array(1);
   let thrB = new Uint8Array(1);
   let pixels = new Uint32Array(1);
+  let pixelBytes = new Uint8Array(pixels.buffer);
   let mirror = new Int32Array(1); // 水の画素が映す、空の画素の番号
   let houseMask = new Uint8Array(1); // 家に隠れる画素
   let rowBuf = new Uint8Array(1);
@@ -2275,20 +2294,40 @@ export function mount(root) {
     return true;
   };
   let ready = setupGl();
+  // 文脈が失われているだけなら、2D へ落とさず戻るのを待つ（スマホでは、タブを離れて戻ると起きる）
+  let lost = !ready && !!gl && gl.isContextLost();
   let ctx2d = null;
   let lowCanvas = null;
-  if (!ready) {
+  const useCanvas2d = () => {
+    // 1つの canvas に2種類の文脈は持てないので、作り直す
+    const fresh = canvas.cloneNode(false);
+    canvas.replaceWith(fresh);
+    canvas = fresh;
     ctx2d = canvas.getContext('2d');
-  }
+  };
+  if (!ready && !lost) useCanvas2d();
 
   // ---- 形と大きさ
   const shape = { W: 1, H: 1, cssW: 1, cssH: 1, dpr: 1, pillW: 1, pillH: 1, bezel: 1, winW: 1, winH: 1, r0: 1, travel: 1, travelCss: 1, ox: 0, oy: 0 };
   let renderScale = 1;
+  let fullK = 1; // 解像度を落としていないときの整数倍
   let thumbSeam = 1;
+
+  // 整数倍を高さで決める。切れるのが 12% までなら大きい方。横は景色が両わきへ広がる
+  const pickK = (winH) => {
+    const whole = Math.max(1, Math.floor(winH / CORE_H));
+    return ((whole + 1) * CORE_H) / winH <= 1.12 ? whole + 1 : whole;
+  };
 
   const measure = () => {
     const box = root.getBoundingClientRect();
-    const dpr = Math.min(2, devicePixelRatio || 1) * renderScale;
+    const fullDpr = Math.min(2, devicePixelRatio || 1);
+    const nextFullK = pickK((Math.round(box.height * fullDpr) / 1.32) * (1 - 0.046 * 2));
+    if (nextFullK !== fullK) {
+      fullK = nextFullK;
+      renderScale = 1;
+    }
+    const dpr = fullDpr * renderScale;
     const W = Math.max(2, Math.round(box.width * dpr));
     const H = Math.max(2, Math.round(box.height * dpr));
     const changed = W !== shape.W || H !== shape.H;
@@ -2311,19 +2350,18 @@ export function mount(root) {
     // 画素の格子に合わせる（半端な位置だと、全体がにじむ）
     canvas.style.width = `${W / dpr}px`;
     canvas.style.height = `${H / dpr}px`;
-    const fx = (box.left * dpr) % 1;
-    const fy = (box.top * dpr) % 1;
-    canvas.style.transform = `translate(${-fx / dpr}px, ${-fy / dpr}px)`;
+    // DPR が上限の 2 を超える端末では、ブラウザが canvas を拡大する。合わせる格子は端末の画素
+    const grid = Math.max(devicePixelRatio || 1, dpr);
+    const fx = (box.left * grid) % 1;
+    const fy = (box.top * grid) % 1;
+    canvas.style.transform = `translate(${-fx / grid}px, ${-fy / grid}px)`;
 
     if (!changed) return false;
     canvas.width = W;
     canvas.height = H;
 
-    // 整数倍を高さで決める。切れるのが 12% までなら大きい方。横は景色が両わきへ広がる
-    const ratio = shape.winH / CORE_H;
-    let kk = Math.max(1, Math.floor(ratio));
-    if (((kk + 1) * CORE_H) / shape.winH <= 1.12) kk += 1;
-    k = kk;
+    // 解像度を落としても、景色の見え方は変えない（renderScale は整数倍が割り切れる値だけを取る）
+    k = Math.max(1, Math.round(fullK * renderScale));
     const needW = Math.ceil(shape.winW / k) + MARGIN * 2;
     const needH = Math.ceil(shape.winH / k) + MARGIN * 2;
     bw = needW + (needW & 1);
@@ -2334,6 +2372,7 @@ export function mount(root) {
     baseBuf = new Uint8Array(bw * bh);
     varBuf = new Uint8Array(bw * bh);
     pixels = new Uint32Array(bw * bh);
+    pixelBytes = new Uint8Array(pixels.buffer);
     thrA = new Uint8Array(bw * bh);
     houseMask = new Uint8Array(bw * bh);
     rowBuf = new Uint8Array(bw);
@@ -2367,7 +2406,7 @@ export function mount(root) {
       gl.bindTexture(gl.TEXTURE_2D, texNear);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, GRID_W, GRID_H, 0, gl.RGBA, gl.FLOAT, null);
     } else {
-      lowCanvas = new OffscreenCanvas(bw, bh);
+      lowCanvas = offscreen(bw, bh);
     }
     return true;
   };
@@ -2401,7 +2440,7 @@ export function mount(root) {
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texWorld);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, bw, bh, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(pixels.buffer));
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, bw, bh, gl.RGBA, gl.UNSIGNED_BYTE, pixelBytes);
     gl.generateMipmap(gl.TEXTURE_2D);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, texNear);
@@ -2543,39 +2582,80 @@ export function mount(root) {
   let raf = 0;
   let last = 0;
   let visible = true;
+  let pageVisible = root.ownerDocument.visibilityState !== 'hidden';
   let worldAcc = 1;
   let dirty = true;
   let slow = 0;
   let good = 0;
   let frames = 0;
   let lastWorldClock = -1;
+  let lastNightText = '';
   let drag = null;
 
   const nightAmount = (h) => clamp(smoothstep(17.4, 20.2, h) + (1 - smoothstep(4.8, 7.2, h)));
 
+  // 描くのに本当に時間がかかっているときだけ、細かさを落とす。
+  // コマが少ないだけでは決めない。省電力モードやブラウザの間引きで 30 コマになっている端末では、解像度を下げても速くならず、絵だけが悪くなる。
+  const OVERLOAD_MS = 12;
+  const COST_SAMPLES = 5;
+  const onePixel = new Uint8Array(4);
+  let costLeft = 0;
+  let costs = [];
+  let weighedOnce = false;
+
+  const lowerResolution = () => {
+    // 整数倍が割り切れる値にだけ下げる。景色の見え方は変わらない
+    const next = (k - 1) / fullK;
+    if (k < 2 || next < 0.5) {
+      frames = -600; // もう下げられない。しばらく測らない
+      return;
+    }
+    renderScale = next;
+    measure();
+    dirty = true;
+    lastWorldClock = -1;
+    frames = 0;
+  };
+
   const adapt = (dt) => {
-    // どうしても遅い機械では、細かさを落とす。ピクセルは整数倍のまま
-    if (++frames < 40) return;
+    ++frames;
+    // 重い GPU でも、世界だけが動く 30 コマなら遅れが見えないことがある。つまみを動かす前に、一度は測っておく
+    if (frames === 40 && !weighedOnce) {
+      weighedOnce = true;
+      costLeft = COST_SAMPLES;
+      costs = [];
+    }
+    if (frames < 40) return;
     if (dt > 0.0225) slow++;
     else good++;
     if (slow + good < 50) return;
-    if (slow > 30 && renderScale > 0.5) {
-      renderScale = Math.max(0.5, renderScale - 0.25);
-      measure();
-      dirty = true;
-      lastWorldClock = -1;
-    }
+    const suspect = slow > 30;
     slow = 0;
     good = 0;
+    if (suspect) {
+      costLeft = COST_SAMPLES;
+      costs = [];
+    }
+  };
+
+  const weighCost = (startedAt) => {
+    // readPixels は、ここまでの描画が終わるのを待つ。これで GPU の分も含めた1コマの重さがわかる
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, onePixel);
+    costs.push(performance.now() - startedAt);
+    if (--costLeft > 0) return;
+    const median = costs.sort((a, b) => a - b)[costs.length >> 1];
+    if (median > OVERLOAD_MS) lowerResolution();
+    else frames = -600; // 重くないなら、しばらく測らない
   };
 
   const tick = (ms) => {
     raf = 0;
+    if (lost) return;
     const t = ms / 1000;
     const dt = last ? Math.min(0.05, t - last) : 1 / 60;
     last = t;
 
-    if (!calm) adapt(dt);
+    if (!calm && ready) adapt(dt);
 
     // ---- つまみ
     if (drag) {
@@ -2628,7 +2708,7 @@ export function mount(root) {
 
     // ---- 世界は 30 コマで動く
     worldAcc += dt;
-    const worldStep = calm ? Math.abs(clock - lastWorldClock) > 1e-4 || dirty : worldAcc >= 1 / WORLD_HZ;
+    const worldStep = calm ? Math.abs(clock - lastWorldClock) > 1e-4 || dirty : worldAcc >= 1 / WORLD_HZ - WORLD_SLACK;
     if (worldStep) {
       renderWorld(clock, Math.min(worldAcc, 0.1), hurry);
       worldAcc = 0;
@@ -2639,20 +2719,34 @@ export function mount(root) {
 
     if (dirty) {
       const night = nightAmount(hourOf(clock));
-      // 世界の暗さ（0 = 昼、1 = 夜）。使い手はこの値で、ページの地を合わせられる
-      root.style.setProperty('--night', night.toFixed(3));
-      if (ready) drawGl(night);
-      else if (ctx2d) draw2d(night);
+      // 世界の暗さ（0 = 昼、1 = 夜）。使い手はこの値で、ページの地を合わせられる。変わったときだけ書く
+      const nightText = night.toFixed(3);
+      if (nightText !== lastNightText) {
+        lastNightText = nightText;
+        root.style.setProperty('--night', nightText);
+      }
+      if (ready) {
+        const startedAt = costLeft > 0 ? performance.now() : 0;
+        drawGl(night);
+        if (startedAt) weighCost(startedAt);
+      } else if (ctx2d) {
+        draw2d(night);
+      }
       dirty = false;
     }
 
     // 動きを減らす設定で止まっているときは、次の操作まで描かない
     const idleCalm = calm && !moving && !drag;
-    if (visible && !idleCalm) raf = requestAnimationFrame(tick);
+    if (visible && pageVisible && !idleCalm) raf = requestAnimationFrame(tick);
   };
 
+  function stopDrawing() {
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0;
+  }
+
   function wake() {
-    if (!raf && visible) {
+    if (!raf && visible && pageVisible && !lost) {
       last = 0;
       raf = requestAnimationFrame(tick);
     }
@@ -2747,12 +2841,22 @@ export function mount(root) {
     if (visible) {
       dirty = true;
       wake();
-    } else if (raf) {
-      cancelAnimationFrame(raf);
-      raf = 0;
+    } else {
+      stopDrawing();
     }
   });
   io.observe(root);
+  on(root.ownerDocument, 'visibilitychange', () => {
+    pageVisible = root.ownerDocument.visibilityState !== 'hidden';
+    if (pageVisible) {
+      dirty = true;
+      wake();
+      if (lost) waitForRestore();
+    } else {
+      stopDrawing();
+      clearTimeout(restoreTimer);
+    }
+  });
 
   const ro = new ResizeObserver(() => {
     measure();
@@ -2775,22 +2879,48 @@ export function mount(root) {
     lastWorldClock = -1;
     wake();
   });
-  on(canvas, 'webglcontextlost', (event) => {
-    event.preventDefault();
-    ready = false;
-  });
-  on(canvas, 'webglcontextrestored', () => {
-    ready = setupGl();
-    shape.W = 0; // 貼り直しのため、大きさが変わったことにする
+
+  // ---- WebGL の文脈が失われたら、戻るのを待って描き直す。戻らなければ 2D で描く
+  const RESTORE_WAIT_MS = 3000;
+  let restoreTimer = 0;
+  const redrawAll = () => {
+    shape.W = 0; // 大きさが同じでも、画像を作り直す
     measure();
     dirty = true;
     lastWorldClock = -1;
+    worldAcc = 1;
     wake();
+  };
+  function waitForRestore() {
+    clearTimeout(restoreTimer);
+    restoreTimer = setTimeout(() => {
+      if (!lost || !pageVisible) return;
+      lost = false;
+      useCanvas2d();
+      redrawAll();
+    }, RESTORE_WAIT_MS);
+  }
+  on(canvas, 'webglcontextlost', (event) => {
+    event.preventDefault();
+    ready = false;
+    lost = true;
+    costLeft = 0;
+    stopDrawing();
+    if (pageVisible) waitForRestore();
+  });
+  on(canvas, 'webglcontextrestored', () => {
+    if (ctx2d) return; // もう 2D で描いている
+    clearTimeout(restoreTimer);
+    lost = false;
+    ready = setupGl();
+    if (!ready) useCanvas2d();
+    redrawAll();
   });
 
   // ---- 組み立て
   readPalette();
   measure();
+  if (lost) waitForRestore();
   res.x = 131;
   res.inside = false;
   // 最初の絵を、はじめのフレームまでに用意する
@@ -2799,8 +2929,8 @@ export function mount(root) {
   wake();
 
   return () => {
-    if (raf) cancelAnimationFrame(raf);
-    raf = 0;
+    stopDrawing();
+    clearTimeout(restoreTimer);
     visible = false;
     io.disconnect();
     ro.disconnect();
