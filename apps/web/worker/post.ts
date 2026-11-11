@@ -18,7 +18,9 @@ import {
   workShape,
   type Category,
   type ProblemText,
+  type SubmissionResult,
 } from '@ludion/rules';
+import { DOCUMENT_FILE } from '@ludion/render';
 import { Hono, type Context } from 'hono';
 import { isRemixSource } from '../src/lib/isRemix';
 import { CATALOG_TAG, workTag } from './cachePolicy';
@@ -254,13 +256,14 @@ function nextVersion(versions: string[]): string {
 }
 
 async function deletePrefix(bucket: R2Bucket, prefix: string): Promise<void> {
-  await bucket.delete(['meta.json', 'part.html', 'part.css', 'part.js', 'thumb.webp', 'og.png'].map((name) => revisionFile(prefix, name)));
+  await bucket.delete(['meta.json', 'part.html', 'part.css', 'part.js', DOCUMENT_FILE, 'thumb.webp', 'og.png'].map((name) => revisionFile(prefix, name)));
 }
 
 /** 下書きを保存する人。cookie のセッションの人か、AI の鍵の持ち主（worker/apiV1.ts）。 */
 export type PostUser = Pick<SessionUser, 'id' | 'handle' | 'isOperator'>;
 
-export type DraftFields = Omit<PostFields, 'meta'>;
+/** document：文書の作品（DOC001）の文書。あるときは html、css、js を見ず、作品の契約の検査をしない（AI の口だけが渡す） */
+export type DraftFields = Omit<PostFields, 'meta'> & { document?: string | null };
 
 export interface SavedDraft {
   work_id: string;
@@ -352,7 +355,9 @@ export async function writeDraft(
   if (open?.status === 'submitted') return fail({ error: 'in_review' }, 409);
 
   const { type, platform } = workShape(meta.category);
-  const check = checkSubmission({ id, type, tags: meta.tags, html: fields.html, css: fields.css, js: fields.js });
+  // 文書の作品は、作品の契約の検査をしない（大きさと読める文字は、渡す側が checkDocument で見た。DOC001）
+  const document = typeof fields.document === 'string' ? fields.document : null;
+  const check: SubmissionResult = document !== null ? { required: [], optional: [] } : checkSubmission({ id, type, tags: meta.tags, html: fields.html, css: fields.css, js: fields.js });
   if (check.required.length > 0) return fail({ error: 'invalid', problems: check.required, optional: check.optional }, 422);
   // 下書きはサムネイルなしで保存できる。要るのは審査に出すとき（docs/tasks/T033.md A3）
 
@@ -401,14 +406,20 @@ export async function writeDraft(
     version,
     published_at: new Date(now).toISOString().slice(0, 10),
     pin_order: null,
+    ...(document !== null ? { format: 'document' } : {}),
   });
-  const contentHash = await sha256Hex([metaJson, fields.html, fields.css, fields.js ?? '', ...(images ? [images.thumb, images.og] : [])]);
+  const imageParts = images ? [images.thumb, images.og] : [];
+  const contentHash = await sha256Hex(document !== null ? [metaJson, document, ...imageParts] : [metaJson, fields.html, fields.css, fields.js ?? '', ...imageParts]);
   const prefix = `revisions/${revisionId}/${contentHash.slice(0, 16)}`;
   const files: [string, Uint8Array | string, string][] = [
     ['meta.json', metaJson, CONTENT_TYPES['meta.json']],
-    ['part.html', fields.html, CONTENT_TYPES['part.html']],
-    ['part.css', fields.css, CONTENT_TYPES['part.css']],
-    ...(fields.js !== null ? ([['part.js', fields.js, CONTENT_TYPES['part.js']]] as [string, string, string][]) : []),
+    ...((document !== null
+      ? [[DOCUMENT_FILE, document, CONTENT_TYPES['part.html']]]
+      : [
+          ['part.html', fields.html, CONTENT_TYPES['part.html']],
+          ['part.css', fields.css, CONTENT_TYPES['part.css']],
+          ...(fields.js !== null ? [['part.js', fields.js, CONTENT_TYPES['part.js']]] : []),
+        ]) as [string, string, string][]),
     ...(images
       ? ([
           ['thumb.webp', images.thumb, CONTENT_TYPES['thumb.webp']],
@@ -419,9 +430,10 @@ export async function writeDraft(
   await Promise.all(files.map(([name, body, contentType]) => env.PARTS.put(revisionFile(prefix, name), body, { httpMetadata: { contentType } })));
 
   const tags = JSON.stringify(meta.tags);
-  const tokensOk = check.optional.length === 0 ? 1 : 0;
+  // 文書の作品は 10個のトークンを見ていないので、合っているとは言わない
+  const tokensOk = document === null && check.optional.length === 0 ? 1 : 0;
   // remix_of があればリミックス。ないときは、コードの「Remix by」を探す（ld upload の作品と同じ判定）
-  const remix = remixOf !== null || isRemixSource(fields.html, fields.css, fields.js ?? '') ? 1 : 0;
+  const remix = remixOf !== null || (document !== null ? isRemixSource(document) : isRemixSource(fields.html, fields.css, fields.js ?? '')) ? 1 : 0;
   const thumbW = images?.width ?? 0;
   const thumbH = images?.height ?? 0;
   const insertRevision = db
@@ -592,7 +604,8 @@ post.get('/works/:id', async (c) => {
       thumb_h: revision.thumb_h,
     },
     remix_of: work.remix_of,
-    html: files.html,
+    // 文書の作品（DOC001）は、文書の全部を html に入れる（「細かく直す」は文書を受けないので、保存すると検査の問題が出る。空の作品にはならない）
+    html: files.document ?? files.html,
     css: files.css,
     js: files.js,
   });

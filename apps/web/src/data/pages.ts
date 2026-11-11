@@ -24,7 +24,10 @@ export type PageData =
       more: Work[];
       /** ほかの作者の作品（Popular の順） */
       others: Work[];
-      /** コピー用の文字列（buildCopySnippet）。1行目はクレジット行 */
+      /**
+       * コピー用の文字列（buildCopySnippet）。1行目はクレジット行。
+       * HTML の JSON には入れず、ブラウザがコードの箱の文字から戻す（lib/codeText.ts。PERF002「2」）
+       */
       snippet: string;
       /** プレビューの枠の地（作者の --_bg）。読めなければ null */
       background: string | null;

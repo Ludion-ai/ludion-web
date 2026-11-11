@@ -49,6 +49,8 @@ function makeRepo(): Repo {
   // 道具の代わり。呼ばれたことだけを、リポジトリの外に書く
   const record = (name: string) => `import { appendFileSync } from 'node:fs'; appendFileSync(${JSON.stringify(callLog)}, ${JSON.stringify(`${name}\n`)});\n`;
   copyFileSync(GUARD_SOURCE, join(web, 'scripts/deploy-guard.mjs'));
+  // npm run deploy の最後の一歩（wrangler deploy を流し、一時的な誤りのときだけ流し直す。DEPLOY003）
+  copyFileSync(join(webDir, 'scripts/wrangler-deploy.mjs'), join(web, 'scripts/wrangler-deploy.mjs'));
   writeFileSync(join(web, 'scripts/migrate.mjs'), record('migrate'));
   // ビルドの間に、ほかのセッションが main へ push することがある
   writeFileSync(

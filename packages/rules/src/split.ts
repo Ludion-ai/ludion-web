@@ -7,7 +7,7 @@
 // 機械で直すのは、見た目と動きを変えないものだけ（fixParts）：根の要素が1つで data-ld-part がなければ付ける。data-ld-part の値を作品の ID に合わせる。
 // JS の書き換え（document を探す書き方を直す、など）はしない。動きが変わるおそれがあるため。
 
-import { exportsMount } from '@ludion/render';
+import { exportsMount, isHtmlDocument } from '@ludion/render';
 import { parse, parseFragment, type DefaultTreeAdapterTypes } from 'parse5';
 
 type Element = DefaultTreeAdapterTypes.Element;
@@ -269,4 +269,21 @@ export function joinParts(parts: Parts, id: string): string {
     lines.push('<script type="module">', parts.js.trim(), `mount(document.querySelector('[data-ld-part="${id}"]'));`, '</script>');
   }
   return `${lines.join('\n')}\n`;
+}
+
+/**
+ * 1つの HTML を、どちらの形で置くか（DOC001）。
+ * - 'contract'：作品の契約の形。今までどおり3つに分けて検査する。断片（<!doctype> や <html> で始まらないもの）は、いつもこちら。
+ * - 'document'：文書の作品。分けず、契約の検査をせずに、文書のまま置く。
+ * <!doctype> か <html> で始まる文書でも、作者が書いた契約の形（<body> の一番外の要素が1つで data-ld-part を持ち、
+ * JS がないか mount を export している）なら 'contract'（今までどおり。MCP の説明が「文書で包んでよい」としてきた形）。
+ */
+export function htmlForm(input: string): 'contract' | 'document' {
+  if (!isHtmlDocument(input)) return 'contract';
+  const split = splitSnippet(input);
+  if (!split.ok) return 'document';
+  const root = singleRoot(split.parts.html);
+  const authoredRoot = root !== null && attr(root, 'data-ld-part') !== null;
+  const mounts = split.parts.js === null || exportsMount(split.parts.js);
+  return authoredRoot && mounts ? 'contract' : 'document';
 }
