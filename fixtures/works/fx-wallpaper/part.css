@@ -1,0 +1,68 @@
+[data-ld-part="fx-wallpaper"] {
+  --_bg: var(--ld-bg, #10131f);
+  --_surface: var(--ld-surface, #1b2033);
+  --_fg: var(--ld-fg, #f1f2f6);
+  --_muted: var(--ld-muted, #8e94ab);
+  --_accent: var(--ld-accent, #ff9a5c);
+  --_radius: var(--ld-radius, 9999px);
+  --_font: var(--ld-font, system-ui, sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 0 80px rgb(255 154 92 / .35));
+  --_motion: var(--ld-motion, 200ms);
+
+  /* 入れ物に高さがあれば、それに合わせる（全画面の枠）。なければ画面の高さ */
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--_bg);
+  color: var(--_fg);
+  font-family: var(--_font);
+}
+
+[data-ld-part="fx-wallpaper"] .sky {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, var(--_bg), var(--_surface) 70%, color-mix(in oklab, var(--_accent) 30%, var(--_surface)));
+}
+
+[data-ld-part="fx-wallpaper"] .sun {
+  position: absolute;
+  left: calc(50% - 11vmin);
+  bottom: 18%;
+  width: 22vmin;
+  height: 22vmin;
+  border-radius: var(--_radius);
+  background: var(--_accent);
+  box-shadow: var(--_shadow);
+  animation: fx-wallpaper-sink calc(var(--_motion) * 60) ease-in-out infinite alternate;
+}
+
+[data-ld-part="fx-wallpaper"] .label {
+  position: absolute;
+  left: calc(var(--_space) * 4);
+  bottom: calc(var(--_space) * 4);
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--_fg);
+}
+
+@keyframes fx-wallpaper-sink {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(12vmin);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ld-part="fx-wallpaper"] .sun {
+    animation: none;
+  }
+}

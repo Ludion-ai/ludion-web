@@ -14,6 +14,7 @@ const EXPECTED: Record<string, ItemKey[]> = {
   'fx-nav': [],
   'fx-form': [],
   'fx-motion': [],
+  'fx-wallpaper': [],
   'fx-bad-color': ['purity'],
   'fx-bad-overflow': ['layout'],
   'fx-bad-contrast': ['a11y'],
@@ -24,7 +25,7 @@ const EXPECTED: Record<string, ItemKey[]> = {
   'fx-bad-link': ['shape'],
 };
 
-test.describe('見本15個', () => {
+test.describe('見本16個', () => {
   for (const [id, failing] of Object.entries(EXPECTED)) {
     test(`${id}：${failing.length === 0 ? '全部通る' : `${failing.join('、')} だけで落ちる`}（30秒以内）`, async () => {
       const location = findWork(id);
@@ -38,10 +39,10 @@ test.describe('見本15個', () => {
   }
 });
 
-test('ld check --all --fixtures：7/15 が通り、落ちた項目と直し方を1行ずつ出す', () => {
+test('ld check --all --fixtures：8/16 が通り、落ちた項目と直し方を1行ずつ出す', () => {
   const { code, out } = runLd(['check', '--all', '--fixtures']);
   expect(code).toBe(1);
-  expect(out).toContain('7/15 が通った');
+  expect(out).toContain('8/16 が通った');
   expect(out).toMatch(/fx-bad-link[\s\S]*?✗ 形\n\s+✗ part\.html の <a href="https:\/\/example\.com\/pricing"> が外へ移る → /);
   expect(out).toMatch(/fx-bad-danger[\s\S]*?✗ 形\n\s+✗ part\.css \d+行目 color が var\(--_danger\) を使っているのに、根で --_danger を宣言していない → /);
   expect(out).toMatch(/fx-bad-motion[\s\S]*?✗ 形\n\s+✗ tags に motion があるのに、prefers-reduced-motion: reduce に対応していない → /);

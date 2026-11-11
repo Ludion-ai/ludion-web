@@ -2,6 +2,7 @@
 // 親のページの応答の CSP（frame-src 'self'）で、枠の移動そのものを止める。未許可の宛先への到達は0。
 // playwright.config.ts の escape-* で、Chromium、WebKit、Firefox の全部で流す。サーバーは pages と同じ（悪意のある見本が入っている）。
 // T035「3」：ヘッダーのスイッチの枠（/frame/<id>/<version>/inline.html）でも、同じ試験を流す（FORMS）。
+// WALL001：全画面の住所（/p/<id>/wall の /frame/<id>/<version>/wall.html）でも、同じ試験を流す（FORMS）。
 import { expect, test, type BrowserContext, type Frame, type Locator, type Page } from '@playwright/test';
 
 const SYNTHETIC_INPUT = 'ld-synthetic-input';
@@ -14,14 +15,17 @@ const ownOrigin = () => new URL(test.info().project.use.baseURL!).origin;
  * 作品が動く枠の形。
  * - desktop：作品のページの主の枠（/p/<id> の /frame/<id>/<version>/desktop.html）
  * - inline：ヘッダーのスイッチの枠（T035「3」）。作品を固定して、作品の枠のない /about で開く
+ * - wall：全画面の住所（WALL001）。サイトの頭も React もなく、枠だけがある
  */
 const FORMS = [
   { name: 'desktop', file: 'desktop.html', frame: 'iframe[data-ld-frame]', pagePath: (id: string) => `/p/${id}` },
   { name: 'inline', file: 'inline.html', frame: 'iframe[data-ld-switch-frame]', pagePath: (_id: string) => '/about' },
+  { name: 'wall', file: 'wall.html', frame: 'iframe[data-ld-frame]', pagePath: (id: string) => `/p/${id}/wall` },
 ] as const;
 type Form = (typeof FORMS)[number];
 const DESKTOP = FORMS[0];
 const INLINE = FORMS[1];
+const WALL = FORMS[2];
 
 /**
  * 自分のサイトのほかへの要求を、すべて記録する。ここに来たら「届いた」。
@@ -67,8 +71,11 @@ const violations = (page: Page) => page.evaluate(() => (window as unknown as { _
 async function openWork(page: Page, id: string, form: Form = DESKTOP, loaded = true) {
   if (form.name === 'inline') await page.addInitScript((forced) => (window.__ldThemeSwitch = forced), id);
   await page.goto(form.pagePath(id));
-  await page.getByRole('heading', { level: 1 }).waitFor();
-  await page.waitForFunction(() => Object.keys(document.getElementById('root')!).some((key) => key.startsWith('__reactContainer')));
+  // 全画面の住所には見出しも React もない。枠は HTML に初めからある
+  if (form.name !== 'wall') {
+    await page.getByRole('heading', { level: 1 }).waitFor();
+    await page.waitForFunction(() => Object.keys(document.getElementById('root')!).some((key) => key.startsWith('__reactContainer')));
+  }
   await page.locator(form.frame).waitFor({ state: 'attached' });
   if (loaded) await page.frameLocator(form.frame).locator('#ld-host').waitFor({ state: 'attached' });
 }
@@ -284,6 +291,26 @@ test.describe('正しい作品は今までどおり動く', () => {
     await expect(frame.locator('#ld-host')).toHaveAttribute('data-ld-mount', 'ok');
     await page.waitForTimeout(AFTER_GUARD_MS);
     expect(frames.map((url) => new URL(url).pathname)).toEqual(['/frame/fx-toggle/1/inline.html']);
+    expect(await violations(page)).toEqual([]);
+  });
+
+  test('fx-wallpaper（全画面の住所、WALL001）：枠は1回だけ読まれる。sandbox と CSP は今の枠と同じ。親の CSP の違反は0', async ({ page }) => {
+    await watchViolations(page);
+    const frames: string[] = [];
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname.startsWith('/frame/')) frames.push(request.url());
+    });
+    const [response] = await Promise.all([
+      page.waitForResponse((r) => new URL(r.url()).pathname === '/frame/fx-wallpaper/1/wall.html'),
+      openWork(page, 'fx-wallpaper', WALL),
+    ]);
+    const desktop = await page.request.get('/frame/fx-wallpaper/1/desktop.html', { headers: { 'Sec-Fetch-Dest': 'iframe' } });
+    expect(response.headers()['content-security-policy']).toBe(desktop.headers()['content-security-policy']);
+    await expect(page.locator(WALL.frame)).toHaveAttribute('sandbox', 'allow-scripts allow-forms');
+    await expect(page.frameLocator(WALL.frame).locator('[data-ld-part="fx-wallpaper"]')).toBeVisible();
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(AFTER_GUARD_MS);
+    expect(frames.map((url) => new URL(url).pathname)).toEqual(['/frame/fx-wallpaper/1/wall.html']);
     expect(await violations(page)).toEqual([]);
   });
 });

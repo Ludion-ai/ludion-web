@@ -148,10 +148,10 @@
 ### 絞り込みの列
 
 - ヘッダーの下から13px（767px 以下は8px）。左端はグリッドの左端に揃える。
-- チップ8個は文字だけ。アイコン、枠線、影はない。高さ38px、角丸999px、左右14px、間隔4px、14px／太さ600。
+- チップ9個は文字だけ。アイコン、枠線、影はない。高さ38px、角丸999px、左右14px、間隔4px、14px／太さ600。
   - 選ばれていないチップ：地なし、文字 `site-fg`、hover は `site-hover`。
   - 選ばれたチップ：地 `site-primary`、文字は白。選んでも幅は変わらない。
-  - 文字：すべて、Web、モバイル、ダッシュボード、EC、ミニマル、実験、モーション。
+  - 文字：すべて、Web、モバイル、ダッシュボード、EC、ミニマル、実験、モーション、壁紙。
   - 767px 以下は横に流れ、端まで使う（スクロールの線は出さない）。
 - チップは `<a href="/?c=web">` の形のリンクにする。JS が届く前でも押せば移れて、URL を人に送れる。選ばれた項目に `aria-current="true"` を付ける（同じページの中の絞り込みだから。`"page"` は、サイドバーと下のタブの今いる項目にだけ付ける）。検索語や並びなど、ほかの絞り込みは保つ。
 - 768px 以上は、右端に小さく「人気」「新着」の切り替えを置く。高さ32px、左右12px、12px／太さ600、角丸999px。選ばれた項目は地 `site-hover`、文字 `site-fg`。ほかは地なし、文字 `site-fg-2`。リンクで、`aria-current="true"` を付ける。
@@ -185,7 +185,7 @@
 ## 4. 動き
 
 - **検索**：題名、カテゴリとサブ種類（データの英語と画面の日本語のどちらでも）、作者名で絞る。入力から150ms後に反映し、URLの `?q=` に入れる。`⌘K`／`Ctrl+K` で検索欄にフォーカス、Escで外す。
-- **チップ**：1つだけ選べる。URLは `?c=web|mobile|dashboard|ecommerce|minimal|experimental|motion`。「すべて」は `c` なし。
+- **チップ**：1つだけ選べる。URLは `?c=web|mobile|dashboard|ecommerce|minimal|experimental|motion|wallpaper`。「すべて」は `c` なし。
 - **並び**：人気と新着。既定は人気。新着は `?sort=new`。
   - 人気の順：オーナーが付けた `pin_order`（小さい順、付いていない作品は後ろ）→ 直近30日のコピー数 → いいね数 → 公開日の新しい順。いいね数だけでは並べない。
 - **カード**：絵を押すと `/p/:id` へ。
@@ -261,7 +261,7 @@ CREATE TABLE applications (id TEXT PRIMARY KEY, handle TEXT, urls TEXT, note TEX
 CREATE TABLE invites (token_hash TEXT PRIMARY KEY, creator_id TEXT, expires_at INTEGER, used_at INTEGER);
 ```
 
-チップと絞り込みの対応：Web → `platform='web'`、Mobile → `platform='mobile'`、Dashboard・Ecommerce・Minimal・Experimental・Motion → `tags` に含む。Components → `type='component'`。
+チップと絞り込みの対応：Web → `platform='web'`、Mobile → `platform='mobile'`、Dashboard・Ecommerce・Minimal・Experimental・Motion → `tags` に含む。壁紙 → `subtype='Wallpaper'`（WALL001）。Components → `type='component'`。
 
 `works` は公開の値を持つ（一覧と作品のページが読む）。投稿の版を承認すると、その版の値で `works` を差し替える。直した版の審査中は、前の版の値のまま。`works.status` の `rejected` は取り下げも含む（`reject_reason` が `owner_revoked` など）。
 
@@ -333,7 +333,7 @@ R2（`ludion-parts`）：版の `r2_prefix` の下に `part.html`、`part.css`�
 
 主な言葉：
 
-- チップ：すべて、Web、モバイル、ダッシュボード、EC、ミニマル、実験、モーション
+- チップ：すべて、Web、モバイル、ダッシュボード、EC、ミニマル、実験、モーション、壁紙
 - 並び：人気、新着
 - 移動：ホーム、探す、保存。保存した作品のページの見出しは「保存した作品」
 - ヘッダー：ログイン、ログアウト。検索の見本は「UI、作品、作者をさがす」
@@ -380,7 +380,7 @@ R2（`ludion-parts`）：版の `r2_prefix` の下に `part.html`、`part.css`�
 
 11/9 に今のホームの形に書き直した。見た目の正解は「2」〜「6」の数字と `docs/reference/pinterest-mobile.png`（形だけ）。`docs/reference/home.png` は最初の版で、比べる相手にしない。
 
-- 1440×900のスクリーンショットを `docs/screens/home-1440.png` に置き、次が「3」のとおりであること：ヘッダーの高さと3つの領域の位置、検索欄が中央、右上は「ログイン」の1つ、サイドバーの3項目（ホーム、探す、保存）とその下の「プライバシー」「運営者」、チップ8個、右端の「人気」「新着」の切り替え、石組みの列の数（1440px で5列）、カードは絵だけ（題名、作者、数、枠線、影を並びに置かない）。カーソルを乗せたときだけ、題名、「@作者」、「保存」を重ねる。
+- 1440×900のスクリーンショットを `docs/screens/home-1440.png` に置き、次が「3」のとおりであること：ヘッダーの高さと3つの領域の位置、検索欄が中央、右上は「ログイン」の1つ、サイドバーの3項目（ホーム、探す、保存）とその下の「プライバシー」「運営者」、チップ9個、右端の「人気」「新着」の切り替え、石組みの列の数（1440px で5列）、カードは絵だけ（題名、作者、数、枠線、影を並びに置かない）。カーソルを乗せたときだけ、題名、「@作者」、「保存」を重ねる。
 - 390×844 と 768×1024 のスクリーンショットも置く。横スクロールが出ない。幅390は2列で、下のタブが3つ。
 - 本番の URL の、本番の作品（今は10作品）で、スマホのLCPが2.5秒以内、CLSが0.05以下。測り方は `apps/web/scripts/lighthouse-prod.mjs`（Lighthouse の mobile、本番の URL、5回の中央値）。手元の `npm run lcp` は開発の目安で、合否には使わない。
 - キーボードだけで、検索→チップ→並び→カード→しおりまで操作でき、フォーカスが見える。
@@ -468,6 +468,17 @@ Worker で描く。ヘッダー、サイドバー、下のタブはホームと�
     - 入力欄を2行にし、選ぶところを低くしているのは、幅1440×900 で日本語のシートがボタンの下に入る高さ（434px）に収めるため。
   - 入力は form に入れず、どこへも送らず、保存もしない（CLAUDE.md 原則6）。指示文の型は `copy.ts` と `copy.en.ts` の `work.remix.prompt`、`promptUrl`、`promptFull`。英語のページでは指示文も英語。
 - コードを文字で返す口 `GET /p/<id>/code`（`worker/pages.ts` の `renderWorkCode`）：承認済みの作品の今の版の「コピーされるコード」を、「Copy code」と1文字も違わない形で返す（リミックスは2行目に元の作品のクレジット行。CLAUDE.md「コピーされるコード」）。`Content-Type: text/plain; charset=utf-8`、`X-Content-Type-Options: nosniff`。ない作品と承認されていない作品は 404（文字で返す）。人で変えない。キャッシュは作品のページと同じ（「10」）。回数の制限は束縛 `LIMIT_COUNT`（キャッシュに当たった分は数えない）。`robots.txt` で止める（`Disallow: /p/*/code`）。開いてもコピー数は数えない。英語の道（`/en/p/<id>/code`）は作らない。
+- 壁紙にする（WALL001。`components/WallpaperSheet.tsx`、`lib/wallpaper.ts`）：種類が壁紙の作品（`subtype` が `Wallpaper`）にだけ、「リミックス」の横に同じ形のボタンを置く（2つで幅を分ける）。ほかの作品では「リミックス」だけで、今までどおり。
+  - 押すと、リミックスと同じ形のシート（閉じ方、置き方、幅）。中身は上から：見出し、Mac（「Plash に入れる」〈`plash:add?url=<全画面の住所>&title=<題>`。値は URL の形に符号化〉、Plash の入れ方〈App Store のリンク〉、住所の欄と「住所をコピー」）、Windows（Lively Wallpaper の入れ方〈Microsoft Store のリンク〉、手順2行〈Lively を開き「＋」（壁紙を追加）を押す → 「URL を入力」に住所を貼る〉、住所の欄と「住所をコピー」）、ほかのアプリ（「HTML を保存」：コピーされるコードと1文字も違わない中身を `<id>.html` で保存）、最後に「動きと音のある壁紙は、電池と GPU を使います。」。
+  - 全画面の住所はいつも本番の `https://ludion.ai/p/<id>/wall`。
+  - 開いている端末が Windows なら Windows を先に、ほかは Mac を先に。スマホとタブレットでは「PC で開いてください。」と住所の欄と「住所をコピー」だけ。端末の種類は並びを変えるだけで、送らず、保存しない（CLAUDE.md 原則6）。
+  - 押した数は GA4 の `wallpaper_open`（「15」）。閲覧数とコピー数は数えない。
+  - アプリの名前、配布の場所、画面の文字（Lively の「壁紙を追加」「URL を入力」）は、11/11 に各アプリの公式のページと、アプリの画面の文字の表で確かめた。
+- 全画面の住所 `GET /p/<id>/wall`（WALL001。`worker/wall.ts`）：作品だけを画面いっぱいに出す。PC の壁紙のアプリ（Plash、Lively Wallpaper など）が開く。
+  - サイトの頭、ボタン、文は出さない。React も GA4 も読まない。閲覧数とコピー数は数えない。
+  - 作品は `<iframe sandbox="allow-scripts allow-forms">` の `/frame/<id>/<version>/wall.html` の中で動かす（作品のページの枠と同じ守り。CLAUDE.md「描画」）。枠は画面いっぱい（`position: fixed; inset: 0`）で、枠の中の作品の入れ物も枠の高さいっぱいにする（`placement: 'fill'`）。端末の「動きを減らす」設定でも動かす（本人が選んで置くもの）。親のページの CSP と枠の見張り（`frameGuard.ts`）も同じ。
+  - `<meta name="robots" content="noindex, nofollow">` と `X-Robots-Tag` で検索に出さない。キャッシュは作品のページと同じ（「10」）。英語の道は作らない。
+  - ない作品と、公開していない作品は 404（文字だけのページ。GA4 を読まない）。
 - 共有：押すと `navigator.share`（題名と `https://ludion.ai/p/<id>`。手元や workers.dev で開いていても本番の URL）。使えないブラウザと、共有の画面を閉じた以外の失敗では、URL をクリップボードに入れ、ボタンの文字を1.5秒だけ「リンクをコピーしました」にする。クリップボードにも書けないときは、1.5秒だけ「コピーできませんでした」にする。
 - いいねとしおり：今はブラウザの中の状態だけ（再読み込みで戻る）。本物にするのは T009。
 
@@ -509,6 +520,7 @@ Worker で描く。ヘッダー、サイドバー、下のタブはホームと�
 | `select_work` | `from_work_id`、`to_work_id` | 作品のページの並びのカードを押したとき |
 | `remix_open` | `work_id` | 「リミックス」のシートを開いたとき |
 | `remix_prompt_copy` | `work_id`、`has_brief`（入力があったか）、`mode`（指示文の形。`url` か `full`） | 指示文をコピーできたとき。入力の中身は送らない |
+| `wallpaper_open` | `work_id`、`method`（`plash`、`copy`、`download`） | 「壁紙にする」のシートで「Plash に入れる」「住所をコピー」（コピーできたとき）「HTML を保存」を押したとき（WALL001） |
 
 - GA4 の管理画面の拡張計測機能で「サイト内検索」と「ブラウザの履歴イベントに基づくページの変更」を切る。切らないと、GA4 が URL の検索語をそのまま送り、ページビューも二重になる。
 

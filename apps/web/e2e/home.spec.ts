@@ -56,11 +56,11 @@ test.describe('幅1440の骨組み（SPEC 3）', () => {
     await expect.poll(async () => (await home.boundingBox())!.y).toBe(20);
   });
 
-  test('チップ8個は文字だけで、右端に小さく「人気」「新着」', async ({ page }) => {
+  test('チップ9個は文字だけで、右端に小さく「人気」「新着」', async ({ page }) => {
     await openHome(page);
     const group = page.getByRole('group', { name: FILTERS });
     const chips = group.getByRole('link');
-    await expect(chips).toHaveText(['すべて', 'Web', 'モバイル', 'ダッシュボード', 'EC', 'ミニマル', '実験', 'モーション']);
+    await expect(chips).toHaveText(['すべて', 'Web', 'モバイル', 'ダッシュボード', 'EC', 'ミニマル', '実験', 'モーション', '壁紙']);
     await expect(group.locator('svg')).toHaveCount(0);
     const boxes = await Promise.all((await chips.all()).map((chip) => chip.boundingBox()));
     expect(boxes[0]!.x).toBe(92);

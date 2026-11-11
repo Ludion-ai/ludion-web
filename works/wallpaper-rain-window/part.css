@@ -1,0 +1,198 @@
+[data-ld-part="wallpaper-rain-window"] {
+  /* 固定しないトークン。街と店内のドット絵の色、ガラスの色は、この5色の色みから、決めた明るさで作る */
+  --_bg: var(--ld-bg, #ffb65c); /* ランタン、窓の明かり、木（--_accent と混ぜる） */
+  --_surface: var(--ld-surface, #3fe0c4); /* ガラス、青緑のネオン、葉（--_bg と混ぜる） */
+  --_fg: var(--ld-fg, #120c14); /* 影、鉄 */
+  --_muted: var(--ld-muted, #3f58b0); /* 雨の夜の空、瓦、ぬれた路面 */
+  --_accent: var(--ld-accent, #ff48c4); /* ネオン、日よけ */
+  --_radius: var(--ld-radius, 9999px);
+  --_font: var(--ld-font, "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", system-ui, sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 6px 18px rgb(5 8 16 / .4));
+  --_motion: var(--ld-motion, 220ms);
+
+  /* 止まった絵の色（夜）。WebGL の絵が出るまでと、WebGL が使えないときに見える */
+  --sky: color-mix(in oklab, var(--_fg) 82%, var(--_muted));
+  --block: color-mix(in oklab, var(--_fg) 94%, var(--_muted));
+  --lamp: color-mix(in oklab, var(--_bg) 78%, var(--_fg));
+  --neon: color-mix(in oklab, var(--_accent) 70%, var(--_fg));
+  --road: color-mix(in oklab, var(--_fg) 88%, var(--_muted));
+  --table: color-mix(in oklab, var(--_fg) 72%, var(--_bg));
+  --wall: color-mix(in oklab, var(--_fg) 80%, var(--_bg));
+
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  /* 入れ物に高さがあれば、それに合わせる。なければ、画面いっぱいになる（::before が高さを作る）。縦横比は決めない */
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    /* 手前のテーブルと、右の壁、ランタン */
+    linear-gradient(to top, var(--table) 0%, var(--table) 16%, transparent 16%),
+    linear-gradient(var(--lamp), var(--lamp)) 88% 14% / 5% 14% no-repeat,
+    linear-gradient(to right, transparent 0%, transparent 80%, var(--wall) 80%),
+    /* 窓の明かりと看板（にじませない、四角いドット） */
+    linear-gradient(to right, transparent 12%, var(--lamp) 12%, var(--lamp) 14%, transparent 14%, transparent 31%, var(--neon) 31%, var(--neon) 36%, transparent 36%, transparent 58%, var(--lamp) 58%, var(--lamp) 60%, transparent 60%, transparent 77%, var(--neon) 77%, var(--neon) 79%, transparent 79%) 0 46% / 100% 3% no-repeat,
+    /* 建物の影 */
+    linear-gradient(to right, var(--block) 0%, var(--block) 22%, transparent 22%, transparent 26%, var(--block) 26%, var(--block) 49%, transparent 49%, transparent 54%, var(--block) 54%, var(--block) 83%, transparent 83%, transparent 86%, var(--block) 86%) 0 60% / 100% 46% no-repeat,
+    /* ぬれた路面と空 */
+    linear-gradient(to bottom, var(--sky) 0%, var(--sky) 66%, var(--road) 66%, var(--road) 100%);
+  box-shadow: inset 0 0 0 calc(var(--_space) * 2.5) var(--wall);
+  font-family: var(--_font);
+  color: var(--_bg);
+}
+
+[data-ld-part="wallpaper-rain-window"]::before {
+  content: "";
+  display: block;
+  height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  [data-ld-part="wallpaper-rain-window"]::before {
+    height: 100dvh;
+  }
+}
+
+/* 止まった絵の、夕方の色。data-phase は part.js が端末の時刻から付ける */
+[data-ld-part="wallpaper-rain-window"][data-phase="dusk"] {
+  --sky: color-mix(in oklab, var(--_muted) 46%, var(--_fg));
+  --block: color-mix(in oklab, var(--_fg) 86%, var(--_muted));
+  --road: color-mix(in oklab, var(--_fg) 74%, var(--_muted));
+}
+
+/* 色を読むための見えない目印 */
+[data-ld-part="wallpaper-rain-window"] .probe {
+  display: none;
+}
+
+[data-ld-part="wallpaper-rain-window"] .vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+[data-ld-part="wallpaper-rain-window"] .view {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* ガラスの面。絵は canvas が描き、ここは叩く場所と拭く場所だけ */
+[data-ld-part="wallpaper-rain-window"] .pane {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+[data-ld-part="wallpaper-rain-window"] .pane:focus {
+  outline: none;
+}
+
+[data-ld-part="wallpaper-rain-window"] .pane:focus-visible {
+  outline: 2px solid var(--_accent);
+  outline-offset: calc(var(--_space) * -3);
+}
+
+/* 音を消すボタン。隅に小さく */
+[data-ld-part="wallpaper-rain-window"] .sound {
+  position: absolute;
+  bottom: max(calc(var(--_space) * 2), env(safe-area-inset-bottom));
+  left: max(calc(var(--_space) * 2), env(safe-area-inset-left));
+  display: grid;
+  place-items: center;
+  width: calc(var(--_space) * 4.5);
+  height: calc(var(--_space) * 4.5);
+  margin: 0;
+  padding: 0;
+  border: 1px solid color-mix(in oklab, var(--_bg) 30%, transparent);
+  border-radius: var(--_radius);
+  background: color-mix(in oklab, var(--_fg) 56%, transparent);
+  box-shadow: var(--_shadow);
+  color: var(--_bg);
+  cursor: pointer;
+  opacity: .8;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    opacity var(--_motion) ease,
+    background-color var(--_motion) ease,
+    transform var(--_motion) ease;
+}
+
+[data-ld-part="wallpaper-rain-window"] .sound:hover {
+  background: color-mix(in oklab, var(--_fg) 74%, transparent);
+  opacity: 1;
+}
+
+[data-ld-part="wallpaper-rain-window"] .sound:active {
+  transform: scale(.94);
+}
+
+[data-ld-part="wallpaper-rain-window"] .sound:focus {
+  outline: none;
+}
+
+[data-ld-part="wallpaper-rain-window"] .sound:focus-visible {
+  outline: 2px solid var(--_accent);
+  outline-offset: calc(var(--_space) * .375);
+  opacity: 1;
+}
+
+[data-ld-part="wallpaper-rain-window"] .sound svg {
+  display: block;
+  width: calc(var(--_space) * 2.25);
+  height: calc(var(--_space) * 2.25);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+[data-ld-part="wallpaper-rain-window"] .sound .off,
+[data-ld-part="wallpaper-rain-window"] .sound[aria-pressed="true"] .on {
+  display: none;
+}
+
+[data-ld-part="wallpaper-rain-window"] .sound[aria-pressed="true"] .off {
+  display: block;
+}
+
+/* WebGL が使えないとき：上の止まった絵だけを出す。叩く場所と音のボタンは出さない */
+[data-ld-part="wallpaper-rain-window"][data-gl="off"] .view,
+[data-ld-part="wallpaper-rain-window"][data-gl="off"] .pane,
+[data-ld-part="wallpaper-rain-window"][data-gl="off"] .sound {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ld-part="wallpaper-rain-window"] .sound {
+    transition: none;
+  }
+}

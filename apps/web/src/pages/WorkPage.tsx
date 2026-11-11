@@ -1,10 +1,11 @@
-import { Bookmark, Copy, Eye, GitFork, Heart, Share2 } from 'lucide-react';
+import { Bookmark, Copy, Eye, GitFork, Heart, Monitor, Share2 } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type MouseEvent } from 'react';
 import { useParams } from 'react-router';
 import { FramePreview } from '../components/FramePreview';
 import { Masonry } from '../components/Masonry';
 import { NoscriptGrid } from '../components/NoscriptGrid';
 import { RemixSheet } from '../components/RemixSheet';
+import { WallpaperSheet } from '../components/WallpaperSheet';
 import { ReportIssue } from '../components/ReportIssue';
 import { XLink } from '../components/XLink';
 import { useCopy, useLocale } from '../hooks/useCopy';
@@ -16,6 +17,7 @@ import { usePageData } from '../hooks/usePageData';
 import { useResetTitle } from '../hooks/useResetTitle';
 import { trackEvent } from '../lib/analytics';
 import { COPIED_MS, postCount } from '../lib/count';
+import { isWallpaper } from '../lib/homeQuery';
 import { NotFound } from './NotFound';
 
 /** 共有する URL はいつも本番のもの（workers.dev や手元で開いていても）。 */
@@ -54,6 +56,8 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
   const shareTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const viewSent = useRef(false);
   const [remixAnchor, setRemixAnchor] = useState<HTMLElement | null>(null);
+  const [wallpaperAnchor, setWallpaperAnchor] = useState<HTMLElement | null>(null);
+  const wallpaper = isWallpaper(work);
   // 閉じても、開き直せば書いた文が残る
   const [remixBrief, setRemixBrief] = useState('');
 
@@ -138,13 +142,26 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
     trackEvent('remix_open', { work_id: work.id });
   };
 
-  // 幅で置き場所が変わるので、2つ描いて CSS で片方だけ見せる（読み込みの後にずれないように）
-  const remixButton = (className: string) => (
-    <button type="button" aria-haspopup="dialog" onClick={openRemix} className={`${whiteButton} w-full ${className}`}>
-      <GitFork size={18} strokeWidth={1.75} aria-hidden="true" />
-      {copy.work.remix.open}
-    </button>
-  );
+  // 幅で置き場所が変わるので、2つ描いて CSS で片方だけ見せる（読み込みの後にずれないように）。
+  // 壁紙の作品だけ、「リミックス」の横に「壁紙にする」を置く（WALL001「2」）
+  const remixButton = (className: string) =>
+    wallpaper ? (
+      <div className={`flex gap-3 ${className}`}>
+        <button type="button" aria-haspopup="dialog" onClick={openRemix} className={whiteButton}>
+          <GitFork size={18} strokeWidth={1.75} aria-hidden="true" />
+          {copy.work.remix.open}
+        </button>
+        <button type="button" aria-haspopup="dialog" onClick={(event) => setWallpaperAnchor(event.currentTarget)} className={whiteButton}>
+          <Monitor size={18} strokeWidth={1.75} aria-hidden="true" />
+          {copy.work.wallpaper.open}
+        </button>
+      </div>
+    ) : (
+      <button type="button" aria-haspopup="dialog" onClick={openRemix} className={`${whiteButton} w-full ${className}`}>
+        <GitFork size={18} strokeWidth={1.75} aria-hidden="true" />
+        {copy.work.remix.open}
+      </button>
+    );
 
   const views = copy.count(work.views);
   const copyCount = copy.count(copies);
@@ -271,6 +288,9 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
           onCopied={() => setCopies((count) => count + 1)}
           onClose={() => setRemixAnchor(null)}
         />
+      )}
+      {wallpaperAnchor && (
+        <WallpaperSheet workId={work.id} title={work.title} snippet={snippet} anchor={wallpaperAnchor} onClose={() => setWallpaperAnchor(null)} />
       )}
     </>
   );
