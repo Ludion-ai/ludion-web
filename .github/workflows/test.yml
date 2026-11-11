@@ -60,6 +60,8 @@ jobs:
           for i in 1 2 3; do
             timeout 300 npx playwright install-deps chromium webkit firefox && exit 0
             echo "install-deps の ${i} 回目が落ちた"
+            # timeout は sudo の下の apt-get まで止めないので、残った apt-get を止めて、次の回が lock で落ちないようにする
+            sudo pkill -x apt-get || true
             if [ "$i" -lt 3 ]; then sleep 20; fi
           done
           exit 1
@@ -105,6 +107,8 @@ jobs:
           for i in 1 2 3; do
             timeout 300 npx playwright install-deps chromium webkit firefox && exit 0
             echo "install-deps の ${i} 回目が落ちた"
+            # timeout は sudo の下の apt-get まで止めないので、残った apt-get を止めて、次の回が lock で落ちないようにする
+            sudo pkill -x apt-get || true
             if [ "$i" -lt 3 ]; then sleep 20; fi
           done
           exit 1
