@@ -6,6 +6,7 @@ import type { Context } from 'hono';
 import beforeApp from 'virtual:ludion/before-app';
 import { renderApp } from 'virtual:ludion/entry-server';
 import frameGuard from 'virtual:ludion/frame-guard';
+import previewStart from 'virtual:ludion/preview-start';
 import type { PageData } from '../src/data/pages';
 import { localeOfPath, localizedPath } from '../src/i18n';
 import type { Work } from '../src/data/works';
@@ -120,7 +121,8 @@ export async function renderDocument(c: Context<{ Bindings: Env }>, options: Doc
     page ? `<script type="application/json" id="ld-page">${embedJson(page)}</script>` : '',
   ].join('');
   // ヘッダーのスイッチ（docs/tasks/T035.md「3」）がどのページにも作品の枠を置くので、どのページにも入れる。枠より先に動くよう、#root の前に置く
-  const guard = `<script>${frameGuard}</script>`;
+  // 作品のページは、枠を読み始める関数も先に置く。呼ぶのは枠の入れ物の直後の台本（WorkPage.tsx。PERF002「1」）
+  const guard = `<script>${frameGuard}</script>${page?.kind === 'work' ? `<script>${previewStart}</script>` : ''}`;
   const html = surround(`${documentHead}${guard}${ROOT_OPEN}`, app, `</div>${data}<script>${beforeApp}</script>${tail}`);
   return new Response(html, { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
