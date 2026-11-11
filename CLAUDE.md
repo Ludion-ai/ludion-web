@@ -235,9 +235,16 @@ mount(document.querySelector('[data-ld-part="toggle-aurora"]'));
 - pull request のテスト（「テストの全部」）が通るのを待つ（`gh pr checks <番号> --watch`）。落ちたら、Actions の成果物（Playwright の報告、7日）を見て直し、同じ枝に push する。
 - 通ったら main に入れる（`gh pr merge <番号> --merge --auto` でよい）。main が先に進んでいて取り込みが要るときは、`origin/main` を枝に取り込んで push し、テストを待ち直す。
 - 同じファイルを触るタスクが並ぶときは、後から main に入れる方が取り込みで解く。
-- 外の人の pull request の workflow は、運営が承認してから流れる。`pull_request_target` は使わない。秘密の値は、承認のある environment `production` にだけ置く。使ってよい Action は、GitHub のものと、認証済みの作者のものだけ。
-- **本番に出す**：タスクごとには出さない。main に入ったものを、CEO が承認したときにまとめて出す。
-  - `.github/workflows/deploy.yml` が、main のテストが通ると environment `production` の承認（CEO）を待つ。中身は `npm run deploy` と同じ（確かめ → ビルド → D1 の migration → Worker）で、同時に1本だけ走る。
+- 外の人の pull request の workflow は、運営が承認してから流れる。`pull_request_target` は使わない。秘密の値は、environment `production`（承認あり）と `production-auto`（承認なし。main の枝だけが使える）にだけ置き、リポジトリの Secrets には置かない。使ってよい Action は、GitHub のものと、認証済みの作者のものだけ。
+- **本番に出す**（11/11 の CEO の決定、DEPLOY002）：main に入ったものは、ふだんは承認なしで自動で本番に出る。D1 の migration を含むときだけ、CEO が承認する。タスクの側で出す作業はしない。
+  - `.github/workflows/deploy.yml` が、main への push のテストが通ると動く。中身は `npm run deploy` と同じ（確かめ → ビルド → D1 の migration → Worker）で、同時に1本だけ走る。
+  - 最初の job（`apps/web/scripts/deploy-gate.mjs`）が、今の本番の版（GitHub の deploy の記録の、いちばん新しい成功したもの）から出す commit までに `apps/web/migrations/` の変更があるかを見る。
+    - ない：environment `production-auto`（承認者なし。main だけ）で、承認なしで出す。
+    - ある、または今の本番の版が読めない：environment `production` で CEO の承認を待つ。当たる migration は、実行の Summary の頭に出る。
+  - だから、migration を足すタスクは、main に入れた後に CEO の承認が要ることを報告に書く。migration と、ほかの急ぐ変更が続けて入ると、急ぐ方も承認を待つ。
+  - 手で流す道（Actions の Run workflow）もある。決め方は同じ。
+  - 形はリポジトリの変数 `DEPLOY_MODE` で選ぶ（CEO）：`auto`（上の形）、`approval`（いつも承認を待つ。自動を止めたいときに戻す）、`manual`。
+  - 決め方を手で試す（何も出さない）：`node apps/web/scripts/deploy-gate.mjs --mode auto --base <今の本番の commit> --head <出す commit>`
   - 手元の `npm run deploy` と `npm run deploy:www` は、このリポジトリの main と同じ中身のときだけ進む（`apps/web/scripts/deploy-guard.mjs`：origin が `Ludion-ai/ludion-web` で、HEAD が `origin/main` と同じコミットで、コミットしていない変更がない。`works/`、`creators/`、`ld.config.json` は除く）。飛ばす道は作らない。`wrangler deploy` を直に打たない。
 - **本番の確かめ**：共通の確かめ（`/` が 200、作品のページ、ログインの画面）で足りる。deploy の workflow はこれを自分で流す。手元の `npm run deploy` のときは、出した人が同じ3つを見る。使い捨ての人を作る確かめは、タスクが求めたときだけ。
 - 壊れていたら、直したものを同じ道で出すか、前の版に戻す（`wrangler rollback`。CEO の許可を得て）。
