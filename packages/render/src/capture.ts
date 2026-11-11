@@ -6,7 +6,7 @@
 // - 動いている要素は、今の計算された値を写して動きを切る（SVG の画像の中では CSS の動きが 0 秒から始まり直すため）。
 // - canvas は中身が写らないので、その時の絵の <img> に置き換え、作品の CSS が canvas のタグで当てた形を、計算された形で写す。
 // - 入力の今の値（JS が変えた value、checked）は属性に写す。CSSOM で足した規則は <style> に写す。
-// - SVG の画像の中の data: の画像を描かないブラウザ（WebKit）では、見えている canvas を、描いた絵の上の同じ場所に重ねる。
+// - WebKit では canvas の絵が写らない（DOC002 で確かめた。原因は分かっていない）。撮った絵を見せるので、作り手が見てファイルを選べる。
 // - 撮れないとき（読めない、白紙、Shadow DOM の中がある）は ok: false と理由を返す。親はファイルを選ぶ道を出す。
 //
 // 作品の JS と同じ枠（オリジンのない sandbox）で動くので、作品の JS は同じ形の知らせを作れる。親は送り元と形と大きさを確かめ、
@@ -39,30 +39,6 @@ const svgImage = async (inner, w, h) => {
   img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
   await img.decode();
   return img;
-};
-// SVG の画像の中の data: の画像を、このブラウザが描くか（WebKit は描かない）。赤い1点の画像を描かせて読む
-let drawsInnerImages = null;
-const checkInnerImages = async () => {
-  if (drawsInnerImages !== null) return drawsInnerImages;
-  try {
-    const dot = document.createElement('canvas');
-    dot.width = 4;
-    dot.height = 4;
-    const d = dot.getContext('2d');
-    d.fillStyle = '#ff0000';
-    d.fillRect(0, 0, 4, 4);
-    const img = await svgImage('<img xmlns="http://www.w3.org/1999/xhtml" src="' + dot.toDataURL('image/png') + '" width="4" height="4" style="display:block"/>', 4, 4);
-    const out = document.createElement('canvas');
-    out.width = 4;
-    out.height = 4;
-    const g = out.getContext('2d');
-    g.drawImage(img, 0, 0, 4, 4);
-    const px = g.getImageData(1, 1, 1, 1).data;
-    drawsInnerImages = px[0] > 200 && px[1] < 60 && px[2] < 60 && px[3] > 200;
-  } catch (e) {
-    drawsInnerImages = false;
-  }
-  return drawsInnerImages;
 };
 // Shadow DOM の中は写らない。開いた Shadow DOM に中身がある、または中の見えない部品（閉じた Shadow DOM の疑い）が見えている
 const hasShadow = () => {
@@ -165,20 +141,6 @@ async function capture() {
     g.drawImage(img, 0, 0, W, H);
   } catch (e) {
     return { ok: false, reason: 'tainted' };
-  }
-  // SVG の画像の中の canvas の絵を描かないブラウザでは、見えている canvas を同じ場所に重ねる
-  if (origCanvas.length > 0 && !(await checkInnerImages())) {
-    for (const c of origCanvas) {
-      const r = visible(c);
-      if (!r) continue;
-      const cs = getComputedStyle(c);
-      if (cs.visibility === 'hidden' || cs.display === 'none') continue;
-      g.globalAlpha = Math.max(0, Math.min(1, Number(cs.opacity) || 0));
-      try {
-        g.drawImage(c, r.left, r.top, r.width, r.height);
-      } catch (e) {}
-    }
-    g.globalAlpha = 1;
   }
   if (!readable(out)) return { ok: false, reason: 'tainted' };
   // 白紙（全部が同じ色）は撮れなかったとする
