@@ -16,6 +16,9 @@
 # - 同時に1本だけ（workflow ごと）。migration が同時に2つ走らず、次の「決める」は前の deploy の記録が残ってから動く
 # - 出すのは ludion-web の main と同じコミットだけ（scripts/deploy-guard.mjs が、origin が ludion-web で、HEAD が origin/main と同じかを確かめる）
 # - 触るのは wrangler.jsonc の ludion-web と、その D1（ludion-app）と R2（ludion-parts）だけ。ludion で始まる古いリソースには触らない
+# - wrangler deploy が Cloudflare の一時的な誤り（「Please try again later」。例：code 10021「binding DB of type d1 failed to generate」）で
+#   落ちたときだけ、1分あけて2回まで流し直す（apps/web/scripts/wrangler-deploy.mjs。DEPLOY003）。ほかの誤りでは流し直さない。
+#   流し直すのは wrangler deploy だけで、ビルドと D1 の migration は流し直さない
 name: deploy
 
 on:

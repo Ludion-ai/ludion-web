@@ -43,7 +43,7 @@ app.post('/api/post/works', rateLimit('LIMIT_POST'));
 app.post('/api/post/works/:id/revisions', rateLimit('LIMIT_POST'));
 app.use('/api/review/*', rateLimit('LIMIT_ACCOUNT'));
 // AI の口（docs/tasks/T037.md「2」）。鍵を確かめる前に、IP の束縛で数える（違う鍵を続けて試させない）。人ごとの上限は apiV1.ts
-app.use('/api/v1', rateLimit('LIMIT_ACCOUNT', undefined, apiLimitedBody));
+// '/api/v1/*' は '/api/v1' にも当たる（Hono）。'/api/v1' にも付けると、1回の要求で2回数える
 app.use('/api/v1/*', rateLimit('LIMIT_ACCOUNT', undefined, apiLimitedBody));
 // 作品のコードを文字で返す口（docs/tasks/T031.md「1」）。作品のページを読む人の束縛で数える。キャッシュに当たった分は Worker に来ないので数えない
 app.get('/p/:id/code', rateLimit('LIMIT_COUNT'));

@@ -1,10 +1,12 @@
 export type { Creator, CreatorKind, MadeWith, Palette, Platform, Work, WorkMeta, WorkType } from './types.ts';
 export { ALL_TOKEN_NAMES, NEUTRAL_PALETTES, OPTIONAL_TOKEN_NAMES, TOKEN_NAMES, tokenDeclarations } from './tokens.ts';
 export type { TokenName, TokenValues } from './tokens.ts';
-export { DPR_HASH_KEY, DPR_SCRIPT, EMBED_FRAME_RESPONSE_CSP, FRAME_CSP, FRAME_RESPONSE_CSP, FRAME_SANDBOX, HOST_ID, authorBackground, buildFrameHtml } from './frame.ts';
+export { DPR_HASH_KEY, DPR_SCRIPT, EMBED_FRAME_RESPONSE_CSP, FRAME_CSP, LOADED_SCRIPT, FRAME_RESPONSE_CSP, FRAME_SANDBOX, HOST_ID, authorBackground, buildFrameHtml } from './frame.ts';
 export type { FrameOptions, MountStatus } from './frame.ts';
 export { MEMORY_STORAGE_LIMIT, STORAGE_SCRIPT } from './storage.ts';
 export { ALLOW_MOTION_SCRIPT, allowMotionCss, allowMotionQuery, motionLeftovers } from './motion.ts';
 export { buildCopySnippet, creditLine, creditText, remixCreditText } from './snippet.ts';
 export type { RemixSource } from './snippet.ts';
 export { escapeRawText, exportsMount, stripExports } from './js.ts';
+export { DOCUMENT_FILE, buildDocumentFrameHtml, buildDocumentSnippet, doctypeEnd, isHtmlDocument, stripDocumentCredits } from './document.ts';
+export type { DocumentFrameOptions } from './document.ts';

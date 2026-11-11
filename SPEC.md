@@ -253,7 +253,7 @@ CREATE TABLE revisions (
   tokens_ok INTEGER NOT NULL DEFAULT 0, -- 10個のトークンに合っているか。データだけで、今は印を出さない
   is_remix INTEGER NOT NULL DEFAULT 0, -- 承認すると works.is_remix に写す
   remix_of TEXT, -- 作品の remix_of を写す
-  via TEXT, -- その版をどの AI から置いたか（つないだ AI の名前、AI の鍵なら X-Ludion-Client か API。MCP001）。画面から置いた版は NULL。持ち主の置き場にだけ出す
+  via TEXT, -- その版をどの AI から置いたか（X-Ludion-Client があればそれ。なければ、つないだ AI の名前、AI の鍵なら API。MCP001、VIA001）。画面から置いた版は NULL。持ち主の置き場にだけ出す
   reject_code TEXT, reject_note TEXT, created_by TEXT,
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, submitted_at INTEGER, reviewed_at INTEGER, reviewed_by TEXT,
   UNIQUE (work_id, version)

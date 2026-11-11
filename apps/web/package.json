@@ -9,7 +9,7 @@
     "build:deploy": "tsc --noEmit && tsc -p worker && vite build --mode deploy",
     "preview": "npm run db:migrate && vite preview --port 4173 --strictPort",
     "db:migrate": "node scripts/migrate.mjs",
-    "deploy": "node scripts/deploy-guard.mjs && npm run build:deploy && node scripts/deploy-guard.mjs && node scripts/migrate.mjs --remote && wrangler deploy",
+    "deploy": "node scripts/deploy-guard.mjs && npm run build:deploy && node scripts/deploy-guard.mjs && node scripts/migrate.mjs --remote && node scripts/wrangler-deploy.mjs",
     "deploy:www": "node scripts/deploy-guard.mjs && wrangler deploy -c www-redirect/wrangler.jsonc",
     "seed:dev": "npm run db:migrate && node scripts/seed-dev.mjs",
     "shots": "node scripts/shots.mjs",

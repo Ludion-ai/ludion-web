@@ -1,6 +1,7 @@
 // AI の鍵と、AI の口 /api/v1（docs/tasks/T037.md）。手元の偽の GitHub と本物の workerd で通す。
 // 1つのテストごとに別の人でログインし、別の作品を作るので、互いの行に触らない。
 
+import { FRAME_RESPONSE_CSP } from '@ludion/render';
 import { expect, test } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -418,6 +419,23 @@ test.describe('AI の口 /api/v1', () => {
     expect(await readLimited.json()).toMatchObject({ error: 'rate_limited', retry_at: expect.any(String) });
   });
 
+  test('数え方：1回の POST /works で置くのが1、GET /works と GET /works/:id で読むのが1だけ増える', async () => {
+    const { visitor, id } = await person();
+    const key = (await makeKey(visitor)).secret;
+    // 時の境をまたいでもよいように、桶を全部足す
+    const used = (kind: 'put' | 'read') => d1<{ n: number }>(`SELECT COALESCE(SUM(n), 0) AS n FROM quotas WHERE key = ${quote(`api-${kind}:${id}`)}`)[0].n;
+    const before = { put: used('put'), read: used('read') };
+
+    const work = await put(key, { html: workHtml(unique('count-')) });
+    expect.soft({ put: used('put'), read: used('read') }).toEqual({ put: before.put + 1, read: before.read });
+
+    expect((await api(key, '/api/v1/works')).status).toBe(200);
+    expect.soft({ put: used('put'), read: used('read') }).toEqual({ put: before.put + 1, read: before.read + 1 });
+
+    expect((await api(key, `/api/v1/works/${work.id}`)).status).toBe(200);
+    expect.soft({ put: used('put'), read: used('read') }).toEqual({ put: before.put + 1, read: before.read + 2 });
+  });
+
   test('1日の版：自分だけの版は100まで（公開に回す10とは別に数える）。自分だけから公開するときは、公開の10で数える', async () => {
     const { visitor, id } = await person();
     const key = (await makeKey(visitor)).secret;
@@ -481,5 +499,100 @@ test.describe('AI の口 /api/v1', () => {
     const body = await llms.text();
     expect(body).toContain('/api/v1');
     expect(body).toContain('/p/<id>/code');
+  });
+});
+
+/** AI がふつうに書く1つの HTML 文書（作品の契約の形ではない：根も mount もなく、document で探し、body に CSS を当てる）。 */
+const plainDoc = (title: string, label = 'Count') => `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>${title}</title>
+<style>body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0b1020; color: #f4f4f5; }</style>
+</head>
+<body>
+<button id="b" type="button">${label}</button>
+<output id="n">0</output>
+<script>
+let n = Number(localStorage.getItem('n') || '0');
+document.getElementById('b').addEventListener('click', () => { n += 1; localStorage.setItem('n', String(n)); document.getElementById('n').textContent = String(n); });
+</script>
+</body>
+</html>
+`;
+
+test.describe('文書の作品（DOC001）', () => {
+  test('ふつうの HTML 文書は、検査せずに文書のまま置く。種類は画面。枠は文書をそのまま返す。コードはその文書で、クレジット行は doctype の直後', async ({ page }) => {
+    const owner = await person('aidoc');
+    const { secret } = await makeKey(owner.visitor);
+    const title = unique('Glass Counter ');
+    const doc = plainDoc(title);
+    const first = await put(secret, { html: doc });
+    // ID は題から（英数字だけ）
+    expect(first.id).toBe(title.toLowerCase().replace(/ /g, '-'));
+    expect(first.visibility).toBe('private');
+    const id = first.id;
+    const [row] = d1<{ id: string; type: string; category: string; tokens_ok: number; title: string; r2_prefix: string }>(`SELECT id, type, category, tokens_ok, title, r2_prefix FROM revisions WHERE work_id = ${quote(id)}`);
+    expect(row).toMatchObject({ type: 'screen', category: 'Web', tokens_ok: 0, title });
+
+    // 枠：文書をそのまま返し、頭にサイトのスクリプトだけ。応答の頭の CSP は今の枠と同じ
+    const frame = await owner.visitor.fetch(`/draft-frame/${row.id}/desktop.html`, { headers: FROM_IFRAME });
+    expect(frame.status).toBe(200);
+    expect(frame.headers.get('content-security-policy')).toBe(FRAME_RESPONSE_CSP);
+    const served = await frame.text();
+    expect(served.startsWith('<!doctype html><meta http-equiv="Content-Security-Policy"')).toBe(true);
+    expect(served.endsWith(doc.slice('<!doctype html>'.length))).toBe(true);
+    expect((await new Visitor().fetch(`/draft-frame/${row.id}/desktop.html`, { headers: FROM_IFRAME })).status).toBe(404);
+
+    // 作品のページの枠で動く（document で探す書き方、localStorage）
+    await page.context().addCookies([{ name: 'fake_user', value: owner.login, url: FAKE_GITHUB }]);
+    await page.goto(`/auth/github?next=${encodeURIComponent(`/p/${id}`)}`);
+    await expect(page).toHaveURL(`/p/${id}`);
+    const inFrame = page.frameLocator('iframe[data-ld-frame]').first();
+    await inFrame.getByRole('button', { name: 'Count' }).click();
+    await expect(inFrame.locator('#n')).toHaveText('1');
+
+    // コード：その文書。クレジット行は doctype の直後。取ったコードを置き直しても、クレジット行は重ならない
+    const got = (await (await api(secret, `/api/v1/works/${id}`)).json()) as { code: string };
+    const credit = `<!-- UI by @${owner.handle} — ludion.ai/p/${id} (MIT) -->`;
+    expect(got.code).toBe(`<!doctype html>\n${credit}${doc.slice('<!doctype html>'.length)}`);
+    expect((await owner.visitor.fetch(`/p/${id}/code`).then((r) => r.text()))).toBe(got.code);
+    const again = await api(secret, `/api/v1/works/${id}/versions`, { method: 'POST', body: { html: got.code.replace('>Count<', '>Count up<') } });
+    expect(again.status, await again.clone().text()).toBe(201);
+    const second = (await (await api(secret, `/api/v1/works/${id}`)).json()) as { code: string };
+    expect(second.code.match(/UI by @/g)).toHaveLength(1);
+    expect(second.code).toContain('>Count up<');
+  });
+
+  test('外を読むもの、2つのスクリプト、document：落とさない（枠の CSP が止める）。大きさと読めない文字は落とす。部品の作品に文書の版を置くと、その版は画面', async () => {
+    const owner = await person('aidoc2');
+    const { secret } = await makeKey(owner.visitor);
+    const outside = plainDoc('Outside').replace('</head>', '<script src="https://cdn.example/x.js"></script><script>document.title = "x"</script></head>');
+    expect((await api(secret, '/api/v1/works', { method: 'POST', body: { html: outside } })).status).toBe(201);
+
+    const big = plainDoc('Big').replace('</body>', `<!-- ${'x'.repeat(768 * 1024)} --></body>`);
+    const tooLarge = await api(secret, '/api/v1/works', { method: 'POST', body: { html: big }, headers: { 'Accept-Language': 'en' } });
+    expect(tooLarge.status).toBe(413);
+    expect(await tooLarge.json()).toMatchObject({ error: 'too_large', message: 'An HTML document can be up to 768KB.' });
+    const unreadable = await api(secret, '/api/v1/works', { method: 'POST', body: { html: plainDoc('Nul').replace('Count', 'Co\u0000unt') } });
+    expect(unreadable.status).toBe(422);
+    expect(await unreadable.json()).toMatchObject({ error: 'invalid_work', problems: [{ message: expect.stringContaining('読めない文字'), fix: expect.any(String) }] });
+
+    // 契約の形（根と mount）を文書で包んだものは、今までどおり部品
+    const part = unique('doc-part-');
+    await put(secret, { html: workHtml(part) });
+    expect(latestRevision(part)).toMatchObject({ version: '1' });
+    expect(d1<{ type: string; category: string }>(`SELECT type, category FROM revisions WHERE work_id = ${quote(part)}`)[0]).toEqual({ type: 'component', category: 'Components' });
+    const version = await api(secret, `/api/v1/works/${part}/versions`, { method: 'POST', body: { html: plainDoc('Now a document') } });
+    expect(version.status, await version.clone().text()).toBe(201);
+    expect(d1<{ type: string; category: string; title: string }>(`SELECT type, category, title FROM revisions WHERE work_id = ${quote(part)} AND version = '2'`)[0]).toEqual({ type: 'screen', category: 'Web', title: 'Now a document' });
+
+    // リミックス：2行目に元の作品のクレジット行
+    const remix = await put(secret, { html: plainDoc('Doc Remix'), from: PUBLIC_WORK });
+    const code = ((await (await api(secret, `/api/v1/works/${remix.id}`)).json()) as { code: string }).code.split('\n');
+    expect(code[0]).toBe('<!doctype html>');
+    expect(code[1]).toBe(`<!-- UI by @${owner.handle} — ludion.ai/p/${remix.id} (MIT) -->`);
+    expect(code[2]).toMatch(/^<!-- Remix of UI by @\S+ — ludion\.ai\/p\/seed-trail-guide \(MIT\) -->$/);
+    expect(d1<{ type: string; remix_of: string }>(`SELECT type, remix_of FROM works WHERE id = ${quote(remix.id)}`)[0]).toEqual({ type: 'screen', remix_of: PUBLIC_WORK });
   });
 });

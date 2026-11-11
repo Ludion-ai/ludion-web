@@ -25,8 +25,8 @@ const sheet = (page: Page, name = text.heading) => page.getByRole('dialog', { na
 const briefField = (page: Page, label = text.briefLabel) => page.getByRole('textbox', { name: label });
 const copyPrompt = (page: Page, name = text.copyPrompt) => page.getByRole('button', { name, exact: true });
 
-/** ページの JSON に入っている、コピーされるコード（「コードをコピー」と同じもの）。 */
-const snippetOf = async (page: Page) => (JSON.parse((await page.locator('#ld-page').textContent())!) as { snippet: string }).snippet;
+/** 開いている作品の、コピーされるコード（「コードをコピー」と同じもの。/p/:id/code）。 */
+const snippetOf = async (page: Page) => (await page.request.get(`/p/${/\/p\/([^/?#]+)/.exec(page.url())![1]}/code`)).text();
 
 /** Windows のクリップボードは改行を CRLF にする。行の中身は1文字も変わらない */
 const clipboard = async (page: Page) => (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n');

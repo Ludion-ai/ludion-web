@@ -1,0 +1,16 @@
+{
+  "id": "mal-doc",
+  "title": "Malicious: Plain Document",
+  "type": "screen",
+  "platform": "web",
+  "category": "Web",
+  "subtype": "Malicious",
+  "tags": [],
+  "creator": "fixture",
+  "license": "MIT",
+  "made_with": "ai-assisted",
+  "version": "1",
+  "published_at": "2026-11-12",
+  "pin_order": null,
+  "format": "document"
+}

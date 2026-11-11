@@ -1,6 +1,7 @@
 // コピーされるコード（CLAUDE.md「コピーされるコード」）。
 // 1行目、<style> の1行目、<script> の1行目に、必ずクレジット行を入れる。
 
+import { buildDocumentSnippet } from './document.ts';
 import { stripExports } from './js.ts';
 import type { Creator, Work } from './types.ts';
 
@@ -36,6 +37,8 @@ export function buildCopySnippet(work: Work, creator: Creator, remixOf: RemixSou
     throw new Error(`作者が合わない：meta.json は @${work.meta.creator}、渡されたのは @${creator.handle}`);
   }
   const handle = creator.handle;
+  // 文書の作品（DOC001）は、その文書。クレジット行は <!doctype> の直後（document.ts）
+  if (typeof work.document === 'string') return buildDocumentSnippet(work.document, handle, id, remixOf);
   const credit = creditText(handle, id);
   const remix = remixOf ? remixCreditText(remixOf) : null;
   const head = (open: string, close: string) => [`${open}${credit}${close}`, ...(remix ? [`${open}${remix}${close}`] : [])];
