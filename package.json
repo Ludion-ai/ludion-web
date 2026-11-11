@@ -13,7 +13,7 @@
     "seed:dev": "npm run seed:dev -w @ludion/web",
     "shots": "npm run shots -w @ludion/web",
     "test": "npm run test --workspaces --if-present && npm run test:skill",
-    "test:skill": "node --test skills/test/ludion.test.mjs",
+    "test:skill": "node --test plugins/test/ludion.test.mjs plugins/test/plugin.test.mjs",
     "lcp": "npm run lcp -w @ludion/web"
   },
   "devDependencies": {

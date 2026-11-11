@@ -1,7 +1,9 @@
 // AI の口（docs/tasks/T037.md「2」）。AI（Claude Code など）が、本人の AI の鍵で作品を置く、一覧を見る、コードを取る。
 //
-// - 認証は Authorization: Bearer ld_… だけ。cookie は読まない。ブラウザから呼ぶものではないので、CORS の頭は付けない。
-// - 置いたものは本人にしか見えない（下書き）。公開（審査に出す）は、サイトの画面から本人がする。ここからは公開できない。
+// - 認証は Authorization: Bearer ld_…（AI の鍵）か ldo_…（AI につないだトークン。MCP001）だけ。cookie は読まない。
+//   ブラウザから呼ぶものではないので、CORS の頭は付けない。MCP サーバー（mcp.ts）は、この口を中から呼ぶ。
+// - 置いたものは「自分だけ」（docs/tasks/T036.md）。本人にしか見えない。公開（審査に出す）は、サイトの画面から本人がする。ここからは公開できない。
+//   公開している作品に置いた新しい版だけは、今までどおり下書き（審査に出すまで公開の版は変わらない）。
 // - html は /new の1つの箱と同じ受け方：同じ分け方（splitSnippet、fixParts）、同じ検査（checkSubmission）、同じ大きさの上限、
 //   同じ保存（post.ts の writeDraft）。投稿の1日の上限（POST_LIMITS）もそのまま効く。
 // - 回数の上限：置くのは1人1時間30回、ほかの読み取りは1時間300回（quotas）。超えたら 429 と、次に使える時刻。
@@ -13,14 +15,42 @@ import { fixParts, ID_PATTERN, MAX_PART_BYTES, MAX_TITLE_CHARS, partIdOf, splitS
 import { Hono, type Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { localizedPath, type Locale } from '../src/i18n';
-import { keyUser, type KeyUser } from './aiKeys';
+import { keyUser } from './aiKeys';
 import { apiDocs } from './apiDocs';
 import type { Env } from './env';
-import { checkWorkId, readBody, writeDraft, type PostMeta } from './post';
+import { cleanClientName, grantUser } from './oauth';
+import { checkWorkId, placePrivate, readBody, writeDraft, type PostMeta } from './post';
 import { nextDay, nextHour, takeApiQuota } from './quota';
-import { canPost, loadRevisionFiles, ownedWork, type RevisionRow } from './revisions';
+import { canPost, countPrivateWorks, loadRevisionFiles, ownedRevision, ownedWork, PRIVATE_WORKS_LIMIT, type RevisionRow } from './revisions';
 
-type ApiEnv = { Bindings: Env; Variables: { user: KeyUser; locale: Locale } };
+/**
+ * 置く人。AI の鍵（ld_…）か、AI につないだときのアクセスのトークン（ldo_…。worker/oauth.ts、MCP001）の持ち主。
+ * via：その版をどの AI から置いたか（自分の置き場の小さな印）。つないだ AI はその名前、鍵は X-Ludion-Client の見出し（なければ API）。
+ */
+export interface ApiUser {
+  id: string;
+  handle: string;
+  isOperator: boolean;
+  via: string;
+}
+
+type ApiEnv = { Bindings: Env; Variables: { user: ApiUser; locale: Locale } };
+
+const MAX_VIA_CHARS = 40;
+
+/** Authorization の見出しから、置く人を決める。鍵もトークンも違えば null。 */
+export async function apiUser(db: D1Database, authorization: string | undefined, client: string | undefined): Promise<ApiUser | null> {
+  const match = /^Bearer[ \t]+(\S+)[ \t]*$/i.exec(authorization ?? '');
+  if (!match) return null;
+  const token = match[1];
+  if (token.startsWith('ldo_')) {
+    const user = await grantUser(db, token);
+    return user && { id: user.id, handle: user.handle, isOperator: user.isOperator, via: user.clientName };
+  }
+  const user = await keyUser(db, token);
+  const via = client ? [...cleanClientName(client)].slice(0, MAX_VIA_CHARS).join('').trim() : 'API';
+  return user && { id: user.id, handle: user.handle, isOperator: user.isOperator, via };
+}
 type ApiContext = Context<ApiEnv>;
 
 export const apiV1 = new Hono<ApiEnv>();
@@ -63,6 +93,10 @@ const MESSAGES = {
   in_review: { ja: 'この作品は審査中です。審査が終わるまで、新しい版は置けません', en: 'This work is in review. You can’t put a new version until the review is done.' },
   posting_closed: { ja: 'いまは作品を置けません', en: 'Posting is closed right now.' },
   conflict: { ja: 'ほかの操作とぶつかりました。もう一度送ってください', en: 'Another change got there first. Send it again.' },
+  private_limit: {
+    ja: `自分だけの作品は ${PRIVATE_WORKS_LIMIT} 作品までです。今の作品に新しい版を置くことはできます`,
+    en: `You can have up to ${PRIVATE_WORKS_LIMIT} “Only me” works. You can still put new versions of the works you have.`,
+  },
   no_id: { ja: '作品の ID を決められませんでした。もう一度送ってください', en: 'Could not pick an ID for the work. Send it again.' },
   unknown_path: { ja: 'この道はありません。GET /api/v1 に使い方があります', en: 'No such endpoint. GET /api/v1 explains the API.' },
 } satisfies Record<string, Message>;
@@ -106,8 +140,8 @@ const problemsOf =(problems: ProblemText[], locale: Locale) => problems.map((p) 
 const origin = (c: ApiContext) => new URL(c.req.url).origin;
 const workUrl = (c: ApiContext, id: string) => `${origin(c)}${localizedPath(c.get('locale'), `/p/${encodeURIComponent(id)}`)}`;
 const codeUrl = (c: ApiContext, id: string) => `${origin(c)}/p/${encodeURIComponent(id)}/code`;
-/** 今の見え方。T036（自分だけ）が入るまでは、公開か下書き（本人だけが見られる）。 */
-const visibilityOf = (workStatus: string) => (workStatus === 'approved' ? 'public' : 'draft');
+/** 今の見え方。公開、自分だけ（docs/tasks/T036.md）、下書き（T036 の前に置いたもの。本人だけが見られる）。 */
+const visibilityOf = (workStatus: string) => (workStatus === 'approved' ? 'public' : workStatus === 'private' ? 'private' : 'draft');
 
 // 説明（docs/tasks/T037.md「4」）。鍵は要らない。AI が読んで使えるように Markdown で返す
 apiV1.get('/', (c) => {
@@ -121,8 +155,7 @@ apiV1.use('/works/*', authenticate);
 /** 鍵を確かめ、回数を数える。cookie は見ない。 */
 async function authenticate(c: ApiContext, next: () => Promise<void>) {
   c.set('locale', apiLocale(c.req.header('Accept-Language')));
-  const match = /^Bearer[ \t]+(\S+)[ \t]*$/i.exec(c.req.header('Authorization') ?? '');
-  const user = match ? await keyUser(c.env.DB, match[1]) : null;
+  const user = await apiUser(c.env.DB, c.req.header('Authorization'), c.req.header('X-Ludion-Client'));
   if (!user) return fail(c, 401, 'unauthorized', 'unauthorized', {}, { 'WWW-Authenticate': 'Bearer' });
   c.set('user', user);
   const now = Date.now();
@@ -199,7 +232,16 @@ function splitWork(c: ApiContext, html: string) {
 /** writeDraft の答えを、この口の形にする。 */
 async function answer(c: ApiContext, result: Awaited<ReturnType<typeof writeDraft>>) {
   if (result.ok) {
-    const work = await ownedWork(c.env.DB, result.body.work_id);
+    const db = c.env.DB;
+    // 公開していない作品なら、そのまま「自分だけ」の今の版にする（docs/tasks/T036.md、MCP001「1」）。
+    // 公開している作品の新しい版は、下書きのまま（審査に出すまで、公開の版は変わらない。原則5）
+    const revision = await ownedRevision(db, result.body.revision.id);
+    if (revision && revision.work_status !== 'approved') {
+      const placed = await placePrivate(db, c.get('user').id, revision);
+      if (!placed.ok && placed.body.error === 'private_limit') return fail(c, 409, 'private_limit', 'private_limit', { limit: PRIVATE_WORKS_LIMIT });
+      if (!placed.ok) return fail(c, 409, 'conflict');
+    }
+    const work = await ownedWork(db, result.body.work_id);
     return c.json(
       { id: result.body.work_id, version: result.body.revision.version, url: workUrl(c, result.body.work_id), code_url: codeUrl(c, result.body.work_id), visibility: visibilityOf(work?.status ?? 'draft') },
       201,
@@ -249,7 +291,9 @@ apiV1.post('/works', async (c) => {
     tags: [...new Set(sourceTags)],
     made_with: 'ai-assisted',
   };
-  return answer(c, await writeDraft(c.env, user, null, { ...fixed, thumb: null }, meta));
+  // 自分だけの作品の上限（docs/tasks/T036.md「5」）。書く前に数える（下書きを残さない）
+  if ((await countPrivateWorks(db, user.id)) >= PRIVATE_WORKS_LIMIT) return fail(c, 409, 'private_limit', 'private_limit', { limit: PRIVATE_WORKS_LIMIT });
+  return answer(c, await writeDraft(c.env, user, null, { ...fixed, thumb: null }, meta, { via: user.via }));
 });
 
 // 自分の作品に新しい版を置く。公開している作品なら、その作品の下書きの版になる（公開の版は変わらない）
@@ -279,7 +323,11 @@ apiV1.post('/works/:id/versions', async (c) => {
     tags: JSON.parse(latest.tags) as string[],
     made_with: 'ai-assisted',
   };
-  return answer(c, await writeDraft(c.env, user, id, { ...fixed, thumb: null }, meta));
+  // まだ自分だけでも公開でもない作品（T036 の前に置いた下書き）は、置くと自分だけになるので、上限を先に数える
+  if (work.status !== 'approved' && work.status !== 'private' && (await countPrivateWorks(db, user.id, id)) >= PRIVATE_WORKS_LIMIT) {
+    return fail(c, 409, 'private_limit', 'private_limit', { limit: PRIVATE_WORKS_LIMIT });
+  }
+  return answer(c, await writeDraft(c.env, user, id, { ...fixed, thumb: null }, meta, { via: user.via }));
 });
 
 // 自分の作品の一覧。状態と版は、いちばん新しい版のもの

@@ -1,8 +1,9 @@
 // A fake Ludion that answers the T037 API contract (docs/tasks/T037.md "2"), for testing the skill before T037 lands.
 //
-//   node skills/test/fake-server.mjs [--port 8787] [--dump <dir>]
+//   node plugins/test/fake-server.mjs [--port 8787] [--dump <dir>]
 //
 // Prints { url, key } as JSON. With --dump, every accepted put is also written to <dir>/<id>-v<version>.html.
+import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import path from 'node:path';
@@ -13,6 +14,9 @@ export const OTHER_KEY = `ld_${'Z9y8X7w6V5'.repeat(4)}`;
 const MAX_PART_BYTES = 256 * 1024;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 const HOUR = 60 * 60 * 1000;
+
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+const randomToken = () => Array.from(randomBytes(40), (b) => ALPHABET[b % ALPHABET.length]).join('');
 
 function credit(handle, id) {
   return `<!-- UI by @${handle} — ludion.ai/p/${id} (MIT) -->`;
@@ -58,6 +62,8 @@ export function startFakeServer({ port = 0, putLimit = 30, readLimit = 300, dump
   works.set('other-private', { ...works.get('ripple-public'), id: 'other-private', visibility: 'private', status: 'draft' });
   const calls = [];
   const quota = new Map();
+  /** OAuth (MCP001). deny: answer "Cancel" instead of "Allow". */
+  const oauth = { clients: new Map(), codes: new Map(), refresh: new Map(), deny: false };
   let seq = 0;
   let base = '';
 
@@ -93,7 +99,63 @@ export function startFakeServer({ port = 0, putLimit = 30, readLimit = 300, dump
       chunks.push(c);
     }
     const raw = Buffer.concat(chunks).toString('utf8');
-    calls.push({ method: req.method, path: url.pathname, auth: req.headers.authorization ?? null, cookie: req.headers.cookie ?? null, body: raw });
+    calls.push({ method: req.method, path: url.pathname, auth: req.headers.authorization ?? null, cookie: req.headers.cookie ?? null, client: req.headers['x-ludion-client'] ?? null, body: raw });
+
+    // OAuth (MCP001): register, authorize (allows at once, as if the person pressed "Allow"), token, revoke
+    if (req.method === 'POST' && url.pathname === '/oauth/register') {
+      const meta = JSON.parse(raw || '{}');
+      const id = `client${++seq}`;
+      oauth.clients.set(id, { name: meta.client_name, redirect_uris: meta.redirect_uris });
+      return send(201, { client_id: id, client_name: meta.client_name, redirect_uris: meta.redirect_uris, token_endpoint_auth_method: 'none' });
+    }
+    if (req.method === 'GET' && url.pathname === '/oauth/authorize') {
+      const q = url.searchParams;
+      const client = oauth.clients.get(q.get('client_id'));
+      if (!client || !client.redirect_uris.includes(q.get('redirect_uri'))) return send(400, { error: 'invalid_request' });
+      const back = new URL(q.get('redirect_uri'));
+      if (oauth.deny) back.searchParams.set('error', 'access_denied');
+      else {
+        const code = `code${++seq}`;
+        oauth.codes.set(code, { client_id: q.get('client_id'), challenge: q.get('code_challenge'), redirect_uri: q.get('redirect_uri') });
+        back.searchParams.set('code', code);
+      }
+      back.searchParams.set('state', q.get('state') ?? '');
+      res.writeHead(302, { Location: back.toString() });
+      return res.end();
+    }
+    if (req.method === 'POST' && url.pathname === '/oauth/token') {
+      const q = new URLSearchParams(raw);
+      const issue = () => {
+        const access = `ldo_${randomToken()}`;
+        const refresh = `ldr_${randomToken()}`;
+        users.set(access, { id: 'u1', handle: 'me' });
+        oauth.refresh.set(refresh, access);
+        return send(200, { access_token: access, refresh_token: refresh, token_type: 'Bearer', expires_in: 3600 });
+      };
+      if (q.get('grant_type') === 'authorization_code') {
+        const saved = oauth.codes.get(q.get('code'));
+        oauth.codes.delete(q.get('code'));
+        const s256 = createHash('sha256').update(q.get('code_verifier') ?? '').digest('base64url');
+        if (!saved || saved.challenge !== s256 || saved.redirect_uri !== q.get('redirect_uri')) return send(400, { error: 'invalid_grant' });
+        return issue();
+      }
+      if (q.get('grant_type') === 'refresh_token') {
+        const old = oauth.refresh.get(q.get('refresh_token'));
+        if (!old) return send(400, { error: 'invalid_grant' });
+        oauth.refresh.delete(q.get('refresh_token'));
+        users.delete(old);
+        return issue();
+      }
+      return send(400, { error: 'unsupported_grant_type' });
+    }
+    if (req.method === 'POST' && url.pathname === '/oauth/revoke') {
+      const q = new URLSearchParams(raw);
+      const access = oauth.refresh.get(q.get('token'));
+      oauth.refresh.delete(q.get('token'));
+      if (access) users.delete(access);
+      res.writeHead(200).end();
+      return undefined;
+    }
 
     const code_ = /^\/p\/([^/]+)\/code$/.exec(url.pathname);
     if (req.method === 'GET' && code_) {
@@ -104,7 +166,7 @@ export function startFakeServer({ port = 0, putLimit = 30, readLimit = 300, dump
     }
     if (!url.pathname.startsWith('/api/v1/')) return send(404, { error: 'not_found', message: 'Not found' });
 
-    const m = /^Bearer (ld_[A-Za-z0-9]{40})$/.exec(req.headers.authorization ?? '');
+    const m = /^Bearer (ldo?_[A-Za-z0-9]{40})$/.exec(req.headers.authorization ?? '');
     const user = m && users.get(m[1]);
     if (!user) return send(401, { error: 'unauthorized', message: 'The key is missing, wrong or deleted' });
 
@@ -167,7 +229,7 @@ export function startFakeServer({ port = 0, putLimit = 30, readLimit = 300, dump
   return new Promise((resolve) => {
     server.listen(port, '127.0.0.1', () => {
       base = `http://127.0.0.1:${server.address().port}`;
-      resolve({ url: base, works, calls, close: () => new Promise((r) => server.close(r)) });
+      resolve({ url: base, works, calls, oauth, users, close: () => new Promise((r) => server.close(r)) });
     });
   });
 }

@@ -97,7 +97,7 @@ jobs:
       - name: テスト
         # 報告の形だけを足す（render と rules の設定は node の型を持たないので、設定ではなく引数で渡す）
         run: npm test -w @ludion/ld -w @ludion/render -w @ludion/rules -- --reporter=list,html
-      - name: スキルのテスト（skills/ludion、偽のサーバーで。docs/tasks/T038.md）
+      - name: スキルとプラグインのテスト（plugins/ludion、偽のサーバーで。docs/tasks/T038.md、MCP001）
         if: success() || failure()
         run: npm run test:skill
       - name: 落ちたときの報告を残す

@@ -1,6 +1,7 @@
 import { ChevronRight } from 'lucide-react';
 import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router';
+import { AccountAiConnect } from '../components/AccountAiConnect';
 import { AccountAiKeys } from '../components/AccountAiKeys';
 import { AccountPasskeys, ReauthActions } from '../components/AccountPasskeys';
 import { Avatar } from '../components/Avatar';
@@ -399,6 +400,10 @@ export function AccountPage() {
 
           <Section heading={text.methods.heading}>
             <Methods data={state.data} reload={reload} />
+          </Section>
+
+          <Section heading={text.aiConnect.heading}>
+            <AccountAiConnect data={state.data} reload={reload} />
           </Section>
 
           <Section heading={text.aiKeys.heading}>

@@ -1,0 +1,17 @@
+{
+  "description": "After Claude Code writes or edits an .html file, put it on Ludion as \"Only me\" (a new version if it was put before).",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/auto-save.mjs\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

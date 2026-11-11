@@ -35,6 +35,8 @@ export interface OwnWork {
   thumb_h: number;
   reject_code: string | null;
   reject_note: string | null;
+  /** AI から置いたなら、その AI の名前（いちばん新しくそこから置いた版。MCP001「3」）。画面から置いただけなら null */
+  via?: string | null;
 }
 
 /** 直すために読む、いちばん新しい版の全部。 */

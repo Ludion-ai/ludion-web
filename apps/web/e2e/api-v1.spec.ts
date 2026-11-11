@@ -197,26 +197,27 @@ test.describe('AI の口 /api/v1', () => {
     const { secret, key } = await makeKey(owner.visitor);
     const part = unique('ripple-');
 
-    // 置く。題は <title> から。下書き（本人だけ）。サムネイルなし。url の言語は Accept-Language（ja なら言語のない道）
+    // 置く。題は <title> から。自分だけ（本人だけ、審査なし。MCP001）。サムネイルなし。url の言語は Accept-Language（ja なら言語のない道）
     const first = await put(secret, { html: workHtml(part) }, { 'Accept-Language': 'ja-JP,ja;q=0.9,en;q=0.5' });
-    expect(first).toEqual({ id: part, version: '1', url: `${ownOrigin()}/p/${part}`, code_url: `${ownOrigin()}/p/${part}/code`, visibility: 'draft' });
+    expect(first).toEqual({ id: part, version: '1', url: `${ownOrigin()}/p/${part}`, code_url: `${ownOrigin()}/p/${part}/code`, visibility: 'private' });
     const revision = latestRevision(part);
-    expect(revision).toMatchObject({ status: 'draft', version: '1', title: '波紋のボタン', made_with: 'ai-assisted', thumb_w: 0 });
-    expect(d1<{ status: string; remix_of: string | null }>(`SELECT status, remix_of FROM works WHERE id = ${quote(part)}`)[0]).toEqual({ status: 'draft', remix_of: null });
+    expect(revision).toMatchObject({ status: 'private', version: '1', title: '波紋のボタン', made_with: 'ai-assisted', thumb_w: 0 });
+    expect(d1<{ status: string; remix_of: string | null }>(`SELECT status, remix_of FROM works WHERE id = ${quote(part)}`)[0]).toEqual({ status: 'private', remix_of: null });
+    // どの AI から置いたか：鍵で X-Ludion-Client がなければ API
+    expect(d1<{ via: string | null }>(`SELECT via FROM revisions WHERE id = ${quote(revision.id)}`)[0].via).toBe('API');
     // 最後に使った日が入る（日の単位）
     const [used] = d1<{ last_used_at: number }>(`SELECT last_used_at FROM ai_keys WHERE id = ${quote(key.id)}`);
     expect(used.last_used_at % (24 * 60 * 60 * 1000)).toBe(0);
 
-    // 本人：作品のページは下書きの画面へ。枠で動く
+    // 本人：自分だけの作品のページが見える。残さない。枠で動く
     const own = await owner.visitor.fetch(first.url);
-    expect(own.status).toBe(302);
-    expect(own.headers.get('location')).toBe(`/new?work=${part}`);
+    expect(own.status).toBe(200);
     expect(own.headers.get('cache-control')).toBe('private, no-store');
-    expect((await owner.visitor.fetch(`/new?work=${part}`)).status).toBe(200);
+    expect(await own.text()).toContain(`/draft-frame/${revision.id}/desktop.html`);
     expect((await owner.visitor.fetch(`/draft-frame/${revision.id}/desktop.html`, { headers: FROM_IFRAME })).status).toBe(200);
     await page.context().addCookies([{ name: 'fake_user', value: owner.login, url: FAKE_GITHUB }]);
     await page.goto(`/auth/github?next=${encodeURIComponent(`/p/${part}`)}`);
-    await expect(page).toHaveURL(`/new?work=${part}`);
+    await expect(page).toHaveURL(`/p/${part}`);
     await expect(page.frameLocator('iframe[data-ld-frame]').first().getByRole('button', { name: '押す' })).toBeVisible();
 
     // ほかの人：ない作品と同じ 404
@@ -233,17 +234,22 @@ test.describe('AI の口 /api/v1', () => {
     expect(((await (await api(strangerKey, '/api/v1/works')).json()) as { works: unknown[] }).works).toEqual([]);
     expect(((await (await new Visitor().fetch('/api/works')).json()) as { works: { id: string }[] }).works.some((work) => work.id === part)).toBe(false);
 
-    // 新しい版。審査に出していない下書きは置き換わる（版の番号は変わらない）。題を渡せばその題
-    const second = await api(secret, `/api/v1/works/${part}/versions`, { method: 'POST', body: { html: workHtml(part, { label: '押して' }), title: '直した波紋' } });
+    // 新しい版。自分だけの作品は、審査なしですぐ今の版（版の番号が上がる）。題を渡せばその題。X-Ludion-Client が印になる
+    const second = await api(secret, `/api/v1/works/${part}/versions`, { method: 'POST', body: { html: workHtml(part, { label: '押して' }), title: '直した波紋' }, headers: { 'X-Ludion-Client': 'Claude Code' } });
     expect(second.status, await second.clone().text()).toBe(201);
-    expect(await second.json()).toEqual({ ...first, version: '1' });
-    expect(latestRevision(part)).toMatchObject({ title: '直した波紋', version: '1' });
+    expect(await second.json()).toEqual({ ...first, version: '2' });
+    expect(latestRevision(part)).toMatchObject({ title: '直した波紋', version: '2', status: 'private' });
+    expect(d1<{ version: string; status: string }>(`SELECT version, status FROM works WHERE id = ${quote(part)}`)[0]).toEqual({ version: '2', status: 'private' });
+    expect(d1<{ via: string | null }>(`SELECT via FROM revisions WHERE id = ${quote(latestRevision(part).id)}`)[0].via).toBe('Claude Code');
+    // 自分の置き場に、どの AI から来たかの印（いちばん新しく AI から置いた版）
+    const mine = (await (await owner.visitor.fetch('/api/post/works')).json()) as { works: { id: string; via: string | null; private: boolean }[] };
+    expect(mine.works.find((work) => work.id === part)).toMatchObject({ via: 'Claude Code', private: true });
 
     // 一覧と取得
     const list = (await (await api(secret, '/api/v1/works')).json()) as { works: Record<string, unknown>[] };
-    expect(list.works).toEqual([{ id: part, title: '直した波紋', visibility: 'draft', status: 'draft', version: '1', updated_at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), url: first.url }]);
+    expect(list.works).toEqual([{ id: part, title: '直した波紋', visibility: 'private', status: 'private', version: '2', updated_at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), url: first.url }]);
     const got = (await (await api(secret, `/api/v1/works/${part}`)).json()) as Record<string, string | null>;
-    expect(got).toMatchObject({ id: part, title: '直した波紋', visibility: 'draft', status: 'draft', version: '1', from: null, url: first.url });
+    expect(got).toMatchObject({ id: part, title: '直した波紋', visibility: 'private', status: 'private', version: '2', from: null, url: first.url });
     const code = got.code!.split('\n');
     expect(code[0]).toBe(`<!-- UI by @${owner.handle} — ludion.ai/p/${part} (MIT) -->`);
     expect(got.code).toContain('押して');
@@ -251,23 +257,23 @@ test.describe('AI の口 /api/v1', () => {
     // 取ったコードをそのまま置き直せる（クレジット行は外して作り直す）
     expect((await api(secret, `/api/v1/works/${part}/versions`, { method: 'POST', body: { html: got.code } })).status).toBe(201);
 
-    // 公開（審査に出して承認）した作品に置くと、その作品の下書きの版。公開の版は変わらない
+    // 本人がサイトで公開する（審査に出して承認）。その後に置くと、その作品の下書きの版。公開の版は変わらない
     const reviewer = await person('aireviewer');
     d1(`UPDATE users SET is_operator = 1 WHERE id = ${quote(reviewer.id)}`);
-    const draft = d1<{ id: string; content_hash: string }>(`SELECT id, content_hash FROM revisions WHERE work_id = ${quote(part)} AND status = 'draft'`)[0];
-    // 審査に出すにはサムネイルが要る。ここでは D1 で入れて、公開の流れだけを確かめる（サムネイルの扱いは post.spec.ts）
-    d1(`UPDATE revisions SET thumb_w = 800, thumb_h = 600 WHERE id = ${quote(draft.id)}`);
-    expect((await owner.visitor.post(`/api/post/revisions/${draft.id}/submit`, CONFIRM)).status).toBe(200);
+    const current = d1<{ id: string; content_hash: string }>(`SELECT id, content_hash FROM revisions WHERE work_id = ${quote(part)} AND version = '3'`)[0];
+    // 公開するにはサムネイルが要る。ここでは D1 で入れて、公開の流れだけを確かめる（サムネイルの扱いは post.spec.ts）
+    d1(`UPDATE revisions SET thumb_w = 800, thumb_h = 600 WHERE id = ${quote(current.id)}`);
+    expect((await owner.visitor.post(`/api/post/works/${part}/publish`, CONFIRM)).status).toBe(200);
     // 審査中は新しい版を置けない
     const inReview = await api(secret, `/api/v1/works/${part}/versions`, { method: 'POST', body: { html: workHtml(part) } });
     expect(inReview.status).toBe(409);
     expect((await inReview.json()).error).toBe('in_review');
-    expect((await reviewer.visitor.post(`/api/review/revisions/${draft.id}/approve`, { content_hash: draft.content_hash })).status).toBe(200);
+    expect((await reviewer.visitor.post(`/api/review/revisions/${current.id}/approve`, { content_hash: current.content_hash })).status).toBe(200);
     const third = await api(secret, `/api/v1/works/${part}/versions`, { method: 'POST', body: { html: workHtml(part, { label: '次の版' }) } });
     expect(third.status).toBe(201);
-    expect(await third.json()).toMatchObject({ id: part, version: '2', visibility: 'public' });
-    expect(latestRevision(part)).toMatchObject({ status: 'draft', version: '2' });
-    expect(d1<{ version: string; status: string }>(`SELECT version, status FROM works WHERE id = ${quote(part)}`)[0]).toEqual({ version: '1', status: 'approved' });
+    expect(await third.json()).toMatchObject({ id: part, version: '4', visibility: 'public' });
+    expect(latestRevision(part)).toMatchObject({ status: 'draft', version: '4' });
+    expect(d1<{ version: string; status: string }>(`SELECT version, status FROM works WHERE id = ${quote(part)}`)[0]).toEqual({ version: '3', status: 'approved' });
     expect(await (await new Visitor().fetch(`/p/${part}/code?public`)).text()).not.toContain('次の版');
 
     // 鍵を消すと 401

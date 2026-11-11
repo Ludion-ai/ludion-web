@@ -1,0 +1,12 @@
+{
+  "name": "ludion",
+  "owner": { "name": "Ludion", "url": "https://ludion.ai" },
+  "metadata": { "description": "Ludion (ludion.ai) for Claude Code" },
+  "plugins": [
+    {
+      "name": "ludion",
+      "source": "./plugins/ludion",
+      "description": "Saves every HTML file Claude Code writes to your Ludion as \"Only me\", automatically. Connect once with /ludion:connect."
+    }
+  ]
+}

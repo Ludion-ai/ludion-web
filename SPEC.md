@@ -220,6 +220,9 @@ CREATE TABLE handle_history (handle TEXT PRIMARY KEY, user_id TEXT NOT NULL, rel
 CREATE TABLE passkeys (credential_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, public_key TEXT NOT NULL, sign_count INTEGER NOT NULL DEFAULT 0, transports TEXT NOT NULL DEFAULT '[]', label TEXT, created_at INTEGER NOT NULL, last_used_at INTEGER); -- 持つのは公開鍵とその情報だけ。label は本人が付ける名前（任意）
 CREATE TABLE recovery_codes (code_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL); -- 回復のコードのハッシュ。1人に1つ。使ったら消える
 CREATE TABLE ai_keys (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL, created_at INTEGER NOT NULL, last_used_at INTEGER, deleted_at INTEGER); -- AI の鍵（/api/v1。docs/tasks/T037.md）。持つのは SHA-256 のハッシュだけ。1人5本まで。last_used_at は日の単位。消した鍵は deleted_at を入れて残し、退会で行ごと消す
+CREATE TABLE oauth_clients (id TEXT PRIMARY KEY, name TEXT NOT NULL, redirect_uris TEXT NOT NULL, secret_hash TEXT, created_at INTEGER NOT NULL); -- AI につなぐ（/mcp。MCP001）。動的に登録した AI のアプリの名前と戻り先。人に結ばない。一度もつながらなかった登録は7日で消す
+CREATE TABLE oauth_codes (code_hash TEXT PRIMARY KEY, client_id TEXT NOT NULL, user_id TEXT NOT NULL, redirect_uri TEXT NOT NULL, code_challenge TEXT NOT NULL, expires_at INTEGER NOT NULL); -- 「許可」の後の証のハッシュ。PKCE（S256）に結び、1回だけ使え、10分で切れる
+CREATE TABLE oauth_grants (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, client_id TEXT NOT NULL, client_name TEXT NOT NULL, access_hash TEXT NOT NULL UNIQUE, access_expires_at INTEGER NOT NULL, refresh_hash TEXT NOT NULL UNIQUE, refresh_expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, last_used_at INTEGER); -- つないでいる AI。トークンは SHA-256 のハッシュだけ（アクセス1時間、リフレッシュ180日で、使うたびに作り直す）。1人20まで。last_used_at は日の単位。切ったら、退会したら行ごと消す
 CREATE TABLE auth_flows (token_hash TEXT PRIMARY KEY, kind TEXT NOT NULL, data TEXT NOT NULL, expires_at INTEGER NOT NULL); -- ログインの途中の状態。cookie には乱数だけを渡す。1回だけ使え、短い時間で切れる
 CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL DEFAULT 0, last_used_at INTEGER NOT NULL DEFAULT 0, auth_at INTEGER NOT NULL DEFAULT 0); -- created_at と last_used_at は日の単位（UTC の0時）。auth_at はログインした時刻で、直近10分以内のログインを確かめるためだけに使う。IP と UA は持たない
 CREATE TABLE creators (id TEXT PRIMARY KEY, handle TEXT UNIQUE NOT NULL, name TEXT, kind TEXT NOT NULL DEFAULT 'person' CHECK (kind IN ('person','label')), avatar_url TEXT, x_url TEXT, site_url TEXT, user_id TEXT, created_at INTEGER NOT NULL); -- kind：label は運営のレーベル（CLAUDE.md 原則10）。handle は大文字と小文字を区別せずに一意。user_id は作者と人を結ぶ。結ばれていない作者の handle は、ほかの人が取れない
@@ -250,6 +253,7 @@ CREATE TABLE revisions (
   tokens_ok INTEGER NOT NULL DEFAULT 0, -- 10個のトークンに合っているか。データだけで、今は印を出さない
   is_remix INTEGER NOT NULL DEFAULT 0, -- 承認すると works.is_remix に写す
   remix_of TEXT, -- 作品の remix_of を写す
+  via TEXT, -- その版をどの AI から置いたか（つないだ AI の名前、AI の鍵なら X-Ludion-Client か API。MCP001）。画面から置いた版は NULL。持ち主の置き場にだけ出す
   reject_code TEXT, reject_note TEXT, created_by TEXT,
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, submitted_at INTEGER, reviewed_at INTEGER, reviewed_by TEXT,
   UNIQUE (work_id, version)
