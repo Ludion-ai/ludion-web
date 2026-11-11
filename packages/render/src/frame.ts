@@ -27,6 +27,14 @@ export const FRAME_CSP =
  */
 export const FRAME_RESPONSE_CSP = `sandbox ${FRAME_SANDBOX}; ${FRAME_CSP}; frame-ancestors 'self'`;
 
+/**
+ * 埋め込みの枠（/e/<id> の中の /frame/<id>/<version>/embed.html。EMBED001）の、応答の頭の CSP。
+ * frame-ancestors は親だけでなく上の全部の枠を見るので、外のサイト → /e/<id> → この枠、と重なると 'self' では止まる。
+ * だから、この応答だけ、どのサイトの枠の中でも開ける。sandbox と FRAME_CSP（通信、フォームの送信先）は FRAME_RESPONSE_CSP と同じ。
+ * ほかのサイトがこの枠を直に置くことは、Worker が Sec-Fetch-Site で断る（/e/<id> の印を飛ばさせない）。
+ */
+export const EMBED_FRAME_RESPONSE_CSP = `sandbox ${FRAME_SANDBOX}; ${FRAME_CSP}; frame-ancestors *`;
+
 /** ホストの要素の id。検査（ld check）とサイトがこの要素を探す。 */
 export const HOST_ID = 'ld-host';
 

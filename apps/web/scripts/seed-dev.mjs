@@ -279,6 +279,27 @@ try {
           .bind(id, privateFixtureId(id), privateRevisionId(id)),
       ]),
     ]);
+    // 公開していない作品の見本（EMBED001。e2e/embed.spec.ts が、埋め込みの住所の 404 を確かめる）。下書きと取り下げ。
+    // 中身は fx-toggle の公開の版を指す。id が seed- で始まるので、seed を流し直すと消えて入れ直る。一覧には出ない（承認していない）
+    for (const [id, workStatus, revisionStatus] of [
+      ['seed-embed-draft', 'draft', 'draft'],
+      ['seed-embed-withdrawn', 'rejected', 'revoked'],
+    ]) {
+      await db.batch([
+        db
+          .prepare(
+            `INSERT INTO works (id, creator_id, title, type, platform, category, subtype, tags, made_with, version, license, status, thumb_key, thumb_w, thumb_h, created_at)
+             SELECT ?1, creator_id, title, type, platform, category, subtype, tags, made_with, version, license, ?2, thumb_key, thumb_w, thumb_h, created_at FROM works WHERE id = 'fx-toggle'`,
+          )
+          .bind(id, workStatus),
+        db
+          .prepare(
+            `INSERT INTO revisions (id, work_id, version, status, r2_prefix, title, type, platform, category, subtype, tags, made_with, thumb_w, thumb_h, created_at, updated_at)
+             SELECT lower(hex(randomblob(16))), ?1, version, ?2, 'works/' || id || '/' || version, title, type, platform, category, subtype, tags, made_with, thumb_w, thumb_h, created_at, created_at FROM works WHERE id = 'fx-toggle'`,
+          )
+          .bind(id, revisionStatus),
+      ]);
+    }
     console.log(`見本：良いもの ${added}/${good.length}（ld upload 済みのものは飛ばす）、悪意のあるもの ${malicious.length}`);
   }
 } finally {

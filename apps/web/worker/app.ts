@@ -25,6 +25,7 @@ import { rateLimit } from './rateLimit';
 import { publicHandleCheck, signup } from './signup';
 import { renderSitemap } from './sitemap';
 import { renderWallPage } from './wall';
+import { renderEmbedPage } from './embed';
 import { WINDOWS_DOWNLOAD_URL } from './download';
 
 export const app = new Hono<{ Bindings: Env }>();
@@ -80,6 +81,8 @@ app.get('/p/:id', renderWorkPage);
 app.get('/p/:id/code', renderWorkCode);
 // 全画面の住所（WALL001）。壁紙のアプリが開く。言語の文字がないので、英語の道は作らない
 app.get('/p/:id/wall', renderWallPage);
+// 埋め込みの住所（EMBED001）。外のサイトの枠の中で開く。文字を出さないので、英語の道は作らない
+app.get('/e/:id', renderEmbedPage);
 // Windows アプリのダウンロード（APP001）。今の配り先へ送る
 app.get('/download/windows', (c) => c.redirect(WINDOWS_DOWNLOAD_URL, 302));
 app.get('/c/:handle', renderCreatorPage);
