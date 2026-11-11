@@ -156,6 +156,9 @@ const LATIN_ALLOWED = [
   'Lively',
   'Plash',
   'Windows',
+  // Windows アプリのプライバシーの文（STORE001）。読む先の名前
+  'ludion.ai',
+  'API',
   'Mac',
   'GPU',
   'PC',

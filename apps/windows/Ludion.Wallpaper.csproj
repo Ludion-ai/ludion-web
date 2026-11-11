@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Ludion の Windows アプリ（動く壁紙）。docs/tasks/APP001.md（ludion-app）。
+    - 段階 A：1つの .exe（署名なし）。ダウンロードした .exe を開くと、自分を %LOCALAPPDATA%\Programs\Ludion に写して入る（scripts/build.ps1 -Target exe）
+    - Store：MSIX（scripts/build.ps1 -Target msix）。署名は Store がする
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Ludion</AssemblyName>
+    <RootNamespace>Ludion.Wallpaper</RootNamespace>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Package\Assets\ludion.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <Company>Ludion</Company>
+    <Product>Ludion</Product>
+    <Description>Ludion</Description>
+    <Copyright>Ludion</Copyright>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <SatelliteResourceLanguages>en;ja</SatelliteResourceLanguages>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!-- 段階 A の1つの .exe。WebView2Loader.dll も中に入れ、開くときに取り出す -->
+  <PropertyGroup Condition="'$(LudionSingleFile)' == 'true'">
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="src\picker.html" LogicalName="picker.html" />
+    <EmbeddedResource Include="Package\Assets\tray.ico" LogicalName="tray.ico" />
+    <Compile Remove="tests\**" />
+    <None Remove="tests\**" />
+    <Compile Remove="bin\**;obj\**;out\**" />
+  </ItemGroup>
+
+  <!-- WebView2 の WPF の部品は使わない（WinForms だけ）。入れると WindowsBase の版がぶつかる -->
+  <Target Name="LudionDropWebView2Wpf" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf'" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Ludion.Wallpaper.Tests" />
+  </ItemGroup>
+
+</Project>

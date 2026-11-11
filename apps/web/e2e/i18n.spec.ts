@@ -37,6 +37,7 @@ test.describe('英語のブラウザ', () => {
     await page.goto('/en/privacy');
     await expect(page.getByRole('heading', { name: copyEn.privacy.heading, level: 1 })).toBeVisible();
     await expect(page.getByText(copyEn.privacy.translationNote!)).toBeVisible();
+    await expect(page.getByRole('heading', { name: copyEn.privacy.windowsApp.heading })).toBeVisible();
   });
 
   test('ブラウザの言語のどこかに日本語があれば、日本語のまま', async ({ page }) => {

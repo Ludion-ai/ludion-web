@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Store に出す MSIX の決まり（scripts/build.ps1 -Target msix が __…__ を埋める）。
+  - Identity の Name と Publisher は、Partner Center でアプリの名前を取った後に出る値（CEO の登録の後）。
+  - ludion:// の住所と、Windows の起動で始めること（初めは「始める」）を、ここで Windows に伝える。
+  - 外へは ludion.ai を読むだけ（internetClient）。
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap3 desktop rescap">
+
+  <Identity Name="__IDENTITY_NAME__" Publisher="__PUBLISHER__" Version="__VERSION__" ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Ludion</DisplayName>
+    <PublisherDisplayName>__PUBLISHER_DISPLAY_NAME__</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="ja-JP" />
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Applications>
+    <Application Id="Ludion" Executable="Ludion.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Ludion"
+        Description="Ludion の動く壁紙を、デスクトップのアイコンの後ろに出します。"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <!-- ludion://wall/<id> を、引数としてアプリに渡す -->
+        <uap3:Extension Category="windows.protocol">
+          <uap3:Protocol Name="ludion" Parameters="&quot;%1&quot;" />
+        </uap3:Extension>
+        <desktop:Extension Category="windows.startupTask" Executable="Ludion.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="LudionStartup" Enabled="true" DisplayName="Ludion" />
+        </desktop:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

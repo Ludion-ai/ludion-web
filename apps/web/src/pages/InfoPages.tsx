@@ -76,7 +76,7 @@ function Rows({ rows }: { rows: { term: string; detail: ReactNode }[] }) {
 export function PrivacyPage() {
   const copy = useCopy();
   const locale = useLocale();
-  const { updated, translationNote, intro, stored, notStored, external, thirdParty, requests, changes } = copy.privacy;
+  const { updated, translationNote, intro, stored, notStored, external, windowsApp, thirdParty, requests, changes } = copy.privacy;
   const { analytics, cloudflare, github, googleLogin } = external;
   return (
     <InfoPage heading={copy.privacy.heading}>
@@ -108,6 +108,10 @@ export function PrivacyPage() {
         <p className="mt-1">{github.detail}</p>
         <h3 className="mt-6 font-semibold">{googleLogin.heading}</h3>
         <p className="mt-1">{googleLogin.detail}</p>
+      </Section>
+
+      <Section heading={windowsApp.heading}>
+        <p className="mt-3">{windowsApp.detail}</p>
       </Section>
 
       <Section heading={thirdParty.heading}>
