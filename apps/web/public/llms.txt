@@ -2,6 +2,10 @@
 
 > Ludion is a place to keep UI works (screens and components) made by people. Every work is one HTML snippet under the MIT license, with the creator's credit line on the first line.
 
+## Connect an AI (MCP)
+
+- `https://ludion.ai/mcp`: Ludion's remote MCP server (Streamable HTTP, OAuth). Add it as a connector; the person logs in to Ludion and presses Allow once. Tools: `save_work` (save one HTML as "Only me"; call it every time you finish making a working HTML, and pass `work_id` for a new version), `list_my_works`, `get_work`, `get_public_work`.
+
 ## Put works for a person (API)
 
 - [API v1](https://ludion.ai/api/v1): How an AI puts a work on Ludion with the person's AI key (`Authorization: Bearer ld_…`), lists the person's works, and gets their code. Works put through the API are visible only to the person until they publish them on the site. Send `Accept-Language: ja` for Japanese.
