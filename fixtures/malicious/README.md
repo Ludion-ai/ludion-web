@@ -11,5 +11,6 @@
 | `mal-nav-loop` | 読み込みの途中で枠を移す（元の文書の `load` は起きない） | 同じく外へ届かない。止められた枠を親の見張りが読み直し、続けば枠を空にする（T012） |
 | `mal-nav-alias` | 入力を読み、`location` を別名で参照して、枠を外へ移して入力を送る（SEC001 の R1） | 同じく外へ届かない（T022） |
 | `mal-nav-fake-ready` | 最初の `load` の前に枠を移す。移った先が `ld-frame-loaded` を真似すると、親の見張りをすり抜ける（SEC001 の R1） | 同じく外へ届かない（T022） |
+| `mal-doc` | 文書の作品（DOC001。`index.html` だけで、作品の契約の形ではない）。外を読む `<script src>`、`<link>`、`<img>`、押すと `fetch`、`sendBeacon`、`WebSocket`、`top` の移動、親の DOM、`window.open`、外へのフォームの送信、外へのリンク、枠の移動 | 今の枠と同じ守りで、どれも外へ届かない。`window.open` は `null`。フォームは `form-action` で止まる |
 
-`mal-cookie`、`mal-top`、`mal-parent` は、結果を根の `data-*` に書く。テスト（`apps/web/e2e/pages.spec.ts`）はそれと、外へのリクエストと、親のページを見る。sandbox を外した対照では、この3つの攻撃が成功することも確かめる。`mal-nav*` は `apps/web/e2e/frame-escape.spec.ts` が、Chromium、WebKit、Firefox で確かめる（親の CSP を外した対照では、外へ届く）。
+`mal-cookie`、`mal-top`、`mal-parent` は、結果を根の `data-*` に書く。テスト（`apps/web/e2e/pages.spec.ts`）はそれと、外へのリクエストと、親のページを見る。sandbox を外した対照では、この3つの攻撃が成功することも確かめる。`mal-nav*` は `apps/web/e2e/frame-escape.spec.ts` が、Chromium、WebKit、Firefox で確かめる（親の CSP を外した対照では、外へ届く）。`mal-doc` は `apps/web/e2e/frame-document.spec.ts` が、同じ3つのブラウザで確かめる（枠の応答の CSP を外した対照では、外へ届く）。

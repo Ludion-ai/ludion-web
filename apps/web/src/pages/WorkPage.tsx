@@ -27,6 +27,9 @@ const SHARE_ORIGIN = 'https://ludion.ai';
 /** 幅767px以下で、たたんだコードの箱：3行（16px × 3）＋上下の余白（12px × 2）＋枠（1px × 2）。text-small の行の高さに合わせる */
 const COLLAPSED_CODE = 'max-md:max-h-[74px] max-md:overflow-hidden';
 
+/** 枠の入れ物の直後で、枠を読み始める（関数は #root より前の src/previewStart.ts が置く）。Worker の HTML とブラウザで同じ文字列にする */
+const PREVIEW_START_CALL = { __html: 'window.__ldStartPreview&&window.__ldStartPreview()' };
+
 const whiteButton =
   'inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-control border border-site-line-2 bg-site-bg text-body font-semibold text-site-fg hover:bg-site-hover';
 
@@ -201,6 +204,8 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
       <div className="grid grid-cols-1 gap-8 md:mt-[27px] lg:grid-cols-[minmax(0,65fr)_minmax(0,35fr)]">
         <div className="min-w-0">
           <FramePreview key={work.id} work={work} background={background} frames={page.private?.frames ?? null} />
+          {/* 枠を、HTML が届き終わるのを待たずに読み始める（PERF002「1」）。Worker の HTML でだけ動く（React が後から作った script は動かない） */}
+          <script dangerouslySetInnerHTML={PREVIEW_START_CALL} />
           {/* 1023px以下：「コードをコピー」は最初の画面の外なので、プレビューのすぐ下に置く。浮かせない（作品の枠に重なるため。docs/tasks/FIX-remix-button.md） */}
           {!isPrivate && remixButton('mt-3 lg:hidden')}
         </div>
@@ -334,7 +339,8 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
               codeOpen ? '' : COLLAPSED_CODE
             }`}
           >
-            <code>{snippet}</code>
+            {/* この文字が「コピーされるコード」になる（ページの JSON には入れない。lib/codeText.ts の CODE_ATTRIBUTE） */}
+            <code data-ld-code="">{snippet}</code>
           </pre>
           <button
             type="button"

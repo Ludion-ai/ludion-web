@@ -154,7 +154,7 @@ export const DPR_SCRIPT =
 
 // この文書の load を親に知らせる（apps/web/src/frameGuard.ts）。読み込みの途中に枠が移ると、知らせが来ないので、親が読み直す。
 // 作品の JS より先に仕掛ける。
-const LOADED_SCRIPT = `addEventListener('load',()=>parent.postMessage('ld-frame-loaded','*'));`;
+export const LOADED_SCRIPT = `addEventListener('load',()=>parent.postMessage('ld-frame-loaded','*'));`;
 
 function mountScript(js: string): string {
   // 作品のコードと同じモジュールの中で mount を呼ぶ。名前がぶつからないよう、こちらの名前は __ld で始める。

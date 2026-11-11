@@ -1,6 +1,6 @@
 // 作品の版を読む（docs/tasks/T021.md、SEC001 A07）。投稿、審査、枠、画像で同じものを使う。
 
-import type { Work } from '@ludion/render';
+import { DOCUMENT_FILE, type Work } from '@ludion/render';
 import type { Env } from './env';
 import type { SessionUser } from './session';
 
@@ -44,12 +44,22 @@ export const revisionFile = (prefix: string, name: string) => `${prefix}/${name}
 export const draftFrameUrls = (id: string) => ({ desktop: `/draft-frame/${id}/desktop.html`, mobile: `/draft-frame/${id}/mobile.html` });
 export const draftThumbUrl = (id: string) => `/draft-thumb/${id}.webp`;
 
-/** R2 から版のファイルを読む。part.html か part.css か meta.json がなければ null。 */
+/**
+ * R2 から版のファイルを読む。part.html か part.css か meta.json がなければ null。
+ * 文書の作品（meta.json の format が document。DOC001）は index.html を読み、html と css を空、js を null にして返す。
+ * index.html は part.html がないときだけ読むので、今ある作品の読み方（R2 を読む回数）は変わらない。
+ */
 export async function loadRevisionFiles(bucket: R2Bucket, prefix: string): Promise<Work | null> {
   const read = async (name: string) => (await bucket.get(revisionFile(prefix, name)))?.text() ?? null;
   const [meta, html, css, js] = await Promise.all([read('meta.json'), read('part.html'), read('part.css'), read('part.js')]);
-  if (meta === null || html === null || css === null) return null;
-  return { meta: JSON.parse(meta) as Work['meta'], html, css, js };
+  if (meta === null) return null;
+  const parsed = JSON.parse(meta) as Work['meta'];
+  if (html === null && parsed.format === 'document') {
+    const document = await read(DOCUMENT_FILE);
+    return document === null ? null : { meta: parsed, html: '', css: '', js: null, document };
+  }
+  if (html === null || css === null) return null;
+  return { meta: parsed, html, css, js };
 }
 
 /** 公開してよい版の置き場。作品も版も承認済みのときだけ（前の版も、取り下げるまでは返す）。 */
