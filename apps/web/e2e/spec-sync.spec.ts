@@ -228,7 +228,8 @@ test.describe('サイトの文言は日本語（SPEC 9）', () => {
   test('作品の種類は、置いてある作品と見本のすべてに日本語がある', () => {
     const worksDir = new URL('../../../works/', import.meta.url);
     const subtypes = readdirSync(worksDir)
-      .filter((id) => statSync(new URL(`${id}/`, worksDir)).isDirectory())
+      // works/ にはファイル（LICENSE.md）もある。名前の後に / を付けて stat すると、Linux ではファイルで ENOTDIR になる
+      .filter((id) => statSync(new URL(id, worksDir)).isDirectory())
       .map((id) => JSON.parse(readFileSync(new URL(`${id}/meta.json`, worksDir), 'utf8')).subtype as string);
     const seed = JSON.parse(read('../../../seed/works.json'));
     subtypes.push(...(Array.isArray(seed) ? seed : seed.works).map((work: { subtype: string }) => work.subtype));
