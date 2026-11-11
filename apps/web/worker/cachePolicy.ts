@@ -67,6 +67,8 @@ export function applyCachePolicy(response: Response, method: string, pathname: s
   copy.headers.delete('Cache-Tag');
   copy.headers.set('Cache-Control', DEFAULT_CACHE_CONTROL);
   if ((method !== 'GET' && method !== 'HEAD') || response.status !== 200 || response.headers.has('Set-Cookie')) return copy;
+  // 道が自分で no-store を付けた応答は、許可リストの道でも残さない（自分だけの作品のページ。docs/tasks/T036.md「2」）
+  if (response.headers.get('Cache-Control')?.includes('no-store')) return copy;
 
   for (const rule of CACHE_RULES) {
     const match = rule.path.exec(pathname);

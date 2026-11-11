@@ -58,7 +58,7 @@ function MotionNotice({ shown }: { shown: boolean }) {
  * 親から枠の中は見えないので、地の色は Worker が part.css から読んで渡す。
  * 枠が自分で移ったときに読み直すのは src/frameGuard.ts（data-ld-frame を目印にする）。
  */
-export function FramePreview({ work, background }: { work: Work; background: string | null }) {
+export function FramePreview({ work, background, frames = null }: { work: Work; background: string | null; frames?: { desktop: string; mobile: string } | null }) {
   const copy = useCopy();
   const isComponent = work.type === 'component';
   const webScreen = !isComponent && work.platform !== 'mobile';
@@ -124,7 +124,8 @@ export function FramePreview({ work, background }: { work: Work; background: str
             data-ld-frame=""
             title={copy.work.frameTitle(work.title)}
             sandbox={SANDBOX}
-            src={frameUrl(work, isComponent ? 'desktop' : size, motion)}
+            // 自分だけの作品は下書きの枠（持ち主だけに返す。docs/tasks/T036.md「2」）。守りは公開の枠と同じ
+            src={frames ? `${frames[isComponent ? 'desktop' : size]}${motion ? '?motion=1' : ''}` : frameUrl(work, isComponent ? 'desktop' : size, motion)}
             className={FRAME_CLASS[shape]}
           />
           {work.tags.includes('motion') && (

@@ -14,7 +14,7 @@ export interface RevisionRow {
   id: string;
   work_id: string;
   version: string;
-  status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'revoked';
+  status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'revoked' | 'private';
   r2_prefix: string;
   content_hash: string;
   title: string;
@@ -96,20 +96,56 @@ export async function remixSource(db: D1Database, workId: string | null): Promis
     .first<{ id: string; title: string; handle: string; status: string }>();
 }
 
-/** 版と持ち主。 */
-export async function ownedRevision(db: D1Database, revisionId: string): Promise<(RevisionRow & { owner_id: string | null }) | null> {
+/** 版と持ち主と、作品の状態。 */
+export async function ownedRevision(db: D1Database, revisionId: string): Promise<(RevisionRow & { owner_id: string | null; work_status: string }) | null> {
   return db
     .prepare(
-      `SELECT r.*, c.user_id AS owner_id FROM revisions r
+      `SELECT r.*, c.user_id AS owner_id, w.status AS work_status FROM revisions r
        JOIN works w ON w.id = r.work_id JOIN creators c ON c.id = w.creator_id WHERE r.id = ?`,
     )
     .bind(revisionId)
-    .first<RevisionRow & { owner_id: string | null }>();
+    .first<RevisionRow & { owner_id: string | null; work_status: string }>();
 }
 
-/** 公開前の版を見てよいか：持ち主と運営だけ（docs/tasks/T021.md「下書きの見え方」）。ほかの人には、あることも教えない。 */
+/**
+ * 運営がこの版を見てよいか。自分だけの作品は、審査に出された版のほかは見ない（docs/tasks/T036.md「2」）。
+ * 自分だけで置いた版（private）は、作品を後で公開しても審査していないので見ない。
+ */
+export const operatorMaySee = (revision: Pick<RevisionRow, 'status'> & { work_status: string }): boolean =>
+  revision.status !== 'private' && (revision.work_status !== 'private' || revision.status === 'submitted');
+
+/**
+ * 公開前の版を見てよいか：持ち主と運営だけ（docs/tasks/T021.md「下書きの見え方」）。ほかの人には、あることも教えない。
+ * 自分だけの作品の版は、持ち主だけ（運営は審査に出された版だけ。operatorMaySee）。
+ */
 export async function readableRevision(db: D1Database, revisionId: string, user: SessionUser | null): Promise<RevisionRow | null> {
   if (!user || !REVISION_ID.test(revisionId)) return null;
   const revision = await ownedRevision(db, revisionId);
-  return revision && (revision.owner_id === user.id || user.isOperator) ? revision : null;
+  return revision && (revision.owner_id === user.id || (user.isOperator && operatorMaySee(revision))) ? revision : null;
+}
+
+/** 自分だけの作品の上限（docs/tasks/T036.md「5」）。1人100作品まで。 */
+export const PRIVATE_WORKS_LIMIT = 100;
+
+/** その人の自分だけの作品の数。except の作品は数えない（今の作品を数え直さないため）。 */
+export async function countPrivateWorks(db: D1Database, userId: string, except: string | null = null): Promise<number> {
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS n FROM works w JOIN creators c ON c.id = w.creator_id WHERE c.user_id = ?1 AND w.status = 'private' AND (?2 IS NULL OR w.id <> ?2)`)
+    .bind(userId, except)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/**
+ * 自分だけの作品の今の版（works.version の版）。持ち主だけに返す。ほかの人（運営も）には null で、ない作品と同じに見せる。
+ */
+export async function privateCurrentRevision(db: D1Database, workId: string, user: Pick<SessionUser, 'id'> | null): Promise<RevisionRow | null> {
+  if (!user) return null;
+  return db
+    .prepare(
+      `SELECT r.* FROM works w JOIN creators c ON c.id = w.creator_id JOIN revisions r ON r.work_id = w.id AND r.version = w.version
+       WHERE w.id = ? AND w.status = 'private' AND c.user_id = ?`,
+    )
+    .bind(workId, user.id)
+    .first<RevisionRow>();
 }

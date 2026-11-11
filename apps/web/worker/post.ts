@@ -26,7 +26,7 @@ import type { Env } from './env';
 import { isSameOrigin } from './origin';
 import { purgeWithRetry } from './purge';
 import { takePostQuota } from './quota';
-import { REVISION_ID, canPost, draftFrameUrls, draftThumbUrl, loadRevisionFiles, ownedRevision, ownedWork, revisionFile, type RevisionRow } from './revisions';
+import { PRIVATE_WORKS_LIMIT, REVISION_ID, canPost, countPrivateWorks, draftFrameUrls, draftThumbUrl, loadRevisionFiles, ownedRevision, ownedWork, revisionFile, type RevisionRow } from './revisions';
 import { getSessionUser, randomHex, type SessionUser } from './session';
 import type { ThumbError, ThumbResult } from './thumb';
 import { CONTENT_TYPES, compareVersions } from './upload';
@@ -527,7 +527,8 @@ post.post('/works/:id/discard', async (c) => {
 /** 自分の作品を全部。状態は、いちばん新しい版のもの。 */
 post.get('/works', async (c) => {
   const { results } = await c.env.DB.prepare(
-    `SELECT w.id, w.status AS work_status, w.version AS public_version, r.id AS revision_id, r.version, r.status, r.title, r.category, r.subtype, r.thumb_w, r.thumb_h, r.reject_code, r.reject_note, r.updated_at
+    `SELECT w.id, w.status AS work_status, w.version AS public_version, r.id AS revision_id, r.version, r.status, r.title, r.category, r.subtype, r.thumb_w, r.thumb_h, r.reject_code, r.reject_note, r.updated_at,
+       (SELECT COUNT(*) FROM revisions v WHERE v.work_id = w.id) AS versions
      FROM works w
      JOIN creators c ON c.id = w.creator_id
      JOIN revisions r ON r.id = (SELECT id FROM revisions WHERE work_id = w.id ORDER BY created_at DESC, rowid DESC LIMIT 1)
@@ -540,6 +541,8 @@ post.get('/works', async (c) => {
     works: results.map((row) => ({
       ...row,
       public: row.work_status === 'approved',
+      // 自分だけの作品（docs/tasks/T036.md「3」）。public_version はこのとき、本人だけが見る今の版
+      private: row.work_status === 'private',
       thumb: Number(row.thumb_w) > 0 ? draftThumbUrl(row.revision_id) : null,
     })),
   });
@@ -559,6 +562,7 @@ post.get('/works/:id', async (c) => {
   return c.json({
     id: work.id,
     public: work.status === 'approved',
+    private: work.status === 'private',
     public_version: work.version,
     revision: {
       id: revision.id,
@@ -628,4 +632,122 @@ post.post('/works/:id/revoke', async (c) => {
   // サムネイルも消す。当たると Worker を通らないので、取り下げた作品の画像が出続ける
   const purged = work.status === 'approved' ? await purge(c, [CATALOG_TAG, workTag(work.id)]) : true;
   return c.json({ id: work.id, status: 'revoked', catalog_purged: purged });
+});
+
+/**
+ * 自分だけで置く（docs/tasks/T036.md「1」）。審査に出さず、すぐ今の版になる。本人だけが見られる。
+ * 検査は保存のときに通っている。同意の3つと題は、審査に出すときと同じに要る。サムネイルは無くてよい。
+ * 公開している作品の新しい版は、今までどおり審査する（原則5）ので、ここでは置けない。
+ */
+post.post('/revisions/:rid/place', async (c) => {
+  const rid = c.req.param('rid');
+  if (!REVISION_ID.test(rid)) return c.json({ error: 'not_found' }, 404);
+  const db = c.env.DB;
+  const user = c.get('user');
+  if (!canPost(c.env, user)) return c.json({ error: 'not_found' }, 404);
+  const revision = await ownedRevision(db, rid);
+  if (!revision) return c.json({ error: 'not_found' }, 404);
+  if (revision.owner_id !== user.id) return c.json({ error: 'forbidden' }, 403);
+  if (!(await readConfirmations(c))) return c.json({ error: 'confirm_required' }, 400);
+  if (revision.status !== 'draft') return c.json({ error: 'not_draft' }, 409);
+  if (revision.work_status === 'approved') return c.json({ error: 'public' }, 409);
+  if (revision.title.trim() === '') return c.json({ error: 'title_required' }, 422);
+  if (revision.work_status !== 'private' && (await countPrivateWorks(db, user.id, revision.work_id)) >= PRIVATE_WORKS_LIMIT) {
+    return c.json({ error: 'private_limit', limit: PRIVATE_WORKS_LIMIT }, 409);
+  }
+  const now = Date.now();
+  // 1つのトランザクション。版が置けたときだけ（changes() > 0）、作品の今の値をこの版にする。確かめた後に公開された作品には置かない
+  const [placed, current] = await db.batch([
+    db
+      .prepare(
+        `UPDATE revisions SET status = 'private', updated_at = ?1
+         WHERE id = ?2 AND status = 'draft' AND title <> '' AND EXISTS (SELECT 1 FROM works WHERE id = ?3 AND status <> 'approved')`,
+      )
+      .bind(now, rid, revision.work_id),
+    db
+      .prepare(
+        `UPDATE works SET status = 'private', reject_reason = NULL, title = ?1, type = ?2, platform = ?3, category = ?4, subtype = ?5, tags = ?6, made_with = ?7,
+           version = ?8, thumb_key = ?9, thumb_w = ?10, thumb_h = ?11, is_remix = ?12
+         WHERE id = ?13 AND status <> 'approved' AND changes() > 0`,
+      )
+      .bind(
+        revision.title,
+        revision.type,
+        revision.platform,
+        revision.category,
+        revision.subtype,
+        revision.tags,
+        revision.made_with,
+        revision.version,
+        revision.thumb_w > 0 ? revisionFile(revision.r2_prefix, 'thumb.webp') : '',
+        revision.thumb_w,
+        revision.thumb_h,
+        revision.is_remix,
+        revision.work_id,
+      ),
+  ]);
+  if (placed.meta.changes === 0 || current.meta.changes === 0) return c.json({ error: 'not_draft' }, 409);
+  return c.json({ id: rid, status: 'private', work_id: revision.work_id, version: revision.version });
+});
+
+/**
+ * 自分だけ → 公開する（docs/tasks/T036.md「4」）。今の版を審査に出す。承認されるまで、ほかの人には見えないまま。
+ * 差し戻されたら自分だけのまま。前に公開していた版でも、もう一度審査する。
+ */
+post.post('/works/:id/publish', async (c) => {
+  const db = c.env.DB;
+  const user = c.get('user');
+  if (!canPost(c.env, user)) return c.json({ error: 'not_found' }, 404);
+  const work = await ownedWork(db, c.req.param('id'));
+  if (!work) return c.json({ error: 'not_found' }, 404);
+  if (work.owner_id !== user.id) return c.json({ error: 'forbidden' }, 403);
+  if (!(await readConfirmations(c))) return c.json({ error: 'confirm_required' }, 400);
+  if (work.status !== 'private') return c.json({ error: 'not_private' }, 409);
+  const revision = await db.prepare('SELECT * FROM revisions WHERE work_id = ? AND version = ?').bind(work.id, work.version).first<RevisionRow>();
+  if (!revision || (revision.status !== 'private' && revision.status !== 'approved')) return c.json({ error: 'not_placed' }, 409);
+  if (revision.title.trim() === '') return c.json({ error: 'title_required' }, 422);
+  if (revision.thumb_w <= 0) return c.json({ error: 'thumb_required' }, 422);
+  // 承認は見た中身のハッシュで結ぶ。ld upload の版はハッシュがないので、ここからは出せない
+  if (!revision.content_hash) return c.json({ error: 'not_placed' }, 409);
+  const now = Date.now();
+  let changes: number;
+  try {
+    const result = await db
+      .prepare(
+        `UPDATE revisions SET status = 'submitted', submitted_at = ?1, updated_at = ?1
+         WHERE id = ?2 AND status IN ('private', 'approved') AND title <> '' AND thumb_w > 0
+           AND EXISTS (SELECT 1 FROM works WHERE id = ?3 AND status = 'private' AND version = ?4)`,
+      )
+      .bind(now, revision.id, work.id, revision.version)
+      .run();
+    changes = result.meta.changes;
+  } catch {
+    // 直している途中の下書きがある（直している版は1つの作品に1つまで）
+    return c.json({ error: 'has_draft' }, 409);
+  }
+  if (changes === 0) return c.json({ error: 'not_placed' }, 409);
+  return c.json({ id: work.id, status: 'submitted', revision_id: revision.id, version: revision.version });
+});
+
+/**
+ * 公開 → 自分だけにする（docs/tasks/T036.md「4」）。すぐ。審査はしない。ホームと検索から消え、リンクを開いても 404 になる。
+ * 閲覧数とコピー数、ほかの人のリミックスは残す。審査待ちの新しい版は審査から外して下書きに戻す（承認で公開に戻らないように）。
+ */
+post.post('/works/:id/make-private', async (c) => {
+  const db = c.env.DB;
+  const user = c.get('user');
+  const work = await ownedWork(db, c.req.param('id'));
+  if (!work) return c.json({ error: 'not_found' }, 404);
+  if (work.owner_id !== user.id) return c.json({ error: 'forbidden' }, 403);
+  if (work.status !== 'approved') return c.json({ error: 'not_public' }, 409);
+  if ((await countPrivateWorks(db, user.id, work.id)) >= PRIVATE_WORKS_LIMIT) return c.json({ error: 'private_limit', limit: PRIVATE_WORKS_LIMIT }, 409);
+  const now = Date.now();
+  const [changed] = await db.batch([
+    db.prepare(`UPDATE works SET status = 'private' WHERE id = ? AND status = 'approved'`).bind(work.id),
+    db.prepare(`UPDATE revisions SET status = 'draft', updated_at = ?1 WHERE work_id = ?2 AND status = 'submitted' AND changes() > 0`).bind(now, work.id),
+  ]);
+  if (changed.meta.changes === 0) return c.json({ error: 'not_public' }, 409);
+  // 一覧と作品のページ、サムネイルを、どの層からも消す（取り下げと同じ札）
+  const purged = await purge(c, [CATALOG_TAG, workTag(work.id)]);
+  return c.json({ id: work.id, status: 'private', catalog_purged: purged });
 });

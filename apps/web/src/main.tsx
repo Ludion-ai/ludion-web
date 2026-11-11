@@ -27,12 +27,14 @@ function embedded<T>(id: string): T | null {
   return text ? (JSON.parse(text) as T) : null;
 }
 
+const pageData = embedded<PageData>('ld-page');
+
 const app = (
   <StrictMode>
     <BrowserRouter basename={routerBasename(locale)}>
       <LocaleProvider locale={locale}>
         <WorksProvider initial={embedded<Work[]>('ld-works')}>
-          <PageDataProvider value={embedded<PageData>('ld-page')}>
+          <PageDataProvider value={pageData}>
             <App />
           </PageDataProvider>
         </WorksProvider>
@@ -44,7 +46,8 @@ const app = (
 // Worker が描いた HTML の上に載せる。#root が空のページ（作っていないページ）は、ここで描く。
 // 別の言語へ移るところなら動かさない。閲覧数を二重に数えず、GA4 にも送らない
 if (!window.__ldLeaving) {
-  startAnalytics();
+  // 自分だけの作品のページでは GA4 を動かさない。ページの URL に作品の ID が入るため（docs/tasks/T036.md「2」）
+  if (!(pageData?.kind === 'work' && pageData.private)) startAnalytics();
   if (container.firstElementChild) hydrateRoot(container, app);
   else createRoot(container).render(app);
 }

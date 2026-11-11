@@ -2,7 +2,9 @@
 // 親のページの応答の CSP（frame-src 'self'）で、枠の移動そのものを止める。未許可の宛先への到達は0。
 // playwright.config.ts の escape-* で、Chromium、WebKit、Firefox の全部で流す。サーバーは pages と同じ（悪意のある見本が入っている）。
 // T035「3」：ヘッダーのスイッチの枠（/frame/<id>/<version>/inline.html）でも、同じ試験を流す（FORMS）。
+// T036：自分だけの作品の枠（持ち主にだけ返す /draft-frame/<版の id>/desktop.html）でも、同じ試験を流す（FORMS の private）。
 import { expect, test, type BrowserContext, type Frame, type Locator, type Page } from '@playwright/test';
+import { PRIVATE_OWNER, privateFixtureId, privateRevisionId } from '../scripts/private-fixture.mjs';
 
 const SYNTHETIC_INPUT = 'ld-synthetic-input';
 /** 親の見張りが「読み込めた」の知らせを待つ時間（src/frameGuard.ts の CONFIRM_WAIT_MS）より長く */
@@ -14,10 +16,18 @@ const ownOrigin = () => new URL(test.info().project.use.baseURL!).origin;
  * 作品が動く枠の形。
  * - desktop：作品のページの主の枠（/p/<id> の /frame/<id>/<version>/desktop.html）
  * - inline：ヘッダーのスイッチの枠（T035「3」）。作品を固定して、作品の枠のない /about で開く
+ * - private：自分だけの作品のページの枠（T036）。見本の持ち主でログインして開く（scripts/private-fixture.mjs が入れた見本）
  */
 const FORMS = [
-  { name: 'desktop', file: 'desktop.html', frame: 'iframe[data-ld-frame]', pagePath: (id: string) => `/p/${id}` },
-  { name: 'inline', file: 'inline.html', frame: 'iframe[data-ld-switch-frame]', pagePath: (_id: string) => '/about' },
+  { name: 'desktop', file: 'desktop.html', frame: 'iframe[data-ld-frame]', pagePath: (id: string) => `/p/${id}`, framePath: (id: string) => `/frame/${id}/1/desktop.html` },
+  { name: 'inline', file: 'inline.html', frame: 'iframe[data-ld-switch-frame]', pagePath: (_id: string) => '/about', framePath: (id: string) => `/frame/${id}/1/inline.html` },
+  {
+    name: 'private',
+    file: 'desktop.html',
+    frame: 'iframe[data-ld-frame]',
+    pagePath: (id: string) => `/p/${privateFixtureId(id)}`,
+    framePath: (id: string) => `/draft-frame/${privateRevisionId(id)}/desktop.html`,
+  },
 ] as const;
 type Form = (typeof FORMS)[number];
 const DESKTOP = FORMS[0];
@@ -66,11 +76,17 @@ const violations = (page: Page) => page.evaluate(() => (window as unknown as { _
  */
 async function openWork(page: Page, id: string, form: Form = DESKTOP, loaded = true) {
   if (form.name === 'inline') await page.addInitScript((forced) => (window.__ldThemeSwitch = forced), id);
+  if (form.name === 'private') await logInAsPrivateOwner(page.context());
   await page.goto(form.pagePath(id));
   await page.getByRole('heading', { level: 1 }).waitFor();
   await page.waitForFunction(() => Object.keys(document.getElementById('root')!).some((key) => key.startsWith('__reactContainer')));
   await page.locator(form.frame).waitFor({ state: 'attached' });
   if (loaded) await page.frameLocator(form.frame).locator('#ld-host').waitFor({ state: 'attached' });
+}
+
+/** 自分だけの作品の見本の持ち主でログインする（seed のセッション）。持ち主のほかには、自分だけの作品のページは 404。 */
+async function logInAsPrivateOwner(context: BrowserContext) {
+  await context.addCookies([{ name: 'ld_session', value: PRIVATE_OWNER.session, url: ownOrigin() }]);
 }
 
 /** 作品の枠（親のページのほかの1つ）。テストのデータにはヘッダーのスイッチの作品がないので、作品のページでも枠は1つだけ。 */
@@ -114,7 +130,7 @@ for (const form of FORMS) {
       await page.waitForTimeout(AFTER_GUARD_MS);
       expect(seen).toEqual([]);
       await expect(button).toBeAttached();
-      expect(frameUrlPath(page)).toBe(`/frame/mal-nav/1/${form.file}`);
+      expect(frameUrlPath(page)).toBe(form.framePath('mal-nav'));
       expect(new URL(page.url()).pathname).toBe(form.pagePath('mal-nav'));
 
       // 読み直しの後でも同じ
@@ -174,6 +190,7 @@ for (const form of FORMS) {
       const third = await pageFor(page, form, false);
       await dropParentCsp(third, 'mal-nav-fake-ready', form);
       if (form.name === 'inline') await third.addInitScript(() => (window.__ldThemeSwitch = 'mal-nav-fake-ready'));
+      if (form.name === 'private') await logInAsPrivateOwner(context);
       await third.goto(form.pagePath('mal-nav-fake-ready'));
       await expect.poll(() => seen.filter((url) => url.endsWith('/fake-ready'))).not.toEqual([]);
     });
@@ -285,5 +302,21 @@ test.describe('正しい作品は今までどおり動く', () => {
     await page.waitForTimeout(AFTER_GUARD_MS);
     expect(frames.map((url) => new URL(url).pathname)).toEqual(['/frame/fx-toggle/1/inline.html']);
     expect(await violations(page)).toEqual([]);
+  });
+});
+
+test.describe('自分だけの作品の枠（T036）', () => {
+  test('持ち主のほかには、自分だけの作品のページも枠も 404。持ち主には下書きの枠で、守りは公開の枠と同じ', async ({ page, request }) => {
+    const id = 'mal-nav';
+    expect((await request.get(`/p/${privateFixtureId(id)}`)).status()).toBe(404);
+    expect((await request.get(FORMS[2].framePath(id), { headers: { 'Sec-Fetch-Dest': 'iframe' } })).status()).toBe(404);
+    await openWork(page, id, FORMS[2]);
+    await expect(page.locator(FORMS[2].frame)).toHaveAttribute('sandbox', 'allow-scripts allow-forms');
+    await expect(page.locator(FORMS[2].frame)).toHaveAttribute('src', FORMS[2].framePath(id));
+    const frame = await page.request.get(FORMS[2].framePath(id), { headers: { 'Sec-Fetch-Dest': 'iframe' } });
+    const desktop = await page.request.get(`/frame/${id}/1/desktop.html`, { headers: { 'Sec-Fetch-Dest': 'iframe' } });
+    expect(frame.status()).toBe(200);
+    expect(frame.headers()['content-security-policy']).toBe(desktop.headers()['content-security-policy']);
+    expect(frame.headers()['cache-control']).toBe('private, no-store');
   });
 });

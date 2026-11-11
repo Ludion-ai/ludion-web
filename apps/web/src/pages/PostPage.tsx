@@ -13,6 +13,7 @@ import {
   fetchRemixSource,
   normalizeThumb,
   pickWorkId,
+  placeRevision,
   problemText,
   saveDraft,
   submitRevision,
@@ -199,7 +200,9 @@ export function PostPage() {
   const savedMetaVersion = useRef(0);
   const [metaDirty, setMetaDirty] = useState(false);
   const [confirm, setConfirm] = useState({ own: false, mit: false, terms: false });
-  const [submitState, setSubmitState] = useState<'idle' | 'sending' | 'done' | 'failed' | 'title_required' | 'thumb_required'>('idle');
+  const [submitState, setSubmitState] = useState<'idle' | 'sending' | 'done' | 'failed' | 'title_required' | 'thumb_required' | 'private_limit'>('idle');
+  /** 置くときに選ぶ。初めの値は「自分だけ」（docs/tasks/T036.md「1」、11/11 の CEO の決定） */
+  const [visibility, setVisibility] = useState<'private' | 'public'>('private');
 
   // フォームは React が載ってから出す。Worker の HTML の入力欄に先に打つと、載ったときに打った文字が消えるため
   const [interactive, setInteractive] = useState(false);
@@ -209,6 +212,9 @@ export function PostPage() {
   const workId = editing ? editing.id : createdId;
   const inReview = editing?.revision.status === 'submitted';
   const locked = inReview || submitState === 'done';
+  /** 公開している作品の新しい版は、今までどおり審査に出すだけ（原則5）。自分だけでは置けない */
+  const choosesVisibility = !editing?.public;
+  const placing = choosesVisibility && visibility === 'private';
 
   useEffect(() => {
     document.title = text.pageTitle;
@@ -551,9 +557,10 @@ export function PostPage() {
 
   const hasThumb = Boolean(thumb || saved?.thumb || (editing && editing.revision.thumb && !saved));
   const confirmed = confirm.own && confirm.mit && confirm.terms;
-  const canSubmit = !locked && !saving && codeOk && title.trim() !== '' && hasThumb && confirmed && submitState !== 'sending';
+  // 自分だけで置くときは、サムネイルは無くてよい（docs/tasks/T036.md「1」）
+  const canSubmit = !locked && !saving && codeOk && title.trim() !== '' && (placing || hasThumb) && confirmed && submitState !== 'sending';
 
-  /** 審査に出す。題や画像を変えていれば、先に保存し直す。 */
+  /** 自分だけで置く、または審査に出す。題や画像を変えていれば、先に保存し直す。 */
   const onSubmit = async () => {
     if (!canSubmit || !parts) return;
     setSubmitState('sending');
@@ -561,6 +568,17 @@ export function PostPage() {
     if (!revision || metaDirty || codeKey(id, parts) !== lastSavedKey.current || savedMetaVersion.current !== metaVersion.current) revision = await save();
     if (!revision) {
       setSubmitState('failed');
+      return;
+    }
+    if (placing) {
+      const answer = await placeRevision(revision.id).catch(() => 'failed' as const);
+      if (answer === 'ok') {
+        // 置いた後は、その作品のページへ（本人には見える）
+        setSubmitState('done');
+        window.location.assign(localizedPath(locale, `/p/${encodeURIComponent(workId ?? id)}`));
+        return;
+      }
+      setSubmitState(answer === 'title_required' || answer === 'private_limit' ? answer : 'failed');
       return;
     }
     const answer = await submitRevision(revision.id).catch(() => 'failed' as const);
@@ -630,7 +648,9 @@ export function PostPage() {
           ) : (
             editing &&
             editing.revision.status !== 'draft' && (
-              <p className="mt-4 rounded-control bg-site-field px-3 py-2.5">{editing.public ? text.submit.newVersionPublic : text.submit.newVersion}</p>
+              <p className="mt-4 rounded-control bg-site-field px-3 py-2.5">
+                {editing.public ? text.submit.newVersionPublic : editing.private ? text.submit.newVersionPrivate : text.submit.newVersion}
+              </p>
             )
           )}
 
@@ -869,8 +889,39 @@ export function PostPage() {
           )}
 
           {showDetails && !locked && (
-            <Section heading={text.submit.heading}>
-              <p className="mt-1 text-site-fg-2">{text.submit.intro}</p>
+            <Section heading={choosesVisibility ? text.place.heading : text.submit.heading}>
+              {choosesVisibility ? (
+                // 自分だけか公開か（docs/tasks/T036.md「1」）。初めの値は「自分だけ」
+                <fieldset className="mt-3" data-visibility="">
+                  <legend className="font-semibold">{text.place.legend}</legend>
+                  <div className="mt-1 flex flex-col gap-1">
+                    {(['private', 'public'] as const).map((value) => (
+                      <label key={value} className="flex min-h-11 items-start gap-2 py-1.5">
+                        <input
+                          type="radio"
+                          name={`${baseId}-visibility`}
+                          value={value}
+                          checked={visibility === value}
+                          aria-describedby={`${baseId}-visibility-${value}`}
+                          onChange={() => {
+                            setVisibility(value);
+                            setSubmitState((state) => (state === 'sending' ? state : 'idle'));
+                          }}
+                          className="mt-0.5 size-[18px] shrink-0"
+                        />
+                        <span>
+                          <span className="block font-semibold">{text.place[value].label}</span>
+                          <span id={`${baseId}-visibility-${value}`} className="block text-small text-site-fg-2">
+                            {text.place[value].note}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              ) : (
+                <p className="mt-1 text-site-fg-2">{text.submit.intro}</p>
+              )}
               <div className="mt-3 flex flex-col">
                 <label className="flex min-h-11 items-center gap-2 py-1">
                   <input type="checkbox" checked={confirm.own} onChange={(event) => setConfirm({ ...confirm, own: event.target.checked })} className="size-[18px] shrink-0" />
@@ -893,23 +944,25 @@ export function PostPage() {
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-3">
                 <button type="button" onClick={onSubmit} disabled={!canSubmit} className={PRIMARY_BUTTON}>
-                  {text.submit.button}
+                  {placing ? text.place.button : text.submit.button}
                 </button>
                 <p role="status" data-submit-status="" className="text-small font-semibold">
                   {submitState === 'failed'
-                    ? (saveError ?? text.submit.failed)
-                    : submitState === 'title_required' || (confirmed && title.trim() === '')
-                      ? text.save.errors.title_required
-                      : submitState === 'thumb_required' || (confirmed && !hasThumb)
-                        ? text.save.errors.thumb_required
-                        : null}
+                    ? (saveError ?? (placing ? text.place.failed : text.submit.failed))
+                    : submitState === 'private_limit'
+                      ? text.place.limit
+                      : submitState === 'title_required' || (confirmed && title.trim() === '')
+                        ? text.save.errors.title_required
+                        : !placing && (submitState === 'thumb_required' || (confirmed && !hasThumb))
+                          ? text.save.errors.thumb_required
+                          : null}
                 </p>
               </div>
             </Section>
           )}
           {submitState === 'done' && (
             <div role="status" className="mt-8 rounded-control bg-site-field px-3 py-2.5">
-              <p className="font-semibold">{text.submit.done}</p>
+              <p className="font-semibold">{placing ? text.place.done : text.submit.done}</p>
               <a href={worksHref} className="mt-1 inline-block underline">
                 {text.submit.toWorks}
               </a>

@@ -40,7 +40,8 @@ export function applySecurityHeaders(response: Response): Response {
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('Strict-Transport-Security', HSTS);
   if (headers.get('Content-Type')?.includes('text/html')) {
-    headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    // 自分だけの作品のページは no-referrer を自分で付ける（次のページの参照元に作品の住所を残さない。docs/tasks/T036.md「2」）
+    if (!headers.has('Referrer-Policy')) headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
     headers.set('Permissions-Policy', PERMISSIONS_POLICY);
     if (!headers.has('Content-Security-Policy')) headers.set('Content-Security-Policy', PARENT_CSP);
   }
