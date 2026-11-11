@@ -290,6 +290,8 @@ test.describe('自分だけの作品は、本人にしか見えない', () => {
       expect(response.headers.get('cache-tag'), path).toBeNull();
       expect(response.headers.get('referrer-policy'), path).toBe('no-referrer');
       expect(response.headers.get('x-robots-tag'), path).toBe('noindex');
+      // 残さないので、確かめる印（ETag）も付けない（PERF002「3」は公開の作品だけ）
+      expect(response.headers.get('etag'), path).toBeNull();
       const html = await response.text();
       expect(html, path).toContain(revision.frames.desktop);
       // 共有の画像と canonical を付けない

@@ -1,5 +1,6 @@
 // PERF002：作品のページの HTML を軽くし、作品の枠を早く読み始める。見た目と作品の最初のコマは変えない。
 // 1. 枠の src は、枠の入れ物の直後の台本が入れる（HTML の最後の beforeApp を待たない）。
+import { createHash } from 'node:crypto';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
@@ -132,5 +133,31 @@ test.describe('コードは HTML に1回だけ', () => {
       const read = await page.locator('code').textContent();
       expect(survivesHtmlText(sample), JSON.stringify(sample)).toBe(read === sample);
     }
+  });
+});
+
+// 3. 2回目のために、公開の作品のページの HTML に ETag を付ける（304 は、キャッシュした Cloudflare が返す）。
+test.describe('ETag', () => {
+  const sha = (body: Buffer) => createHash('sha256').update(body).digest('hex').slice(0, 32);
+
+  test('公開の作品のページ：返した HTML の全部のバイトから作った弱い ETag。cookie を付けても同じ', async ({ request }) => {
+    // 閲覧数は HTML に入っているので、ここでは数を動かさない（request は JS を動かさないので数えない）
+    for (const path of ['/p/fx-landing', '/en/p/fx-landing', '/p/fx-button']) {
+      const first = await request.get(path);
+      const body = await first.body();
+      expect(first.headers()['etag'], path).toBe(`W/"${sha(body)}"`);
+      expect(first.headers()['cache-control'], path).toBe('public, max-age=0, s-maxage=60');
+      const again = await request.get(path, { headers: { Cookie: 'ld_session=not-a-session' } });
+      expect(again.headers()['etag'], path).toBe(first.headers()['etag']);
+      expect((await again.body()).equals(body), path).toBe(true);
+    }
+    // 日本語と英語は別の中身なので、別の ETag
+    expect((await request.get('/p/fx-landing')).headers()['etag']).not.toBe((await request.get('/en/p/fx-landing')).headers()['etag']);
+  });
+
+  test('ない作品（404）には付けない', async ({ request }) => {
+    const missing = await request.get('/p/nothing-here');
+    expect(missing.status()).toBe(404);
+    expect(missing.headers()['etag']).toBeUndefined();
   });
 });
