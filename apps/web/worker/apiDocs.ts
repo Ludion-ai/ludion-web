@@ -3,7 +3,7 @@
 import { MAX_PART_BYTES } from '@ludion/rules';
 import type { Locale } from '../src/i18n';
 import { MAX_KEYS_PER_USER } from './aiKeys';
-import { API_LIMITS } from './quotaLimits';
+import { API_LIMITS, POST_LIMITS, PRIVATE_LIMITS } from './quotaLimits';
 import { PRIVATE_WORKS_LIMIT } from './revisions';
 
 const KB = MAX_PART_BYTES / 1024;
@@ -53,7 +53,7 @@ Bodies and responses are JSON. Send \`Content-Type: application/json\`. \`Accept
 
 ## Limits
 
-- Putting (POST): ${API_LIMITS.putsPerUserHour} times an hour per person. Reading (GET): ${API_LIMITS.readsPerUserHour} times an hour per person. The daily posting limits of the site also apply.
+- Putting (POST): ${API_LIMITS.putsPerUserHour} times an hour per person. Reading (GET): ${API_LIMITS.readsPerUserHour} times an hour per person. Per day: up to ${PRIVATE_LIMITS.revisionsPerUserDay} new Only me versions, and up to ${POST_LIMITS.revisionsPerUserDay} versions that go to review (new versions of public works, and publishing on the site).
 - Over the limit: 429 \`{ "error": "rate_limited", "message", "retry_at" }\` and a \`Retry-After\` header. Wait until \`retry_at\`.
 
 ## Errors
@@ -107,7 +107,7 @@ Ludion は UI の作品（画面と部品）を置く場所です。この API �
 
 ## 上限
 
-- 置く（POST）：1人1時間${API_LIMITS.putsPerUserHour}回。読む（GET）：1人1時間${API_LIMITS.readsPerUserHour}回。サイトの投稿の1日の上限も効きます。
+- 置く（POST）：1人1時間${API_LIMITS.putsPerUserHour}回。読む（GET）：1人1時間${API_LIMITS.readsPerUserHour}回。1日には、自分だけの新しい版が${PRIVATE_LIMITS.revisionsPerUserDay}まで、審査に回る版（公開の作品の新しい版と、サイトで公開すること）が${POST_LIMITS.revisionsPerUserDay}まで。
 - 超えたら 429 \`{ "error": "rate_limited", "message", "retry_at" }\` と \`Retry-After\` の頭。\`retry_at\` まで待ちます。
 
 ## エラー

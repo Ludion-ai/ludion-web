@@ -3,7 +3,7 @@
 
 import type { Env } from './env';
 import { limitKey } from './limitKey';
-import { API_LIMITS, POST_LIMITS, SIGNUP_LIMITS } from './quotaLimits';
+import { API_LIMITS, POST_LIMITS, PRIVATE_LIMITS, SIGNUP_LIMITS } from './quotaLimits';
 import { LOOPBACK } from './rateLimit';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -36,19 +36,38 @@ export type PostLimit = 'revisions' | 'saves';
 /**
  * 投稿の回数を数える。人ごとが先で、人の上限に当たれば全体を減らさない。
  * newRevision：新しい版を作るときは、版の数も数える。
+ * scope：private は自分だけになる版（PRIVATE_LIMITS、別の数え方）。review は公開に回せる版（POST_LIMITS）。
  */
-export async function takePostQuota(db: D1Database, userId: string, newRevision: boolean, now = Date.now()): Promise<PostLimit | null> {
+export async function takePostQuota(db: D1Database, userId: string, newRevision: boolean, now = Date.now(), scope: PostScope = 'review'): Promise<PostLimit | null> {
   const bucket = dayBucket(now);
   const expires = now + 2 * DAY_MS;
+  const [prefix, limits] = scope === 'private' ? (['-private', PRIVATE_LIMITS] as const) : (['', POST_LIMITS] as const);
   await sweepQuotas(db, now);
-  if (!(await takeQuota(db, `save:${userId}`, bucket, POST_LIMITS.savesPerUserDay, expires))) return 'saves';
-  if (!(await takeQuota(db, 'save:*', bucket, POST_LIMITS.savesAllDay, expires))) return 'saves';
+  if (!(await takeQuota(db, `save${prefix}:${userId}`, bucket, limits.savesPerUserDay, expires))) return 'saves';
+  if (!(await takeQuota(db, `save${prefix}:*`, bucket, limits.savesAllDay, expires))) return 'saves';
   if (newRevision) {
-    if (!(await takeQuota(db, `revision:${userId}`, bucket, POST_LIMITS.revisionsPerUserDay, expires))) return 'revisions';
-    if (!(await takeQuota(db, 'revision:*', bucket, POST_LIMITS.revisionsAllDay, expires))) return 'revisions';
+    if (!(await takeQuota(db, `revision${prefix}:${userId}`, bucket, limits.revisionsPerUserDay, expires))) return 'revisions';
+    if (!(await takeQuota(db, `revision${prefix}:*`, bucket, limits.revisionsAllDay, expires))) return 'revisions';
   }
   return null;
 }
+
+export type PostScope = 'review' | 'private';
+
+/**
+ * 自分だけ → 公開する（審査に出す）ときに、公開に回す版として1つ数える（POST_LIMITS の版の数。1日10）。
+ * 自分だけの版は PRIVATE_LIMITS で数えているので、公開に回すところで、公開の数え方に入れる。
+ */
+export async function takeReviewQuota(db: D1Database, userId: string, now = Date.now()): Promise<boolean> {
+  const bucket = dayBucket(now);
+  const expires = now + 2 * DAY_MS;
+  await sweepQuotas(db, now);
+  if (!(await takeQuota(db, `revision:${userId}`, bucket, POST_LIMITS.revisionsPerUserDay, expires))) return false;
+  return takeQuota(db, 'revision:*', bucket, POST_LIMITS.revisionsAllDay, expires);
+}
+
+/** 投稿の、人ごとの数の鍵（退会のときに消す）。 */
+export const postQuotaKeys = (userId: string): string[] => [`save:${userId}`, `revision:${userId}`, `save-private:${userId}`, `revision-private:${userId}`];
 
 export type ApiLimit = 'put' | 'read';
 
