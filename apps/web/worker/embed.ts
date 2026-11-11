@@ -2,6 +2,7 @@
 //
 // - 形は全画面の住所（wall.ts）に近い：サイトの頭もボタンも出さず、React も読まず、作品を枠いっぱいに出す。だから GA4 も動かない。
 //   違い：端末の「動きを減らす」設定に従う（作品のページと同じ）。角に小さく印（Ludion · Remix）を出し、押すと作品のページが新しいタブで開く。
+//   印は、枠が半分見えてから3秒でマークだけに縮み、縮んだ時は1回目で広がり、2回目で開く（EMBED001-c。下の BADGE_SCRIPT）。
 //   印は作品の枠の外（このページの側）に置く。作品のファイルは変えない。
 // - 作品は今と同じ封をした枠（sandbox、応答の頭の CSP、Sec-Fetch-Dest の確かめ）の中でだけ動かす（原則7）。
 //   開けるのは「誰の枠に入れるか」だけ。このページの応答と、埋め込みの枠（/frame/<id>/<version>/embed.html）の応答だけ、frame-ancestors を開ける。
@@ -48,6 +49,18 @@ const STYLE =
   'border-radius:9999px;background:rgba(17,17,19,.72);color:#fff;font:600 11px/16px system-ui,-apple-system,"Segoe UI",sans-serif;' +
   'letter-spacing:.01em;text-decoration:none;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}' +
   '.ld-badge:hover{background:rgba(17,17,19,.86)}.ld-badge:focus-visible{outline:2px solid #fff;outline-offset:2px}' +
+  // ここから下の印の形は、BADGE_SCRIPT が付ける印（data-ld-motion、data-ld-mark）があるときだけ効く。最初のコマは上の帯のまま。
+  // マークだけ：24×24px の丸（字の行の高さ 16px ＋ 上下 4px、マーク 12px ＋ 左右 6px）。押せる所は透明に 4px ずつ広げて 32×32px。
+  '.ld-badge[data-ld-motion] span{max-width:120px;overflow:hidden;white-space:nowrap}' +
+  '.ld-badge[data-ld-mark]{gap:0;padding:4px 6px}' +
+  '.ld-badge[data-ld-mark] span{max-width:0;opacity:0;overflow:hidden;white-space:nowrap}' +
+  '.ld-badge[data-ld-mark]::before{content:"";position:absolute;inset:-4px}' +
+  // マウスを乗せた時（乗せられる端末だけ。指の端末は触れた後も :hover が残るため）と、キーボードで選んだ時は、見た目だけ帯に広がる
+  '.ld-badge[data-ld-mark]:focus-visible{gap:5px;padding:3px 8px 3px 6px}.ld-badge[data-ld-mark]:focus-visible span{max-width:120px;opacity:1}' +
+  '@media (hover:hover){.ld-badge[data-ld-mark]:hover{gap:5px;padding:3px 8px 3px 6px}.ld-badge[data-ld-mark]:hover span{max-width:120px;opacity:1}}' +
+  // 端末の「動きを減らす」設定では、縮む・広がるは動かさずに切り替える
+  '@media (prefers-reduced-motion:no-preference){.ld-badge[data-ld-motion]{transition:gap 180ms ease,padding 180ms ease,background-color 180ms ease}' +
+  '.ld-badge[data-ld-motion] span{transition:max-width 180ms ease,opacity 180ms ease}}' +
   '.ld-paused{position:fixed;inset:0;display:block}.ld-paused img{display:block;width:100%;height:100%;object-fit:cover}' +
   'p{margin:0;padding:24px;font:16px/1.5 system-ui,sans-serif;color:#6b6b76}';
 
@@ -67,6 +80,27 @@ const PAUSE_SCRIPT =
   `addEventListener('message',(e)=>{const f=document.querySelector('iframe[data-ld-frame]');` +
   `if(!f||e.source!==f.contentWindow||e.origin!=='null'||e.data!=='${EMBED_PAUSED_MESSAGE}')return;` +
   `const t=document.getElementById('ld-paused');if(!t)return;f.replaceWith(t.content.cloneNode(true))});`;
+
+/** 帯がマークだけに縮むまでの時間（枠が半分見えてから） */
+export const BADGE_COLLAPSE_MS = 3000;
+
+/**
+ * 印の動き（EMBED001-c）。はじめは帯「Ludion · Remix」。枠（この文書）が上のページの画面に半分見えてから3秒たったら、マークだけに縮む。
+ * 半分見えなくなったら数え直す。マウスが乗っている間（乗せられる端末だけ）と、キーボードで選ばれている間は縮めない。
+ * 押した時：名前が見えている（帯）なら、ふつうのリンクとして /p/<id> が新しいタブで開く。
+ * マークだけなら、1回目は帯に戻すだけで開かない。帯に戻った後は、上と同じ（3秒で、また縮む）。
+ * click だけで分けるので、指でもマウスでもキーボード（Enter）でも同じ。乗せた時やキーボードで選んだ時に見た目が広がっていても、数えるのは縮んだ状態。
+ * このスクリプトが動かないブラウザでは、今の帯のまま（1回で開く）。
+ */
+const BADGE_SCRIPT =
+  `(()=>{const b=document.querySelector('[data-ld-badge]');if(!b||!('IntersectionObserver' in window))return;` +
+  `let seen=false,timer=0;const canHover=matchMedia('(hover:hover)');` +
+  `const held=()=>b.matches(':focus-visible')||(canHover.matches&&b.matches(':hover'));` +
+  `const shrink=()=>{timer=0;if(!seen||b.hasAttribute('data-ld-mark'))return;if(held()){arm();return}` +
+  `if(!b.hasAttribute('data-ld-motion')){b.setAttribute('data-ld-motion','');void b.offsetWidth}b.setAttribute('data-ld-mark','')};` +
+  `const arm=()=>{clearTimeout(timer);timer=seen&&!b.hasAttribute('data-ld-mark')?setTimeout(shrink,${BADGE_COLLAPSE_MS}):0};` +
+  `new IntersectionObserver((es)=>{const e=es[es.length-1];seen=e.isIntersecting&&e.intersectionRatio>=0.499;arm()},{threshold:[0,0.5]}).observe(document.documentElement);` +
+  `b.addEventListener('click',(e)=>{if(!b.hasAttribute('data-ld-mark'))return;e.preventDefault();b.removeAttribute('data-ld-mark');arm()})})();`;
 
 function embedDocument(body: string, title: string, background: string): string {
   return [
@@ -109,5 +143,5 @@ export async function renderEmbedPage(c: EmbedContext): Promise<Response> {
     ? paused
     : `<iframe data-ld-frame="" title="${escapeHtml(work.title)}" sandbox="${FRAME_SANDBOX}" src="${escapeHtml(embedFrameUrl(work))}"></iframe>` +
       `<template id="ld-paused">${paused}</template>`;
-  return new Response(embedDocument(main + badge, `${work.title} · Ludion`, background), { headers: HEADERS });
+  return new Response(embedDocument(main + badge + `<script>${BADGE_SCRIPT}</script>`, `${work.title} · Ludion`, background), { headers: HEADERS });
 }

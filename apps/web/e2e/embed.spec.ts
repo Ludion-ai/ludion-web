@@ -21,10 +21,12 @@ let server: Server;
 
 test.beforeAll(async () => {
   server = createServer((request, response) => {
-    const src = new URL(request.url ?? '/', 'http://localhost').searchParams.get('src') ?? '';
-    const safe = src.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    const params = new URL(request.url ?? '/', 'http://localhost').searchParams;
+    const safe = (params.get('src') ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    // below=1：枠を画面の下の外に置く（印が縮むのは、枠が半分見えてから。EMBED001-c）。loading="lazy" は付けない（見えなくても読み込ませる）
+    const spacer = params.get('below') === '1' ? '<div style="height:200vh"></div>' : '';
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    response.end(`<!doctype html><title>blog</title><h1>A blog</h1><iframe id="embed" src="${safe}" width="640" height="480" style="border:0" title="embed"></iframe>`);
+    response.end(`<!doctype html><title>blog</title><h1>A blog</h1>${spacer}<iframe id="embed" src="${safe}" width="640" height="480" style="border:0" title="embed"></iframe>${spacer}`);
   });
   // localhost が ::1 でも 127.0.0.1 でも受ける
   await new Promise<void>((resolve) => server.listen(0, '::', resolve));
@@ -35,7 +37,7 @@ test.afterAll(async () => {
   await new Promise((resolve) => server.close(resolve));
 });
 
-const outsidePage = (src: string) => `${OUTSIDE}/post?src=${encodeURIComponent(src)}`;
+const outsidePage = (src: string, below = false) => `${OUTSIDE}/post?src=${encodeURIComponent(src)}${below ? '&below=1' : ''}`;
 /** 外のページが移っていないかを見る（? の前まで） */
 const withoutQuery = (url: string) => url.replace(/\?.*$/, '');
 
@@ -54,7 +56,7 @@ const PARENT_CSP_TEXT = "frame-src 'self'; frame-ancestors 'none'; base-uri 'non
  * route の手前で止まった要求（CSP、sandbox）は、ここに来ない。
  * 移った先は、frame-escape と同じく、親の見張りが待つ知らせを真似る。
  */
-async function openOutside(context: BrowserContext, page: Page, src: string) {
+async function openOutside(context: BrowserContext, page: Page, src: string, below = false) {
   const seen: string[] = [];
   const own = ownOrigin();
   const outside = (url: URL) => url.protocol.startsWith('http') && url.origin !== own && url.origin !== OUTSIDE;
@@ -66,9 +68,19 @@ async function openOutside(context: BrowserContext, page: Page, src: string) {
   page.on('websocket', (ws) => seen.push(ws.url()));
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto(outsidePage(src));
+  await page.goto(outsidePage(src, below));
   return { seen, errors, url: page.url() };
 }
+
+/**
+ * 外のページを動かして、枠の上から fraction の分だけを画面の下端に入れる（1 で全部見える）。
+ * 画面の外の枠の中は、ブラウザが描画を止める（requestAnimationFrame が回らない）ので、Playwright で押す前に、これで見せる。
+ */
+const showFraction = (page: Page, fraction: number) =>
+  page.evaluate((f) => {
+    const frame = document.getElementById('embed')!;
+    scrollTo(0, frame.getBoundingClientRect().top + scrollY + frame.offsetHeight * f - innerHeight);
+  }, fraction);
 
 const embed = (page: Page): FrameLocator => page.frameLocator('#embed');
 const work = (page: Page): FrameLocator => embed(page).frameLocator('iframe[data-ld-frame]');
@@ -93,10 +105,12 @@ test.describe('外のサイトの中で動く', () => {
   });
 
   test('印を押すと、作品のページが新しいタブで開く。外のページは移らない', async ({ context, page }) => {
-    await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`);
+    // 枠を画面の外に置く：押す直前に見えるので、印はまだ帯（名前が見えている）。縮んだ時は下の「印の形」
+    await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`, true);
     await expect(work(page).locator('#ld-host')).toHaveAttribute('data-ld-mount', 'ok');
     const badge = embed(page).locator('[data-ld-badge]');
     await expect(badge).toHaveText('Ludion · Remix');
+    await showFraction(page, 1);
     const [tab] = await Promise.all([context.waitForEvent('page'), badge.click()]);
     await tab.waitForLoadState('domcontentloaded');
     expect(new URL(tab.url()).pathname).toBe('/p/fx-toggle');
@@ -109,6 +123,150 @@ test.describe('外のサイトの中で動く', () => {
     await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`);
     await expect(work(page).locator('#ld-host')).toHaveAttribute('data-ld-mount', 'ok');
     expect(await workFrame(page).evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
+  });
+});
+
+/**
+ * 印の形（EMBED001-c）。はじめは帯「Ludion · Remix」。枠が半分見えてから3秒で、マークだけ（24×24px、押せる所は 32×32px）に縮む。
+ * 名前が見えている時は1回押すと開く。マークだけの時は、1回目は広がるだけ、2回目で開く（指でもマウスでもキーボードでも）。
+ * どの場合も、外のページの住所は変わらない。
+ */
+test.describe('印の形（はじめは帯、半分見えて3秒でマークだけ）', () => {
+  /** 縮むまでの時間（worker/embed.ts の BADGE_COLLAPSE_MS） */
+  const COLLAPSE_MS = 3000;
+  const badgeOf = (page: Page) => embed(page).locator('[data-ld-badge]');
+  /** /e/<id> の文書（外の親のすぐ下の枠） */
+  const embedFrame = (page: Page) => page.frames().find((frame) => frame.parentFrame() === page.mainFrame())!;
+  /** 帯のまま（今の印と同じ形。縦 22px、名前が見える） */
+  const expectBand = async (page: Page) => {
+    const badge = badgeOf(page);
+    await expect(badge).not.toHaveAttribute('data-ld-mark');
+    await expect(badge.locator('span')).toBeVisible();
+    await expect.poll(async () => Math.round((await badge.boundingBox())!.height)).toBe(22);
+  };
+  const waitForMark = (page: Page) => expect(badgeOf(page)).toHaveAttribute('data-ld-mark', '', { timeout: COLLAPSE_MS + 7000 });
+  /** 新しいタブが開いた数を数える */
+  const countTabs = (context: BrowserContext) => {
+    const tabs: Page[] = [];
+    context.on('page', (tab) => tabs.push(tab));
+    return tabs;
+  };
+  const expectOpensWorkPage = async (context: BrowserContext, press: () => Promise<void>) => {
+    const [tab] = await Promise.all([context.waitForEvent('page'), press()]);
+    await tab.waitForLoadState('domcontentloaded');
+    expect(new URL(tab.url()).pathname).toBe('/p/fx-toggle');
+    await tab.close();
+  };
+  const boxSize = (box: { width: number; height: number } | null) => [Math.round(box!.width), Math.round(box!.height)];
+  const mounted = (page: Page) => expect(work(page).locator('#ld-host')).toHaveAttribute('data-ld-mount', 'ok');
+
+  test('半分見える前は縮まない（画面の外、3割だけ見えている）。はじめの印は今の帯と同じ形', async ({ context, page }) => {
+    await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`, true);
+    // 画面の外でも読み込まれている（loading="lazy" ではない）
+    await mounted(page);
+    const badge = badgeOf(page);
+    // はじめの印：縮む形の印（data-ld-*）も、透明に広げた押せる所もない
+    expect(await badge.evaluate((el) => [el.hasAttribute('data-ld-mark'), el.hasAttribute('data-ld-motion'), getComputedStyle(el, '::before').content])).toEqual([false, false, 'none']);
+    await page.waitForTimeout(COLLAPSE_MS + 1000);
+    await expectBand(page);
+    await showFraction(page, 0.3);
+    await page.waitForTimeout(COLLAPSE_MS + 1000);
+    await expectBand(page);
+  });
+
+  test('半分見えてから3秒で、マークだけ（24×24px）に縮む。押せる所は 32×32px', async ({ context, page }) => {
+    await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`, true);
+    await mounted(page);
+    const shown = Date.now();
+    await showFraction(page, 0.6);
+    await waitForMark(page);
+    expect(Date.now() - shown).toBeGreaterThanOrEqual(COLLAPSE_MS);
+    const badge = badgeOf(page);
+    await expect(badge.locator('span')).toBeHidden();
+    await expect.poll(async () => boxSize(await badge.boundingBox())).toEqual([24, 24]);
+    // 見た目の外 3px は印に当たり（角も）、外 6px は当たらない（4px ずつ四角に広げた）
+    const hits = await embedFrame(page).evaluate(() => {
+      const el = document.querySelector('[data-ld-badge]')!;
+      const r = el.getBoundingClientRect();
+      const on = (x: number, y: number) => el.contains(document.elementFromPoint(x, y));
+      return [
+        [on(r.left - 3, r.top + r.height / 2), on(r.left + r.width / 2, r.top - 3), on(r.left - 3, r.top - 3), on(r.right + 3, r.bottom + 3)],
+        [on(r.left - 6, r.top + r.height / 2), on(r.left + r.width / 2, r.top - 6), on(r.left - 6, r.top - 6)],
+      ];
+    });
+    expect(hits).toEqual([
+      [true, true, true, true],
+      [false, false, false],
+    ]);
+    expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
+  });
+
+  test('マークだけの時、マウスで1回目は広がるだけで開かず、2回目で開く。外のページは移らない', async ({ context, page }) => {
+    await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`);
+    await waitForMark(page);
+    const tabs = countTabs(context);
+    await badgeOf(page).click();
+    await page.waitForTimeout(1000);
+    expect(tabs).toHaveLength(0);
+    // マウスは乗せたまま（乗っている間は縮まない）
+    await expectBand(page);
+    await expectOpensWorkPage(context, () => badgeOf(page).click());
+    expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
+  });
+
+  test('マークだけの時、キーボード（Enter）でも1回目は開かず、2回目で開く', async ({ context, page }) => {
+    await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`);
+    await waitForMark(page);
+    const tabs = countTabs(context);
+    await badgeOf(page).press('Enter');
+    await page.waitForTimeout(1000);
+    expect(tabs).toHaveLength(0);
+    await expect(badgeOf(page)).not.toHaveAttribute('data-ld-mark');
+    await expectOpensWorkPage(context, () => badgeOf(page).press('Enter'));
+    expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
+  });
+
+  test('名前が見えている時（広がった後）は、1回で開く。3秒たつと、また縮む', async ({ context, page }) => {
+    await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`);
+    await waitForMark(page);
+    await badgeOf(page).click();
+    await expectBand(page);
+    await expectOpensWorkPage(context, () => badgeOf(page).click());
+    await page.mouse.move(1, 1);
+    await waitForMark(page);
+    expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
+  });
+
+  test('動きを減らす設定では、縮む動きを付けずに切り替える', async ({ context, page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`);
+    await waitForMark(page);
+    const style = await badgeOf(page).evaluate((el) => [getComputedStyle(el).transitionDuration, getComputedStyle(el.querySelector('span')!).transitionDuration]);
+    expect(style.join(',').split(',').every((d) => d.trim() === '0s')).toBe(true);
+    await expect.poll(async () => boxSize(await badgeOf(page).boundingBox())).toEqual([24, 24]);
+  });
+
+  test('対照：動きを減らさない設定では、縮む動きが付いている', async ({ context, page }) => {
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`);
+    await waitForMark(page);
+    expect(await badgeOf(page).evaluate((el) => getComputedStyle(el).transitionDuration)).toContain('0.18s');
+  });
+
+  test.describe('指で触れる端末', () => {
+    test.use({ hasTouch: true });
+
+    test('マークだけの時、指で1回目は広がるだけで開かず、2回目で開く。外のページは移らない', async ({ context, page }) => {
+      await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`);
+      await waitForMark(page);
+      const tabs = countTabs(context);
+      await badgeOf(page).tap();
+      await page.waitForTimeout(1000);
+      expect(tabs).toHaveLength(0);
+      await expect(badgeOf(page)).not.toHaveAttribute('data-ld-mark');
+      await expectOpensWorkPage(context, () => badgeOf(page).tap());
+      expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
+    });
   });
 });
 
