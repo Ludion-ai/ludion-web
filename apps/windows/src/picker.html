@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="__LANG__">
+<head>
+<meta charset="utf-8">
+<!-- 一覧のページ。中身はアプリが渡す（/api/works）。読むのは ludion.ai のサムネイルだけ -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src __ORIGIN__; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ludion</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff; --fg: #111114; --fg-2: #6b6b76; --line: #ececf0; --line-2: #e4e4ea;
+    --field: #f4f4f6; --hover: #f1f1f4; --primary: #16161d; --logo: #e5412a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f0f12; --fg: #ededf0; --fg-2: #8e8e99; --line: #26262c; --line-2: #303037;
+      --field: #1c1c21; --hover: #24242a; --primary: #ededf0;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); }
+  body { font: 15px/1.5 "Segoe UI Variable Text", "Segoe UI", "Yu Gothic UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 28px 32px 8px; }
+  h1 { margin: 0; font-size: 24px; line-height: 1.25; font-weight: 700; letter-spacing: -0.01em; }
+  .lead { margin: 6px 0 0; color: var(--fg-2); }
+  .mark { display: inline-block; width: 22px; height: 22px; margin-right: 10px; vertical-align: -3px; }
+  .site { flex-shrink: 0; height: 40px; padding: 0 14px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--bg); color: var(--fg); font: inherit; font-weight: 600; cursor: pointer; }
+  .site:hover { background: var(--hover); }
+  main { padding: 16px 32px 32px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; margin: 0; padding: 0; list-style: none; }
+  .card { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 16px; }
+  .thumb { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 16px; background: var(--field); outline: 1px solid var(--line); outline-offset: -1px; }
+  .thumb img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform 240ms ease; }
+  .card:hover .thumb img { transform: scale(1.02); }
+  .card:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+  .card[aria-current="true"] .thumb { outline: 2px solid var(--logo); outline-offset: -2px; }
+  .badge { position: absolute; left: 10px; top: 10px; padding: 3px 10px; border-radius: 999px; background: var(--logo); color: #fff; font-size: 12px; font-weight: 700; }
+  .title { display: block; margin-top: 10px; font-weight: 600; }
+  .by { display: block; color: var(--fg-2); font-size: 13px; }
+  .note { margin: 48px 0; text-align: center; color: var(--fg-2); }
+  .note button { margin-top: 12px; }
+  .skeleton { aspect-ratio: 16 / 9; border-radius: 16px; background: var(--field); }
+  @media (prefers-reduced-motion: reduce) { .thumb img { transition: none; } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1><svg class="mark" viewBox="0 0 512 512" aria-hidden="true"><path fill="currentColor" d="M96 96h192v64H160v192H96z"/><path fill="#e5412a" d="M352 160h64v256H224v-64h128z"/></svg><span data-text="heading"></span></h1>
+    <p class="lead" data-text="lead"></p>
+  </div>
+  <button type="button" class="site" data-text="site"></button>
+</header>
+<main>
+  <ul class="grid" aria-busy="true">
+    <li><div class="skeleton"></div></li><li><div class="skeleton"></div></li><li><div class="skeleton"></div></li>
+  </ul>
+</main>
+<script>
+(() => {
+  const TEXT = {
+    ja: {
+      heading: '壁紙を選ぶ',
+      lead: '押すと、デスクトップの壁紙になります。通知領域の Ludion から、いつでも変えられます。',
+      site: 'ludion.ai で見る',
+      current: '使っている',
+      by: (name, label) => label ? `${name}（Ludion のレーベル）` : name,
+      empty: 'まだ壁紙がありません。',
+      error: '一覧を読み込めませんでした。ネットにつながっているか確かめてください。',
+      retry: 'もう一度',
+    },
+    en: {
+      heading: 'Choose a wallpaper',
+      lead: 'Click one to put it on your desktop. Change it any time from Ludion in the notification area.',
+      site: 'Browse on ludion.ai',
+      current: 'In use',
+      by: (name, label) => label ? `${name} (Ludion label)` : name,
+      empty: 'No wallpapers yet.',
+      error: 'Could not load the list. Check your internet connection.',
+      retry: 'Try again',
+    },
+  };
+  const lang = document.documentElement.lang === 'ja' ? 'ja' : 'en';
+  const t = TEXT[lang];
+  for (const node of document.querySelectorAll('[data-text]')) node.textContent = t[node.dataset.text];
+
+  const post = (message) => window.chrome.webview.postMessage(message);
+  document.querySelector('.site').addEventListener('click', () => post({ type: 'site' }));
+
+  const grid = document.querySelector('.grid');
+  const main = document.querySelector('main');
+
+  function note(text, retry) {
+    grid.remove();
+    main.replaceChildren();
+    const p = document.createElement('p');
+    p.className = 'note';
+    p.textContent = text;
+    if (retry) {
+      p.append(document.createElement('br'));
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'site';
+      button.textContent = t.retry;
+      button.addEventListener('click', () => { main.replaceChildren(grid); post({ type: 'retry' }); });
+      p.append(button);
+    }
+    main.append(p);
+  }
+
+  function render(works, current) {
+    if (!works.length) return note(t.empty, false);
+    main.replaceChildren(grid);
+    grid.removeAttribute('aria-busy');
+    grid.replaceChildren(...works.map((work) => {
+      const item = document.createElement('li');
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'card';
+      if (work.id === current) card.setAttribute('aria-current', 'true');
+      const thumb = document.createElement('span');
+      thumb.className = 'thumb';
+      const img = document.createElement('img');
+      img.alt = '';
+      img.loading = 'lazy';
+      img.width = work.width;
+      img.height = work.height;
+      img.src = work.thumb;
+      thumb.append(img);
+      if (work.id === current) {
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.textContent = t.current;
+        thumb.append(badge);
+      }
+      const title = document.createElement('span');
+      title.className = 'title';
+      title.textContent = work.title;
+      const by = document.createElement('span');
+      by.className = 'by';
+      by.textContent = t.by(work.creator, work.label);
+      card.append(thumb, title, by);
+      card.addEventListener('click', () => {
+        post({ type: 'pick', id: work.id });
+        for (const other of grid.querySelectorAll('.card')) {
+          other.removeAttribute('aria-current');
+          other.querySelector('.badge')?.remove();
+        }
+        card.setAttribute('aria-current', 'true');
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.textContent = t.current;
+        thumb.append(badge);
+      });
+      item.append(card);
+      return item;
+    }));
+  }
+
+  // アプリからの知らせ。形を確かめてから使う
+  window.chrome.webview.addEventListener('message', (event) => {
+    const data = event.data;
+    if (!data || typeof data !== 'object') return;
+    if (data.type === 'error') return note(t.error, true);
+    if (data.type !== 'works' || !Array.isArray(data.works)) return;
+    const works = data.works.filter((w) => w && typeof w.id === 'string' && typeof w.title === 'string' && typeof w.thumb === 'string');
+    render(works, typeof data.current === 'string' ? data.current : null);
+  });
+})();
+</script>
+</body>
+</html>
