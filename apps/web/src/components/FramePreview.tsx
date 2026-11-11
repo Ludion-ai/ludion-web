@@ -4,7 +4,7 @@ import type { Copy } from '../copy';
 import { useCopy } from '../hooks/useCopy';
 import type { Work } from '../data/works';
 import { useMediaQuery } from '../hooks/useMediaQuery';
-import { frameScale, frameUrl, startFrame, type FrameSize } from '../lib/frame';
+import { BOX_CLASS, FRAME_CLASS, frameScale, frameUrl, opensMobileFirst, startFrame, type FrameSize } from '../lib/frame';
 import { setShowMotion, useShowMotion } from '../lib/motionChoice';
 import { webglAvailable } from '../lib/webgl';
 import { chipClass } from './chip';
@@ -17,19 +17,6 @@ const sizeChoices = (copy: Copy) => [
   { size: 'mobile', label: copy.work.mobile, icon: Smartphone },
 ] as const;
 
-export const BOX_CLASS = {
-  // 部品：枠の幅のままの iframe の中央に置く（置くのは buildFrameHtml）
-  component: 'aspect-[4/3] min-h-[420px] w-full',
-  desktop: 'aspect-[1280/800]',
-  // 幅が390に足りないときは、枠の高さも同じ割合で縮める
-  mobile: 'h-[min(844px,calc(100cqw*844/390))]',
-};
-
-export const FRAME_CLASS = {
-  component: 'absolute inset-0 size-full',
-  desktop: 'absolute top-0 left-0 h-[800px] w-[1280px] origin-top-left [transform:scale(var(--frame-scale,1))]',
-  mobile: 'absolute top-0 left-1/2 h-[844px] w-[390px] origin-top [transform:translateX(-50%)_scale(var(--frame-scale,1))]',
-};
 
 const NOTICE_CLASS = 'mb-3 rounded-control bg-site-field px-3 py-2.5 text-small text-site-fg-2';
 
@@ -62,7 +49,9 @@ export function FramePreview({ work, background, frames = null }: { work: Work; 
   const copy = useCopy();
   const isComponent = work.type === 'component';
   const webScreen = !isComponent && work.platform !== 'mobile';
-  const [size, setSize] = useState<FrameSize>(webScreen ? 'desktop' : 'mobile');
+  // Web の画面は、スマホ（opensMobileFirst）では最初から「モバイル」、ほかは「デスクトップ」（CEO の指示、11/11）。
+  // Worker は端末を知らないので「デスクトップ」で描き、スマホでは beforeApp が React より先に「モバイル」の形に直している（同じ決め方）
+  const [size, setSize] = useState<FrameSize>(() => (webScreen && !opensMobileFirst() ? 'desktop' : 'mobile'));
   /** 「もう一度」のたびに iframe を作り直す（sandbox の中身は親から読み直せない） */
   const [replays, setReplays] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -104,6 +93,7 @@ export function FramePreview({ work, background, frames = null }: { work: Work; 
             <button
               key={choice}
               type="button"
+              data-frame-choice={choice}
               aria-pressed={size === choice}
               onClick={() => setSize(choice)}
               className={chipClass(size === choice)}
@@ -125,6 +115,7 @@ export function FramePreview({ work, background, frames = null }: { work: Work; 
         <div
           ref={boxRef}
           data-frame-size={isComponent ? undefined : size}
+          data-frame-choices={webScreen ? '' : undefined}
           style={background ? { backgroundColor: background } : undefined}
           className={`relative overflow-hidden rounded-card border border-site-line ${BOX_CLASS[shape]}`}
         >

@@ -11,6 +11,31 @@ export const FRAME_SIZES = {
 
 export type FrameSize = keyof typeof FRAME_SIZES;
 
+/** 枠の入れ物の形（FramePreview、RevisionFrame。Web の画面をスマホで開くとき、beforeApp も使う） */
+export const BOX_CLASS = {
+  // 部品：枠の幅のままの iframe の中央に置く（置くのは buildFrameHtml）
+  component: 'aspect-[4/3] min-h-[420px] w-full',
+  desktop: 'aspect-[1280/800]',
+  // 幅が390に足りないときは、枠の高さも同じ割合で縮める
+  mobile: 'h-[min(844px,calc(100cqw*844/390))]',
+};
+
+export const FRAME_CLASS = {
+  component: 'absolute inset-0 size-full',
+  desktop: 'absolute top-0 left-0 h-[800px] w-[1280px] origin-top-left [transform:scale(var(--frame-scale,1))]',
+  mobile: 'absolute top-0 left-1/2 h-[844px] w-[390px] origin-top [transform:translateX(-50%)_scale(var(--frame-scale,1))]',
+};
+
+/**
+ * Web の画面のプレビューを、最初から「モバイル」で開く端末（CEO の指示、11/11）。スマホ：指で触る（pointer: coarse）、幅が狭い（767px 以下）。
+ * PC と、幅の広いタブレットは今のまま「デスクトップ」。Worker は端末を知らないので、beforeApp と React がこれで決める。
+ */
+export const MOBILE_FIRST_QUERY = '(pointer: coarse) and (max-width: 767px)';
+
+export function opensMobileFirst(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(MOBILE_FIRST_QUERY).matches;
+}
+
 /** 枠の中身の倍率。Desktop は枠の幅に合わせる。Mobile は縮めるだけで、広げない。 */
 export function frameScale(size: FrameSize, boxWidth: number): number {
   const fit = boxWidth / FRAME_SIZES[size].width;

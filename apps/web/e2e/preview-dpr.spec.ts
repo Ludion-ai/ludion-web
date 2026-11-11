@@ -124,6 +124,61 @@ test.describe('デスクトップ、DPR 2', () => {
   });
 });
 
+// Web の画面のプレビューは、スマホ（pointer: coarse で幅 767px 以下）では最初から「モバイル」。PC と幅の広いタブレットは「デスクトップ」
+const pressed = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
+
+test.describe('スマホ（指で触る、幅 390、DPR 3）：Web の画面は最初から「モバイル」', () => {
+  test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, hasTouch: true });
+
+  test('React が載る前から（beforeApp）、枠はモバイルの形で、モバイルの枠を読む', async ({ page }) => {
+    // React の束を止めて、Worker の HTML とインラインのスクリプトだけで見る
+    await page.route('**/assets/*.js', (route) => route.abort());
+    const requests = frameRequests(page);
+    await page.goto('/p/fx-landing');
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
+    await expect(page.locator('[data-frame-size]')).toHaveAttribute('data-frame-size', 'mobile');
+    await expect(pressed(page, copy.work.mobile)).toHaveAttribute('aria-pressed', 'true');
+    await expect(pressed(page, copy.work.desktop)).toHaveAttribute('aria-pressed', 'false');
+    await checkFrame(page, '/frame/fx-landing/1/mobile.html');
+    // 枠の大きさも「モバイル」（幅 390 の枠を、入れ物の幅まで縮める）
+    expect((await page.locator(FRAME).evaluate((frame: HTMLIFrameElement) => frame.clientWidth))).toBe(390);
+    await page.waitForTimeout(AFTER_GUARD_MS);
+    expect(requests.filter((path) => path.startsWith('/frame/fx-landing/'))).toEqual(['/frame/fx-landing/1/mobile.html']);
+  });
+
+  test('React が載った後も「モバイル」のまま。デスクトップの枠は読まない。押せばデスクトップになる', async ({ page }) => {
+    const requests = frameRequests(page);
+    await openWork(page, 'fx-landing');
+    await expect(pressed(page, copy.work.mobile)).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-frame-size]')).toHaveAttribute('data-frame-size', 'mobile');
+    const value = await checkFrame(page, '/frame/fx-landing/1/mobile.html');
+    expect(value).toBeGreaterThan(2);
+    await page.waitForTimeout(AFTER_GUARD_MS);
+    expect(requests.filter((path) => path.startsWith('/frame/fx-landing/'))).toEqual(['/frame/fx-landing/1/mobile.html']);
+
+    await pressed(page, copy.work.desktop).click();
+    await expect(pressed(page, copy.work.desktop)).toHaveAttribute('aria-pressed', 'true');
+    await checkFrame(page, '/frame/fx-landing/1/desktop.html');
+  });
+
+  test('スマホの画面と部品は今のまま', async ({ page }) => {
+    await openWork(page, 'fx-habits');
+    await checkFrame(page, '/frame/fx-habits/1/mobile.html');
+    await openWork(page, 'fx-toggle');
+    await checkFrame(page, '/frame/fx-toggle/1/desktop.html');
+  });
+});
+
+test.describe('指で触るが幅の広い画面（タブレット、幅 1024）：今のまま「デスクトップ」', () => {
+  test.use({ viewport: { width: 1024, height: 1366 }, deviceScaleFactor: 2, hasTouch: true });
+
+  test('デスクトップの枠を読む', async ({ page }) => {
+    await openWork(page, 'fx-landing');
+    await expect(pressed(page, copy.work.desktop)).toHaveAttribute('aria-pressed', 'true');
+    await checkFrame(page, '/frame/fx-landing/1/desktop.html');
+  });
+});
+
 test.describe('DPR 1 の画面', () => {
   test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
 

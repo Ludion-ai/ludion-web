@@ -1,10 +1,10 @@
 import { Monitor, Smartphone } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useCopy } from '../hooks/useCopy';
-import { frameScale, startFrame, type FrameSize } from '../lib/frame';
+import { BOX_CLASS, FRAME_CLASS, frameScale, startFrame, type FrameSize } from '../lib/frame';
 import type { FrameUrls } from '../lib/post';
 import { chipClass } from './chip';
-import { BOX_CLASS, FRAME_CLASS, SANDBOX } from './FramePreview';
+import { SANDBOX } from './FramePreview';
 
 /**
  * 公開前の版を、公開の枠と同じ守りで動かす（docs/tasks/T021.md「下書きの見え方」、CLAUDE.md「描画」）。
