@@ -146,28 +146,8 @@ export async function renderWorkPage(c: PageContext): Promise<Response> {
       ? { title: copyOf(c).work.pageTitle(work.title || copyOf(c).post.untitled, creator.handle) }
       : { title: copyOf(c).work.pageTitle(work.title, creator.handle), image: ogImage(c, work), path: `/p/${encodeURIComponent(work.id)}` },
   });
-  if (loaded.private) {
-    for (const [name, value] of Object.entries(PRIVATE_HEADERS)) response.headers.set(name, value);
-    return response;
-  }
-  return withEtag(response);
-}
-
-/**
- * 公開の作品のページに ETag を付ける（PERF002「3」）。2回目に開く人は、中身が変わっていなければ 304 で済む。
- * 304 を返すのは、この応答をキャッシュした Cloudflare（ETag が合えば返す）。ブラウザには残さないので（max-age=0）、毎回確かめに来る。
- * ETag は、返す HTML の全部のバイトから作る。だから、閲覧数、コピー数、いいねの数（HTML に入っている）が変われば変わる。
- * 公開の作品のページは人によって変えない（ログインの有無で中身が変わらない）ので、全員に同じ ETag になる。
- * React はページを全部描いてから流し始める（Suspense がない）ので、ここで全部を待っても最初のバイトはほとんど遅れない。
- * 圧縮で中身のバイトが変わるので、弱い ETag（W/）にする。
- */
-async function withEtag(response: Response): Promise<Response> {
-  const body = await response.arrayBuffer();
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', body));
-  const tag = [...digest.slice(0, 16)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-  const headers = new Headers(response.headers);
-  headers.set('ETag', `W/"${tag}"`);
-  return new Response(body, { status: response.status, headers });
+  if (loaded.private) for (const [name, value] of Object.entries(PRIVATE_HEADERS)) response.headers.set(name, value);
+  return response;
 }
 
 /** ログインの画面。ログイン済みなら戻り先へ。使える手段はサイトの設定で決まり、人では変わらない。キャッシュしない。 */
