@@ -1,6 +1,7 @@
 // スマホ（指で触る端末で、画面の幅が狭い）の作品のページのプレビュー（SPEC.md 13「プレビュー」）。
 // 「モバイル」だけを見せ、枠を縮めずにその大きさのまま描く。枠は最初の画面に収まり、下のボタンが見える。
 import { expect, test, type Page } from '@playwright/test';
+import { framedAt } from './helpers';
 
 const WALLPAPER = 'fx-wallpaper';
 const MOBILE_FRAME = `/frame/${WALLPAPER}/1/mobile.html`;
@@ -84,7 +85,7 @@ for (const phone of PHONES) {
       await expect(page.getByRole('button', { name: 'デスクトップ' })).toHaveCount(0);
       await expect(page.getByRole('button', { name: 'モバイル' })).toHaveCount(0);
       await expect(frameOf(page)).toHaveCount(1);
-      await expect(frameOf(page)).toHaveAttribute('src', MOBILE_FRAME);
+      await expect(frameOf(page)).toHaveAttribute('src', framedAt(MOBILE_FRAME));
 
       const now = await layout(page);
       const height = now.viewport[1];
@@ -137,12 +138,12 @@ for (const phone of PHONES) {
       // React が載っても、枠を作り直さない（Mobile の枠を読むのは1回）
       await page.waitForTimeout(500);
       expect(canvasFrame.loads()).toBe(1);
-      await expect(frameOf(page)).toHaveAttribute('src', MOBILE_FRAME);
+      await expect(frameOf(page)).toHaveAttribute('src', framedAt(MOBILE_FRAME));
     });
 
     test('スマホの画面（platform が mobile）：同じ形。枠は縮めずに描く', async ({ page }) => {
       await openWork(page, 'fx-habits');
-      await expect(frameOf(page)).toHaveAttribute('src', '/frame/fx-habits/1/mobile.html');
+      await expect(frameOf(page)).toHaveAttribute('src', framedAt('/frame/fx-habits/1/mobile.html'));
       const now = await layout(page);
       expect(now.transform).toBe('none');
       expect(now.box.width).toBeCloseTo(now.body, 1);
@@ -162,7 +163,7 @@ test.describe('スマホでないとき', () => {
     await openWork(page, WALLPAPER);
     await expect(page.getByRole('button', { name: 'デスクトップ' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('button', { name: 'モバイル' })).toHaveAttribute('aria-pressed', 'false');
-    await expect(frameOf(page)).toHaveAttribute('src', `/frame/${WALLPAPER}/1/desktop.html`);
+    await expect(frameOf(page)).toHaveAttribute('src', framedAt(`/frame/${WALLPAPER}/1/desktop.html`));
     expect((await layout(page)).size).toBe('desktop');
     await context.close();
   });
@@ -171,9 +172,9 @@ test.describe('スマホでないとき', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openWork(page, WALLPAPER);
     await expect(page.getByRole('button', { name: 'デスクトップ' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(frameOf(page)).toHaveAttribute('src', `/frame/${WALLPAPER}/1/desktop.html`);
+    await expect(frameOf(page)).toHaveAttribute('src', framedAt(`/frame/${WALLPAPER}/1/desktop.html`));
     await page.getByRole('button', { name: 'モバイル' }).click();
-    await expect(frameOf(page)).toHaveAttribute('src', MOBILE_FRAME);
+    await expect(frameOf(page)).toHaveAttribute('src', framedAt(MOBILE_FRAME));
     const now = await layout(page);
     expect(now.frameClient).toEqual([390, 844]);
     expect(now.transform).not.toBe('none');
@@ -183,10 +184,10 @@ test.describe('スマホでないとき', () => {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
     const page = await context.newPage();
     await openWork(page, WALLPAPER);
-    await expect(frameOf(page)).toHaveAttribute('src', MOBILE_FRAME);
+    await expect(frameOf(page)).toHaveAttribute('src', framedAt(MOBILE_FRAME));
     await page.setViewportSize({ width: 844, height: 390 });
     await expect(page.getByRole('button', { name: 'デスクトップ' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(frameOf(page)).toHaveAttribute('src', `/frame/${WALLPAPER}/1/desktop.html`);
+    await expect(frameOf(page)).toHaveAttribute('src', framedAt(`/frame/${WALLPAPER}/1/desktop.html`));
     expect((await layout(page)).size).toBe('desktop');
     await context.close();
   });

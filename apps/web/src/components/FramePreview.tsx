@@ -4,7 +4,7 @@ import type { Copy } from '../copy';
 import { useCopy } from '../hooks/useCopy';
 import type { Work } from '../data/works';
 import { useMediaQuery } from '../hooks/useMediaQuery';
-import { BOX_CLASS, FRAME_CLASS, frameScale, frameUrl, isPhone, PHONE_QUERY, type FrameSize } from '../lib/frame';
+import { BOX_CLASS, FRAME_CLASS, frameScale, frameUrl, isPhone, PHONE_QUERY, previewScale, startFrame, type FrameSize } from '../lib/frame';
 import { setShowMotion, useShowMotion } from '../lib/motionChoice';
 import { webglAvailable } from '../lib/webgl';
 import { chipClass } from './chip';
@@ -105,6 +105,16 @@ export function FramePreview({ work, background, frames = null }: { work: Work; 
 
   const srcOf = (frameSize: FrameSize) => (frames ? `${frames[frameSize]}${motion ? '?motion=1' : ''}` : frameUrl(work, frameSize, motion));
 
+  // 枠を、見えている細かさを付けた URL で読み始める（PREVIEW-DPR）。Worker が描いた枠は beforeApp が先に入れている。
+  // スマホの Mobile の枠は縮めずに描くので、割合は 1（previewScale）。入れ物ごと作り直した枠（repairs）にも入れる
+  const frameKey = `${shown}-${replays}-${motion}`;
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    const box = boxRef.current;
+    if (frame && box) startFrame(frame, isComponent ? 1 : previewScale(shown, box.clientWidth, phone));
+  }, [frameKey, isComponent, repairs]);
+
   return (
     <div>
       {webScreen && (
@@ -140,12 +150,15 @@ export function FramePreview({ work, background, frames = null }: { work: Work; 
           className={`relative overflow-hidden rounded-card border border-site-line ${BOX_CLASS[shape]}`}
         >
           <iframe
-            key={`${shown}-${replays}-${motion}`}
+            key={frameKey}
+            ref={frameRef}
             data-ld-frame=""
             title={copy.work.frameTitle(work.title)}
             sandbox={SANDBOX}
+            // src は startFrame が入れる（# に見えている細かさを付ける。PREVIEW-DPR）。Worker が描いた枠には beforeApp が React より先に入れる
             // 自分だけの作品は下書きの枠（持ち主だけに返す。docs/tasks/T036.md「2」）。守りは公開の枠と同じ
-            src={srcOf(isComponent ? 'desktop' : shown)}
+            data-src={srcOf(isComponent ? 'desktop' : shown)}
+            suppressHydrationWarning
             className={FRAME_CLASS[shape]}
           />
           {work.tags.includes('motion') && (

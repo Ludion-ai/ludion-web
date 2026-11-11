@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Frame, Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import type { Work } from '../src/data/works';
 import { parseHomeQuery, selectWorks } from '../src/lib/homeQuery';
@@ -6,6 +6,17 @@ import { comparePopular } from '../src/lib/popular';
 
 export const seed: Work[] = JSON.parse(readFileSync(new URL('../../../seed/works.json', import.meta.url), 'utf8'));
 export const TOTAL = seed.length;
+
+/**
+ * プレビューの枠の src（PREVIEW-DPR）。枠の URL の # に、見えている細かさ（ldpr）が付く。
+ * path は # の前の全部（? も含む）。
+ */
+export function framedAt(path: string): RegExp {
+  return new RegExp(`^${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}#ldpr=\\d+(?:\\.\\d+)?$`);
+}
+
+/** 枠の文書の URL の path（# と ? を除く） */
+export const framePath = (frame: Frame) => new URL(frame.url()).pathname;
 
 /** 見本の答え：URL の値で絞った、作品の id の並び。 */
 export function popularOrder(search = ''): string[] {

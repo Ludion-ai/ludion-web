@@ -28,6 +28,8 @@ interface FrameState {
   timer?: ReturnType<typeof setTimeout>;
   /** 読み直しをやめて空にした */
   gaveUp: boolean;
+  /** 読み直しの途中で、いったん about:blank へ移した（その load の後に元の URL へ戻す） */
+  blanking: boolean;
 }
 
 const states = new WeakMap<HTMLIFrameElement, FrameState>();
@@ -35,7 +37,7 @@ const states = new WeakMap<HTMLIFrameElement, FrameState>();
 function stateOf(frame: HTMLIFrameElement): FrameState {
   let state = states.get(frame);
   if (!state) {
-    state = { url: frame.getAttribute('src') ?? 'about:blank', loads: 0, restores: 0, confirmed: false, gaveUp: false };
+    state = { url: frame.getAttribute('src') ?? 'about:blank', loads: 0, restores: 0, confirmed: false, gaveUp: false, blanking: false };
     states.set(frame, state);
   }
   return state;
@@ -47,7 +49,18 @@ function restore(frame: HTMLIFrameElement, state: FrameState) {
   state.confirmed = false;
   state.restores += 1;
   state.gaveUp = state.restores > MAX_RESTORES;
-  frame.src = state.gaveUp ? 'about:blank' : state.url;
+  if (state.gaveUp) {
+    frame.src = 'about:blank';
+    return;
+  }
+  // 枠の URL には # が付く（見えている細かさ。lib/frame.ts の startFrame）。# の前が今の文書と同じだと、
+  // 読み直さずに # へ移るだけのブラウザがある（WebKit。止められた移動の後）。いったん about:blank へ移し、その load の後に元の URL へ戻す
+  if (state.url.includes('#')) {
+    state.blanking = true;
+    frame.src = 'about:blank';
+  } else {
+    frame.src = state.url;
+  }
 }
 
 // 送り元と形を確かめる（CLAUDE.md「描画」）。sandbox の枠のオリジンは null
@@ -67,8 +80,16 @@ document.addEventListener(
   (event) => {
     const frame = event.target;
     if (!(frame instanceof HTMLIFrameElement) || !isWatched(frame)) return;
+    // src を付ける前の枠（about:blank）の load は数えない。枠は src なしで描き、細かさを付けた src を後から入れる（lib/frame.ts の startFrame）
+    if (!frame.hasAttribute('src')) return;
     const state = stateOf(frame);
     if (state.gaveUp) return;
+    if (state.blanking) {
+      // 読み直しの途中の about:blank。数えずに、元の URL へ戻す
+      state.blanking = false;
+      frame.src = state.url;
+      return;
+    }
     state.loads += 1;
     if (state.loads >= 2) {
       restore(frame, state);

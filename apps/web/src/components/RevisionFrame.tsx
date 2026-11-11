@@ -1,10 +1,10 @@
 import { Monitor, Smartphone } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useCopy } from '../hooks/useCopy';
-import { frameScale, type FrameSize } from '../lib/frame';
+import { BOX_CLASS, FRAME_CLASS, frameScale, startFrame, type FrameSize } from '../lib/frame';
 import type { FrameUrls } from '../lib/post';
 import { chipClass } from './chip';
-import { BOX_CLASS, FRAME_CLASS, SANDBOX } from './FramePreview';
+import { SANDBOX } from './FramePreview';
 
 /**
  * 公開前の版を、公開の枠と同じ守りで動かす（docs/tasks/T021.md「下書きの見え方」、CLAUDE.md「描画」）。
@@ -26,6 +26,15 @@ export function RevisionFrame({ frames, title, stamp, initial = 'desktop' }: { f
     return () => observer.disconnect();
   }, [size]);
 
+  // 見えている細かさを付けた URL で読み始める（PREVIEW-DPR。lib/frame.ts の startFrame）
+  const frameKey = `${size}-${stamp}`;
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    const box = boxRef.current;
+    if (frame && box) startFrame(frame, frameScale(size, box.clientWidth));
+  }, [frameKey]);
+
   const choices = [
     { size: 'desktop', label: copy.work.desktop, icon: Monitor },
     { size: 'mobile', label: copy.work.mobile, icon: Smartphone },
@@ -43,7 +52,16 @@ export function RevisionFrame({ frames, title, stamp, initial = 'desktop' }: { f
       </div>
       <div className="@container">
         <div ref={boxRef} data-frame-size={size} className={`relative overflow-hidden rounded-card border border-site-line ${BOX_CLASS[size]}`}>
-          <iframe key={`${size}-${stamp}`} data-ld-frame="" title={copy.work.frameTitle(title)} sandbox={SANDBOX} src={`${frames[size]}?h=${encodeURIComponent(stamp)}`} className={FRAME_CLASS[size]} />
+          <iframe
+            key={frameKey}
+            ref={frameRef}
+            data-ld-frame=""
+            title={copy.work.frameTitle(title)}
+            sandbox={SANDBOX}
+            data-src={`${frames[size]}?h=${encodeURIComponent(stamp)}`}
+            suppressHydrationWarning
+            className={FRAME_CLASS[size]}
+          />
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { Moon, Sun } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useCopy } from '../hooks/useCopy';
+import { startFrame } from '../lib/frame';
 import { chooseTheme, currentTheme, useTheme } from '../lib/theme';
 import { startThemeSwitch, useThemeSwitchWork } from '../lib/themeSwitches';
 import { SANDBOX } from './FramePreview';
@@ -70,6 +71,11 @@ export function ThemeSwitch() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => afterLoadAndIdle(startThemeSwitch), []);
+
+  // 枠を読み始める。縮めない枠なので、細かさは実際の DPR のまま（PREVIEW-DPR。作品のページの枠と同じ形で URL に付ける）
+  useLayoutEffect(() => {
+    if (frameRef.current) startFrame(frameRef.current, 1);
+  }, [work]);
 
   // 親のモードが正。枠が読めたら、今のモードを伝える。枠は違うときだけスイッチを押す
   const sendTheme = () => {
@@ -159,7 +165,8 @@ export function ThemeSwitch() {
         <iframe
           ref={frameRef}
           data-ld-switch-frame=""
-          src={`/frame/${work.id}/${work.version}/inline.html`}
+          // src は startFrame が入れる（# に細かさを付ける。PREVIEW-DPR）。この枠は縮めないので、割合は 1
+          data-src={`/frame/${work.id}/${work.version}/inline.html`}
           sandbox={SANDBOX}
           title={copy.themeSwitch.frameTitle(work.title, work.handle)}
           inert={!ready}
