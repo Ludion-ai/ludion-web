@@ -13,6 +13,76 @@ export const wallUrl = (id: string) => `${SHARE_ORIGIN}/p/${encodeURIComponent(i
 /** Plash に直接足す住所。Plash の説明のとおり、値はすべて URL の形に符号化する（plash:add?url=…&title=…）。 */
 export const plashUrl = (id: string, title: string) => `plash:add?url=${encodeURIComponent(wallUrl(id))}&title=${encodeURIComponent(title)}`;
 
+/**
+ * Ludion の Windows アプリに壁紙を渡す住所（APP001「3」。apps/windows の Links.ParseProtocol が受ける形）。
+ * アプリが入っていれば、ブラウザが「開きますか」と聞いた後、アプリが壁紙を切り替える。
+ */
+export const appUrl = (id: string) => `ludion://wall/${encodeURIComponent(id)}`;
+
+/**
+ * Windows アプリのダウンロード（worker/download.ts が、今の配り先へ送る）。
+ * 段階 A は署名のない .exe。Store の Web インストーラーに替えるときも、この住所のまま。
+ */
+export const WINDOWS_DOWNLOAD_PATH = '/download/windows';
+
+/** アプリが開いたことがある印（この人のブラウザの中だけ。送らない）。開いたことがあれば、入れ方の案内を自分からは出さない */
+const APP_SEEN_KEY = 'ld-windows-app';
+
+function appSeen(): boolean {
+  try {
+    return localStorage.getItem(APP_SEEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function rememberApp(): void {
+  try {
+    localStorage.setItem(APP_SEEN_KEY, '1');
+  } catch {
+    // 保存できないブラウザでは、毎回同じに動くだけ
+  }
+}
+
+/** アプリが開いたかを待つ時間。ブラウザの「開きますか」が出ると、ページから注意が外れる（blur）。 */
+export const APP_WAIT_MS = 1500;
+
+/**
+ * 「Windows アプリで設定」を押した後に呼ぶ（住所への移動はリンクそのものが行う）。
+ * ブラウザの「開きますか」かアプリが前に出れば、ページの注意が外れる。外れなければ、アプリが入っていないとみなして onMissing。
+ * 一度でも外れたことのあるブラウザでは、onMissing を呼ばない（「常に許可」にすると、聞かれずに開くため）。
+ * 返す関数で待つのをやめる。
+ */
+export function watchAppLaunch(onMissing: () => void, wait = APP_WAIT_MS): () => void {
+  let done = false;
+  const opened = () => {
+    if (done) return;
+    done = true;
+    rememberApp();
+    stop();
+  };
+  const onVisibility = () => {
+    if (document.visibilityState === 'hidden') opened();
+  };
+  const timer = window.setTimeout(() => {
+    if (done) return;
+    done = true;
+    stop();
+    if (!appSeen()) onMissing();
+  }, wait);
+  function stop() {
+    window.clearTimeout(timer);
+    window.removeEventListener('blur', opened);
+    document.removeEventListener('visibilitychange', onVisibility);
+  }
+  window.addEventListener('blur', opened);
+  document.addEventListener('visibilitychange', onVisibility);
+  return () => {
+    done = true;
+    stop();
+  };
+}
+
 /** 「HTML を保存」のファイルの名前。 */
 export const wallpaperFileName = (id: string) => `${id}.html`;
 

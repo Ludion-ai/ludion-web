@@ -5,7 +5,8 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 import { copy } from '../src/copy';
 import { copyEn } from '../src/copy.en';
 import type { Work } from '../src/data/works';
-import { PAGE_CACHE_CONTROL } from '../worker/cachePolicy';
+import { DEFAULT_CACHE_CONTROL, PAGE_CACHE_CONTROL } from '../worker/cachePolicy';
+import { WINDOWS_DOWNLOAD_URL } from '../worker/download';
 import { pageOverflow, pretendMac, pretendWindows } from './helpers';
 
 const text = copy.work.wallpaper;
@@ -150,6 +151,102 @@ test.describe('作品のページの「壁紙にする」', () => {
     const dialog = sheet(page, copyEn.work.wallpaper.heading);
     await expect(dialog.getByRole('link', { name: copyEn.work.wallpaper.plash })).toBeVisible();
     await expect(dialog.getByRole('button', { name: copyEn.work.wallpaper.download })).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------- Windows アプリ（APP001）
+
+test.describe('「Windows アプリで設定」（APP001）', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  /** ludion:// へは移らせない（試験の機械にアプリはない）。押したことと、その後のシートだけを見る */
+  const holdLinks = (page: Page) =>
+    page.evaluate(() =>
+      document.addEventListener('click', (event) => {
+        if ((event.target as Element).closest('a[href^="ludion:"], a[href="/download/windows"]')) event.preventDefault();
+      }),
+    );
+
+  test('住所は ludion://wall/<id>。アプリが開かなければ、入れ方の案内に進む', async ({ page }) => {
+    await page.addInitScript(pretendWindows);
+    const sent = await watchEvents(page);
+    await openWork(page, ID);
+    await wallpaperButton(page).click();
+    const dialog = sheet(page);
+    const windows = dialog.locator('section[data-wallpaper="windows"]');
+    const app = windows.getByRole('link', { name: text.app });
+    await expect(app).toHaveAttribute('href', `ludion://wall/${ID}`);
+    // アプリのボタンが Windows の欄のいちばん上。Lively の手順はその下に残る
+    await expect(windows.getByRole('link').first()).toHaveText(text.app);
+    await expect(windows.getByText(text.livelySteps[0])).toBeVisible();
+
+    await holdLinks(page);
+    sent.length = 0;
+    await app.click();
+    await expect.poll(() => sent).toEqual([['wallpaper_open', { work_id: ID, method: 'app' }]]);
+    // 開かなかった（注意が外れなかった）ので、少し待って案内に替わる
+    const guide = sheet(page, text.install.heading);
+    await expect(guide).toBeVisible({ timeout: 5000 });
+    for (const step of text.install.steps) await expect(guide.getByText(step)).toBeVisible();
+    await expect(guide.getByText(text.install.why)).toBeVisible();
+    await expect(guide.getByText(text.install.privacy)).toBeVisible();
+    const download = guide.getByRole('link', { name: text.install.download });
+    await expect(download).toHaveAttribute('href', '/download/windows');
+    sent.length = 0;
+    await download.click();
+    await expect.poll(() => sent).toEqual([['wallpaper_open', { work_id: ID, method: 'app_download' }]]);
+
+    // 戻ると、元のシート
+    await guide.getByRole('button', { name: text.install.back }).click();
+    await expect(sheet(page)).toBeVisible();
+    await expect(windows.getByRole('link', { name: text.app })).toBeVisible();
+  });
+
+  test('「アプリを入れる」からも案内を開ける。「もう入っている」の後は、自分からは案内を出さない', async ({ page }) => {
+    await page.addInitScript(pretendWindows);
+    await openWork(page, ID);
+    await wallpaperButton(page).click();
+    await sheet(page).getByRole('button', { name: text.appInstall }).click();
+    const guide = sheet(page, text.install.heading);
+    await expect(guide).toBeVisible();
+    await guide.getByRole('button', { name: text.install.have }).click();
+    await expect(sheet(page)).toBeVisible();
+    expect(await page.evaluate(() => localStorage.getItem('ld-windows-app'))).toBe('1');
+
+    await holdLinks(page);
+    await sheet(page).getByRole('link', { name: text.app }).click();
+    await page.waitForTimeout(2500);
+    await expect(sheet(page)).toBeVisible();
+    await expect(sheet(page, text.install.heading)).toHaveCount(0);
+  });
+
+  test('ブラウザが「開きますか」と聞いた（ページの注意が外れた）ときは、案内を出さず、印を残す', async ({ page }) => {
+    await page.addInitScript(pretendWindows);
+    await openWork(page, ID);
+    await wallpaperButton(page).click();
+    await holdLinks(page);
+    await sheet(page).getByRole('link', { name: text.app }).click();
+    await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+    await page.waitForTimeout(2500);
+    await expect(sheet(page, text.install.heading)).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem('ld-windows-app'))).toBe('1');
+  });
+
+  test('/download/windows は、今の配り先へ 302。キャッシュしない', async ({ request }) => {
+    const response = await request.get('/download/windows', { maxRedirects: 0 });
+    expect(response.status()).toBe(302);
+    expect(response.headers()['location']).toBe(WINDOWS_DOWNLOAD_URL);
+    expect(response.headers()['cache-control']).toBe(DEFAULT_CACHE_CONTROL);
+  });
+
+  test('英語のページ：英語の文字', async ({ page }) => {
+    await page.addInitScript(pretendWindows);
+    await openWork(page, ID, '/en');
+    await wallpaperButton(page, copyEn.work.wallpaper.open).click();
+    const dialog = sheet(page, copyEn.work.wallpaper.heading);
+    await expect(dialog.getByRole('link', { name: copyEn.work.wallpaper.app })).toHaveAttribute('href', `ludion://wall/${ID}`);
+    await dialog.getByRole('button', { name: copyEn.work.wallpaper.appInstall }).click();
+    await expect(sheet(page, copyEn.work.wallpaper.install.heading).getByRole('link', { name: copyEn.work.wallpaper.install.download })).toBeVisible();
   });
 });
 
