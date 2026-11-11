@@ -340,7 +340,7 @@ const TEXT = {
     errors: {
       unknown_client: 'この AI の登録が見つかりません。AI の設定から、もう一度つないでください。',
       bad_redirect: '戻り先が登録と合いません。AI の設定から、もう一度つないでください。',
-      bad_origin: 'この画面は Ludion の中から送ってください。もう一度つないでください。',
+      bad_origin: '送り元を確かめられませんでした。AI の設定から、もう一度つないでください。',
     } as Record<string, string>,
   },
   en: {
@@ -361,7 +361,7 @@ const TEXT = {
     errors: {
       unknown_client: 'We can’t find this AI’s registration. Connect again from the AI’s settings.',
       bad_redirect: 'The return address doesn’t match the registration. Connect again from the AI’s settings.',
-      bad_origin: 'Send this screen from within Ludion. Connect again.',
+      bad_origin: 'We couldn’t verify where this was sent from. Connect again from the AI’s settings.',
     } as Record<string, string>,
   },
 };
@@ -387,12 +387,16 @@ button{height:44px;border-radius:10px;font:600 15px/1 inherit;cursor:pointer;wid
 a{color:inherit}
 `;
 
+/**
+ * Referrer-Policy は same-origin。no-referrer だと、この画面の form の POST に Origin: null が付き、
+ * POST /authorize の isSameOrigin で必ず断られる。same-origin なら、よそのサイトには参照元を出さず、自分への POST には Origin が付く。
+ */
 function page(c: OAuthContext, title: string, body: string, status: 200 | 400 = 200) {
   const locale = localeOf(c);
   return c.html(
     `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(title)}</title><style>${PAGE_STYLE}</style></head><body><main><p class="mark">Ludion</p>${body}</main></body></html>`,
     status,
-    { 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' },
+    { 'Referrer-Policy': 'same-origin', 'X-Robots-Tag': 'noindex' },
   );
 }
 
