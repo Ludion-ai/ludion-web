@@ -14,7 +14,7 @@ import { isWallpaperWork, launchForStills, makeStills, stillTime, type StillsBro
 import { CREATOR_KINDS, HANDLE_PATTERN, ID_PATTERN, MADE_WITH } from '@ludion/rules';
 import { newCss, newHtml, newMeta, today } from './templates.ts';
 import { collectFiles, describeResult, sendWork, uploadTarget, type UploadEnv } from './upload.ts';
-import { describePrivate, hasKey, loginHint, loginTo, privateBase, putPrivate } from './private.ts';
+import { describePrivate, hasKey, loginHint, loginTo, privateBase, putPrivate, stateHome } from './private.ts';
 import {
   creatorDir,
   creatorExists,
@@ -302,6 +302,8 @@ async function uploadPrivate(ids: string[], envValue: string | undefined): Promi
   if (env !== 'dev' && env !== 'prod') fail('--env は dev か prod');
   const base = privateBase(env);
   const locations = ids.map(locate);
+  // 対応（.ludion.json）は元の clone の根に置く。worktree の中でも同じ1つ
+  const stateDir = stateHome(rootDir());
   // 鍵がなければ、ブラウザも開かずに止める
   if (!(await hasKey(base))) fail(loginHint(env));
   console.log(`送り先：${base}（${env}）の /api/v1。--private：自分だけの作品として置く（公開しない。審査にも出さない）`);
@@ -317,7 +319,7 @@ async function uploadPrivate(ids: string[], envValue: string | undefined): Promi
         continue;
       }
       const work = toRenderable(readWork(location))!;
-      const sent = await putPrivate(work, location.dir, base, rootDir());
+      const sent = await putPrivate(work, base, stateDir);
       for (const line of describePrivate(location.id, sent, env)) console.log(line);
       if (!sent.ok) failed += 1;
     }

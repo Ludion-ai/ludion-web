@@ -14,7 +14,7 @@
 // Auto-save (the Claude Code plugin's hook): on unless `auto off` (this folder and below, kept in .ludion.json) or `auto off --all`.
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import os from 'node:os';
@@ -435,17 +435,55 @@ function readState(file) {
 
 /** The .ludion.json that covers `start` (the nearest one from there up; a new one in `start` if none). */
 export function loadState(start = process.cwd()) {
-  const dir = findStateFile(start) ?? path.resolve(start);
-  const file = path.join(dir, STATE_FILE);
-  return { dir, file, state: readState(file) };
+  return stateIn(findStateFile(start) ?? path.resolve(start));
+}
+
+/** The .ludion.json in exactly this folder (no looking up; a new one there if none). */
+export function stateIn(dir) {
+  const file = path.join(path.resolve(dir), STATE_FILE);
+  return { dir: path.dirname(file), file, state: readState(file) };
 }
 
 export function stateKey(dir, file) {
   return path.relative(dir, path.resolve(file)).split(path.sep).join('/');
 }
 
-function saveState({ file, state }) {
-  writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`);
+/**
+ * Changes .ludion.json safely when several programs (the plugin, ld, other sessions) use the same one: reads it again just before
+ * writing (so what others wrote meanwhile is kept), writes a temporary file next to it, then renames it into place (so a reader never
+ * sees a half-written file). Returns the state as written.
+ * @param {string} file
+ * @param {(state: { works: Record<string, any>, auto?: boolean }) => void} change
+ */
+export function updateState(file, change) {
+  const state = readState(file);
+  change(state);
+  const temp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  writeFileSync(temp, `${JSON.stringify(state, null, 2)}\n`);
+  try {
+    renameInto(temp, file);
+  } catch (e) {
+    rmSync(temp, { force: true });
+    throw e;
+  }
+  return state;
+}
+
+/**
+ * rename, retried for up to 5 seconds: on Windows it fails (EPERM, EBUSY, EACCES) while another program is reading the target or
+ * renaming onto it at the same moment. The waits are a little random so that programs waiting on each other do not retry in step.
+ */
+function renameInto(from, to) {
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (e) {
+      if (Date.now() > deadline || !['EPERM', 'EBUSY', 'EACCES'].includes(e?.code)) throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2 + Math.floor(Math.random() * 20));
+    }
+  }
 }
 
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
@@ -479,18 +517,18 @@ export const hasCredentials = () => Boolean(process.env.LUDION_KEY) || Boolean(c
  * The same key again makes a new version of the same work. Returns the result object (nothing is printed):
  * { ok: true, action: 'created' | 'new_version' | 'unchanged', file, id, version, ... } or { ok: false, error, message, extra }.
  * options: key (default: the file's path from the .ludion.json folder), stateStart (where to look for .ludion.json; default the
- * current folder), title, from, ifChanged, base, client.
+ * current folder), stateDir (use the .ludion.json in exactly this folder instead of looking up), title, from, ifChanged, base, client.
  * @param {string} html
- * @param {{ file?: string, key?: string, stateStart?: string, title?: string, from?: string, ifChanged?: boolean, base?: string, client?: string }} [options]
+ * @param {{ file?: string, key?: string, stateStart?: string, stateDir?: string, title?: string, from?: string, ifChanged?: boolean, base?: string, client?: string }} [options]
  */
-export async function putHtml(html, { file, key, stateStart, title, from, ifChanged = false, base, client } = {}) {
+export async function putHtml(html, { file, key, stateStart, stateDir, title, from, ifChanged = false, base, client } = {}) {
   const local = staticCheck(html);
   // A title given on the command line stands in for a missing <title>
   const problems = title ? local.problems.filter((p) => p.code !== 'no_title') : local.problems;
   if (problems.length) {
     return { ok: false, error: 'check_failed', message: 'The file did not pass the check; nothing was sent. Fix each problem and put again.', extra: { problems } };
   }
-  const st = loadState(stateStart);
+  const st = stateDir ? stateIn(stateDir) : loadState(stateStart);
   const k = key ?? stateKey(st.dir, file);
   const known = st.state.works[k];
   const hash = sha256(html);
@@ -510,9 +548,9 @@ export async function putHtml(html, { file, key, stateStart, title, from, ifChan
   if (!r.ok) return r;
   const { data } = r;
   // Read again just before writing, so fields written meanwhile (auto, other works) are kept
-  const latest = { ...st, state: readState(st.file) };
-  latest.state.works[k] = { id: data.id, version: data.version, hash };
-  saveState(latest);
+  updateState(st.file, (state) => {
+    state.works[k] = { id: data.id, version: data.version, hash };
+  });
   return {
     ok: true,
     action: known?.id ? 'new_version' : 'created',
@@ -545,8 +583,9 @@ async function get(id, flags) {
   writeFileSync(outFile, data.code ?? '');
   const st = loadState();
   const k = stateKey(st.dir, outFile);
-  st.state.works[k] = { id: data.id, version: data.version };
-  saveState(st);
+  updateState(st.file, (state) => {
+    state.works[k] = { id: data.id, version: data.version };
+  });
   const { code, ...rest } = data;
   out({ ok: true, ...rest, written: outFile, bytes: byteLength(code ?? ''), note: `Putting ${outFile} again makes a new version of ${data.id}` });
 }
@@ -685,10 +724,9 @@ function auto(value, flags) {
     writePrivate(configFile(), { ...readJson(configFile(), {}), auto: on });
     return out({ ok: true, auto: on, scope: 'all', note: on ? 'Auto-save is on (folders turned off with "auto off" stay off).' : 'Auto-save is off everywhere.' });
   }
-  const file = path.join(process.cwd(), STATE_FILE);
-  const state = readState(file);
-  state.auto = on;
-  saveState({ file, state });
+  updateState(path.join(process.cwd(), STATE_FILE), (state) => {
+    state.auto = on;
+  });
   out({ ok: true, auto: on, scope: 'folder', folder: process.cwd(), note: on ? 'Auto-save is on in this folder.' : 'Auto-save is off in this folder and the folders inside it.' });
 }
 

@@ -31,7 +31,7 @@
 - `--publish` とは一緒に使えない。サムネイル、OG 画像、壁紙の静止画は送らない（`/api/v1` は HTML と title だけを受ける）。
 - 送るのは、`part.html`、`part.css`、`part.js` を「コピーされるコード」と同じ並びにした1つの HTML（クレジット行はサーバーが作る）と、`meta.json` の title。
 - 鍵の読む順：環境変数 `LUDION_KEY`（AI の鍵）→ `~/.ludion/auth.json`（`npx ld login` かプラグインの login が作る。切れていれば取り直す）。どちらもなければ止まる。
-- 同じ id をもう一度送ると、同じ自分だけの作品の新しい版になる。中身が前と同じなら送らない。対応はリポジトリの根の `.ludion.json`（プラグインと同じ形。コミットしない）に `works/<id>/` の名前で残る。本番でない送り先は `works/<id>/@<送り先>`。
+- 同じ id をもう一度送ると、同じ自分だけの作品の新しい版になる。中身が前と同じなら送らない。対応は元の clone の根（worktree の中で打っても、`git rev-parse --git-common-dir` の上）の `.ludion.json`（プラグインと同じ形。コミットしない）に、どの worktree からでも同じ `works/<id>/` の名前で残る。本番でない送り先は `works/<id>/@<送り先>`。
 - `X-Ludion-Client: ld` を付ける（AI の鍵で送ったとき、置き場に「ld」と出る。`auth.json` のつながりで送ったときは、つないだときの名前が出る）。
 - `npx ld login [--env prod|dev]`（既定は prod）：プラグインの login と同じ流れ。ブラウザで Ludion にログインし、「許可する」を1回押す。
 

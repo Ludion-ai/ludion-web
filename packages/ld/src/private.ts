@@ -4,8 +4,10 @@
 // プラグイン、ld、デスクトップアプリが、同じフォルダで同じ対応を読み書きするため。
 // 鍵：環境変数 LUDION_KEY → ~/.ludion/auth.json（ld login かプラグインの login が作る。切れていれば取り直す）。
 
+import { execFileSync } from 'node:child_process';
+import { basename, dirname, resolve } from 'node:path';
 import { stripExports, type Work } from '@ludion/render';
-import { authorizationFor, connect, loadState, putHtml, stateKey } from '../../../plugins/ludion/skills/ludion/ludion.mjs';
+import { authorizationFor, connect, putHtml } from '../../../plugins/ludion/skills/ludion/ludion.mjs';
 import { DEV_DEFAULT_URL, PROD_URL, type UploadEnv } from './upload.ts';
 
 /** 置き場に出る「どこから置いたか」の印（AI の鍵で送るときに効く）。 */
@@ -42,11 +44,28 @@ export function privateHtml(work: Work): string {
 }
 
 /**
- * .ludion.json の中の名前。作品のフォルダ（例：works/toggle-aurora/）。末尾の / で、プラグインが覚える HTML のファイルとぶつからない。
+ * .ludion.json を置くフォルダ：元の clone の根（`git rev-parse --git-common-dir` の上）。worktree の中で動かしても同じ1つを
+ * 読み書きするので、使い捨ての worktree が消えても対応が残り、ほかのセッションとも同じ対応になる。
+ * git でないとき、または共通の .git が「.git」という名前でないとき（bare など）は、置き場の根（root）。
+ */
+export function stateHome(root: string): string {
+  try {
+    const common = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    const dir = resolve(root, common);
+    if (common !== '' && basename(dir) === '.git') return dirname(dir);
+  } catch {
+    // git がない、または git の置き場でない
+  }
+  return resolve(root);
+}
+
+/**
+ * .ludion.json の中の名前。作品のフォルダ works/<id>/（例：works/toggle-aurora/）。どの worktree から送っても同じ名前にする。
+ * 末尾の / で、プラグインが覚える HTML のファイルとぶつからない。
  * .ludion.json は送り先を区別しないので、本番でない送り先には「@送り先」を足し、dev の作品の番号を本番に送らない。
  */
-export function stateName(stateDir: string, workDir: string, base: string): string {
-  const folder = `${stateKey(stateDir, workDir)}/`;
+export function stateName(id: string, base: string): string {
+  const folder = `works/${id}/`;
   return base === PROD_URL ? folder : `${folder}@${base}`;
 }
 
@@ -63,11 +82,13 @@ export interface PrivateResult {
   extra?: { status?: number; problems?: { message: string; fix: string }[]; [key: string]: unknown };
 }
 
-/** 1つの作品を、自分だけの作品として置く。同じフォルダの2回目からは、同じ作品の新しい版。前と同じ中身なら送らない。 */
-export async function putPrivate(work: Work, workDir: string, base: string, stateStart: string): Promise<PrivateResult> {
-  const { dir } = loadState(stateStart);
-  const key = stateName(dir, workDir, base);
-  return (await putHtml(privateHtml(work), { key, stateStart, title: work.meta.title, ifChanged: true, base, client: LD_CLIENT })) as PrivateResult;
+/**
+ * 1つの作品を、自分だけの作品として置く。同じ id の2回目からは（別の worktree からでも）、同じ作品の新しい版。前と同じ中身なら送らない。
+ * 対応は stateDir（stateHome の答え）の .ludion.json にだけ置く。上のフォルダの .ludion.json は探さない。
+ */
+export async function putPrivate(work: Work, base: string, stateDir: string): Promise<PrivateResult> {
+  const key = stateName(work.meta.id, base);
+  return (await putHtml(privateHtml(work), { key, stateDir, title: work.meta.title, ifChanged: true, base, client: LD_CLIENT })) as PrivateResult;
 }
 
 /** 送った結果を、人が読める行にする。 */

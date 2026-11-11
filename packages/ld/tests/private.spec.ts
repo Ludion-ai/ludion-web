@@ -1,6 +1,6 @@
 // ld upload --private と ld login（LD002）を、プラグインのテストと同じ偽のサーバー（plugins/test/fake-server.mjs）で確かめる。
-import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
@@ -148,6 +148,50 @@ test.describe('ld upload --private', () => {
       const after = JSON.parse(readFileSync(statePath, 'utf8')) as typeof state;
       expect(after.works[key].version).toBe(2);
       expect(after.works[key].id).toBe(created.id);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('worktree の中で送っても、元の clone の根の .ludion.json に works/<id>/ の名前で残り、別の worktree から送ると同じ作品の新しい版', async () => {
+    const { env, root, cleanup } = setup();
+    try {
+      const git = (args: string[], cwd = root) => {
+        const r = spawnSync('git', ['-c', 'user.name=ld-test', '-c', 'user.email=ld-test@example.invalid', ...args], { cwd, encoding: 'utf8' });
+        expect(r.status, r.stderr).toBe(0);
+      };
+      git(['commit', '-q', '--allow-empty', '-m', 'base']);
+      // セッションの worktree と同じ形：元の clone の中の .claude/worktrees/<名前>。作品はコミットしていないので写す
+      const worktree = (name: string) => {
+        const dir = join(root, '.claude', 'worktrees', name);
+        git(['worktree', 'add', '-q', '--detach', dir]);
+        for (const part of ['works', 'creators', 'ld.config.json']) cpSync(join(root, part), join(dir, part), { recursive: true });
+        return dir;
+      };
+      const a = worktree('a');
+      const b = worktree('b');
+      const key = `works/fx-toggle/@${server.url}`;
+      const statePath = join(root, '.ludion.json');
+
+      const first = await runLd(['upload', 'fx-toggle', '--private'], { ...env, LD_ROOT: a, LUDION_KEY: TEST_KEY });
+      expect(first.code, first.out).toBe(0);
+      expect(existsSync(join(a, '.ludion.json'))).toBe(false);
+      const state = JSON.parse(readFileSync(statePath, 'utf8')) as { works: Record<string, { id: string; version: number }> };
+      expect(Object.keys(state.works)).toEqual([key]);
+      expect(state.works[key].version).toBe(1);
+      const id = state.works[key].id;
+
+      appendFileSync(join(b, 'works/fx-toggle/part.css'), '\n[data-ld-part="fx-toggle"] .ld002-b { opacity: 1; }\n');
+      const second = await runLd(['upload', 'fx-toggle', '--private'], { ...env, LD_ROOT: b, LUDION_KEY: TEST_KEY });
+      expect(second.code, second.out).toBe(0);
+      expect(posts().at(-1)!.path).toBe(`/api/v1/works/${id}/versions`);
+      expect(second.out).toContain(`${id} 版 2`);
+      expect(existsSync(join(b, '.ludion.json'))).toBe(false);
+      const after = JSON.parse(readFileSync(statePath, 'utf8')) as typeof state;
+      expect(Object.keys(after.works)).toEqual([key]);
+      expect(after.works[key]).toMatchObject({ id, version: 2 });
+      // 一時ファイルは残らない
+      expect(readdirSync(root).filter((f) => f.startsWith('.ludion.json'))).toEqual(['.ludion.json']);
     } finally {
       cleanup();
     }
