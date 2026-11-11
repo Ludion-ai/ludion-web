@@ -32,11 +32,29 @@ export type Work = {
 let loading: Promise<Work[]> | null = null;
 
 /**
+ * ページを離れ始めた（beforeunload の後）。この後に取りに行くと、Safari は移動で切られた取得に「access control checks」のエラーを出す。
+ * ヘッダーのスイッチは load の後の手の空いた時に取りに行くので、読み込み直しと重なることがある。離れ始めたら取りに行かない。
+ * 戻る・進むのキャッシュから戻ったら（pageshow）、また取りに行ける。
+ */
+let leaving = false;
+{
+  // このファイルは Worker でも読む（window の型がない）
+  const page = (globalThis as { window?: EventTarget }).window;
+  page?.addEventListener('beforeunload', () => {
+    leaving = true;
+  });
+  page?.addEventListener('pageshow', () => {
+    leaving = false;
+  });
+}
+
+/**
  * ホーム以外のページからホームへ移ったときと、ヘッダーのスイッチの作品を選ぶとき（docs/tasks/T035.md「3」）に使う。
  * ホームを開いたときは呼ばない（SPEC.md 10）。1つのページで何度呼んでも、取りに行くのは1回だけ。失敗したら次は取り直す。
  */
 export function fetchWorks(): Promise<Work[]> {
   if (loading) return loading;
+  if (leaving) return Promise.reject(new DOMException('leaving the page', 'AbortError'));
   // 読み込み直しや移動で途中の取得が切られると、Safari は「access control checks」のエラーを出す。
   // 移る前に自分で止めて、そのエラーを出さない。取り終えたら見張りを外す
   const controller = new AbortController();
