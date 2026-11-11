@@ -1,7 +1,7 @@
 export type { Creator, CreatorKind, MadeWith, Palette, Platform, Work, WorkMeta, WorkType } from './types.ts';
 export { ALL_TOKEN_NAMES, NEUTRAL_PALETTES, OPTIONAL_TOKEN_NAMES, TOKEN_NAMES, tokenDeclarations } from './tokens.ts';
 export type { TokenName, TokenValues } from './tokens.ts';
-export { FRAME_CSP, FRAME_RESPONSE_CSP, FRAME_SANDBOX, HOST_ID, authorBackground, buildFrameHtml } from './frame.ts';
+export { DPR_HASH_KEY, DPR_SCRIPT, FRAME_CSP, FRAME_RESPONSE_CSP, FRAME_SANDBOX, HOST_ID, authorBackground, buildFrameHtml } from './frame.ts';
 export type { FrameOptions, MountStatus } from './frame.ts';
 export { ALLOW_MOTION_SCRIPT, allowMotionCss, allowMotionQuery, motionLeftovers } from './motion.ts';
 export { buildCopySnippet, creditLine, creditText, remixCreditText } from './snippet.ts';

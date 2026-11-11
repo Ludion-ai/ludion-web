@@ -4,14 +4,20 @@
  *
  * 1. カードを置く。計算は lib/ のものをそのまま使うので、あとから React が同じ位置に置き直しても動かない。
  * 2. 作品のページのプレビューの倍率を決める（枠の幅に合わせて iframe を縮める）。
+ * 3. プレビューの枠を、見えている細かさ（実際の DPR × 縮めた割合）を付けた URL で読み始める（PREVIEW-DPR。lib/frame.ts の startFrame）。
  */
-import { frameScale, type FrameSize } from './lib/frame';
+import { frameScale, startFrame, type FrameSize } from './lib/frame';
 import { gridShape, WIDE_QUERY } from './lib/gridShape';
 import { layoutMasonry } from './lib/masonry';
 
 const frameBox = document.querySelector<HTMLElement>('[data-frame-size]');
 if (frameBox) {
   frameBox.style.setProperty('--frame-scale', String(frameScale(frameBox.dataset.frameSize as FrameSize, frameBox.clientWidth)));
+}
+for (const frame of document.querySelectorAll<HTMLIFrameElement>('iframe[data-ld-frame][data-src]')) {
+  // 部品の枠は縮めない（data-frame-size のない入れ物）
+  const box = frame.closest<HTMLElement>('[data-frame-size]');
+  startFrame(frame, box ? frameScale(box.dataset.frameSize as FrameSize, box.clientWidth) : 1);
 }
 
 // 作品のページには、同じ作者の並びとほかの作者の並びの2つがある

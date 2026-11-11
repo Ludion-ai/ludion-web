@@ -4,6 +4,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { chromium, expect, test, type Page } from '@playwright/test';
 import { copy } from '../src/copy';
 import { copyEn } from '../src/copy.en';
+import { framedAt } from './helpers';
 
 const MOVING = 'fx-motion';
 const FROM_IFRAME = { 'Sec-Fetch-Dest': 'iframe' };
@@ -48,7 +49,7 @@ test.describe('端末が「動きを減らす」のとき', () => {
     await expect(notice(page)).toBeVisible();
     await expect(notice(page)).toContainText(copy.work.motionStopped);
     await expect(button(page, copy.work.motionShow)).toBeVisible();
-    expect(await frameSrc(page)).toBe(`/frame/${MOVING}/1/desktop.html`);
+    expect(await frameSrc(page)).toMatch(framedAt(`/frame/${MOVING}/1/desktop.html`));
     expect(await frameMoves(page), '止まっている').toBe(false);
     expect(await stored(page)).toBeNull();
 
@@ -57,7 +58,7 @@ test.describe('端末が「動きを減らす」のとき', () => {
     await page.keyboard.press('Enter');
     await expect(notice(page)).toContainText(copy.work.motionShown);
     await expect(button(page, copy.work.motionStop)).toBeFocused();
-    await expect(page.locator(FRAME)).toHaveAttribute('src', `/frame/${MOVING}/1/desktop.html?motion=1`);
+    await expect(page.locator(FRAME)).toHaveAttribute('src', framedAt(`/frame/${MOVING}/1/desktop.html?motion=1`));
     expect(await frameMoves(page), '動く').toBe(true);
     expect(await stored(page)).toBe('1');
 
@@ -65,19 +66,19 @@ test.describe('端末が「動きを減らす」のとき', () => {
     await page.reload();
     await page.getByRole('heading', { level: 1 }).waitFor();
     await expect(button(page, copy.work.motionStop)).toBeVisible();
-    await expect(page.locator(FRAME)).toHaveAttribute('src', `/frame/${MOVING}/1/desktop.html?motion=1`);
+    await expect(page.locator(FRAME)).toHaveAttribute('src', framedAt(`/frame/${MOVING}/1/desktop.html?motion=1`));
     expect(await frameMoves(page), '読み直しても動く').toBe(true);
 
     // ほかの作品へ移っても同じ
     await page.goto('/p/fx-toggle');
-    await expect(page.locator(FRAME)).toHaveAttribute('src', '/frame/fx-toggle/1/desktop.html?motion=1');
+    await expect(page.locator(FRAME)).toHaveAttribute('src', framedAt('/frame/fx-toggle/1/desktop.html?motion=1'));
     await page.goto(`/p/${MOVING}`);
-    await expect(page.locator(FRAME)).toHaveAttribute('src', /\?motion=1$/);
+    await expect(page.locator(FRAME)).toHaveAttribute('src', /\?motion=1#ldpr=/);
 
     // 動きを止める
     await button(page, copy.work.motionStop).click();
     await expect(notice(page)).toContainText(copy.work.motionStopped);
-    await expect(page.locator(FRAME)).toHaveAttribute('src', `/frame/${MOVING}/1/desktop.html`);
+    await expect(page.locator(FRAME)).toHaveAttribute('src', framedAt(`/frame/${MOVING}/1/desktop.html`));
     expect(await frameMoves(page), '止まる').toBe(false);
     expect(await stored(page)).toBeNull();
 
@@ -91,9 +92,9 @@ test.describe('端末が「動きを減らす」のとき', () => {
   test('もう一度を押しても、動きを見る枠のまま', async ({ page }) => {
     await openWork(page);
     await button(page, copy.work.motionShow).click();
-    await expect(page.locator(FRAME)).toHaveAttribute('src', /\?motion=1$/);
+    await expect(page.locator(FRAME)).toHaveAttribute('src', /\?motion=1#ldpr=/);
     await page.getByRole('button', { name: copy.work.replay }).click();
-    await expect(page.locator(FRAME)).toHaveAttribute('src', /\?motion=1$/);
+    await expect(page.locator(FRAME)).toHaveAttribute('src', /\?motion=1#ldpr=/);
     expect(await frameMoves(page)).toBe(true);
   });
 
@@ -110,7 +111,7 @@ test.describe('端末が「動きを減らす」のとき', () => {
     });
     await openWork(page);
     await button(page, copy.work.motionShow).click();
-    await expect(page.locator(FRAME)).toHaveAttribute('src', /\?motion=1$/);
+    await expect(page.locator(FRAME)).toHaveAttribute('src', /\?motion=1#ldpr=/);
     expect(await frameMoves(page)).toBe(true);
     await button(page, copy.work.motionStop).click();
     await expect(page.locator(FRAME)).not.toHaveAttribute('src', /\?motion/);
@@ -159,7 +160,7 @@ test.describe('ふつうの端末', () => {
     await openWork(page);
     await expect(notice(page)).toBeHidden();
     await expect(page.getByRole('button', { name: copy.work.motionShow })).toHaveCount(0);
-    expect(await frameSrc(page)).toBe(`/frame/${MOVING}/1/desktop.html`);
+    expect(await frameSrc(page)).toMatch(framedAt(`/frame/${MOVING}/1/desktop.html`));
     expect(await frameMoves(page)).toBe(true);
   });
 
@@ -167,7 +168,7 @@ test.describe('ふつうの端末', () => {
     await page.addInitScript((key) => localStorage.setItem(key, '1'), STORAGE_KEY);
     await openWork(page);
     await expect(notice(page)).toBeHidden();
-    expect(await frameSrc(page)).toBe(`/frame/${MOVING}/1/desktop.html`);
+    expect(await frameSrc(page)).toMatch(framedAt(`/frame/${MOVING}/1/desktop.html`));
   });
 });
 
@@ -188,13 +189,13 @@ test.describe('英語のページ', () => {
 
     await button(page, copyEn.work.motionShow).click();
     await expect(notice(page)).toContainText(copyEn.work.motionShown);
-    await expect(page.locator(FRAME)).toHaveAttribute('src', `/frame/${MOVING}/1/desktop.html?motion=1`);
+    await expect(page.locator(FRAME)).toHaveAttribute('src', framedAt(`/frame/${MOVING}/1/desktop.html?motion=1`));
     expect(await frameMoves(page), '動く').toBe(true);
     expect(await stored(page)).toBe('1');
 
     await button(page, copyEn.work.motionStop).click();
     await expect(notice(page)).toContainText(copyEn.work.motionStopped);
-    await expect(page.locator(FRAME)).toHaveAttribute('src', `/frame/${MOVING}/1/desktop.html`);
+    await expect(page.locator(FRAME)).toHaveAttribute('src', framedAt(`/frame/${MOVING}/1/desktop.html`));
   });
 });
 
@@ -228,7 +229,7 @@ test.describe('枠の守りは ?motion=1 でも同じ', () => {
     const page = await context.newPage();
     await openWork(page);
     await button(page, copy.work.motionShow).click();
-    await expect(page.locator(FRAME)).toHaveAttribute('src', /\?motion=1$/);
+    await expect(page.locator(FRAME)).toHaveAttribute('src', /\?motion=1#ldpr=/);
     await expect(page.locator(FRAME)).toHaveAttribute('sandbox', 'allow-scripts allow-forms');
     await context.close();
   });

@@ -6,6 +6,7 @@
 // WALL001：全画面の住所（/p/<id>/wall の /frame/<id>/<version>/wall.html）でも、同じ試験を流す（FORMS の wall）。
 import { expect, test, type BrowserContext, type Frame, type Locator, type Page } from '@playwright/test';
 import { PRIVATE_OWNER, privateFixtureId, privateRevisionId } from '../scripts/private-fixture.mjs';
+import { framedAt } from './helpers';
 
 const SYNTHETIC_INPUT = 'ld-synthetic-input';
 /** 親の見張りが「読み込めた」の知らせを待つ時間（src/frameGuard.ts の CONFIRM_WAIT_MS）より長く */
@@ -339,7 +340,7 @@ test.describe('自分だけの作品の枠（T036）', () => {
     expect((await request.get(FORMS[2].framePath(id), { headers: { 'Sec-Fetch-Dest': 'iframe' } })).status()).toBe(404);
     await openWork(page, id, FORMS[2]);
     await expect(page.locator(FORMS[2].frame)).toHaveAttribute('sandbox', 'allow-scripts allow-forms');
-    await expect(page.locator(FORMS[2].frame)).toHaveAttribute('src', FORMS[2].framePath(id));
+    await expect(page.locator(FORMS[2].frame)).toHaveAttribute('src', framedAt(FORMS[2].framePath(id)));
     const frame = await page.request.get(FORMS[2].framePath(id), { headers: { 'Sec-Fetch-Dest': 'iframe' } });
     const desktop = await page.request.get(`/frame/${id}/1/desktop.html`, { headers: { 'Sec-Fetch-Dest': 'iframe' } });
     expect(frame.status()).toBe(200);

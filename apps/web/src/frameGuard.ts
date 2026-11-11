@@ -67,6 +67,8 @@ document.addEventListener(
   (event) => {
     const frame = event.target;
     if (!(frame instanceof HTMLIFrameElement) || !isWatched(frame)) return;
+    // src を付ける前の枠（about:blank）の load は数えない。枠は src なしで描き、細かさを付けた src を後から入れる（lib/frame.ts の startFrame）
+    if (!frame.hasAttribute('src')) return;
     const state = stateOf(frame);
     if (state.gaveUp) return;
     state.loads += 1;

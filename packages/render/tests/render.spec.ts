@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { ALL_TOKEN_NAMES, FRAME_CSP, FRAME_RESPONSE_CSP, FRAME_SANDBOX, NEUTRAL_PALETTES, OPTIONAL_TOKEN_NAMES, TOKEN_NAMES, authorBackground, buildCopySnippet, buildFrameHtml, stripExports } from '../src/index.ts';
+import { ALL_TOKEN_NAMES, DPR_HASH_KEY, DPR_SCRIPT, FRAME_CSP, FRAME_RESPONSE_CSP, FRAME_SANDBOX, NEUTRAL_PALETTES, OPTIONAL_TOKEN_NAMES, TOKEN_NAMES, authorBackground, buildCopySnippet, buildFrameHtml, stripExports } from '../src/index.ts';
 import type { Creator, Work } from '../src/index.ts';
 
 const ID = 'toggle-aurora';
@@ -64,6 +64,50 @@ function rootStyle(page: Page, prop: string) {
     return getComputedStyle(root).getPropertyValue(p).trim();
   }, prop);
 }
+
+test.describe('見えている細かさ（PREVIEW-DPR）：# の ldpr で devicePixelRatio を置き換える', () => {
+  // iPhone と同じ DPR 3
+  test.use({ deviceScaleFactor: 3 });
+  // 作品の JS が mount の時に読む devicePixelRatio を、根の属性に書く
+  const probe: Work = { ...work, js: `export function mount(root) { root.setAttribute('data-dpr', String(window.devicePixelRatio)); return () => {}; }` };
+
+  test('最初のスクリプトが置き換える。作品の JS より先', () => {
+    const html = buildFrameHtml(probe, { palette: 'author' });
+    expect(html.indexOf('<script')).toBe(html.indexOf(`<script>${DPR_SCRIPT}`));
+    expect(html.indexOf(DPR_SCRIPT)).toBeLessThan(html.indexOf('<script type="module">'));
+    expect(DPR_SCRIPT).toContain(`${DPR_HASH_KEY}=`);
+  });
+
+  const cases: [hash: string, expected: string][] = [
+    ['#ldpr=0.82', '0.82'],
+    ['#ldpr=1', '1'],
+    ['#x=1&ldpr=0.5', '0.5'],
+    // 上限は実際の DPR。読めない値、0 以下、# がないときは、そのまま
+    ['#ldpr=3', '3'],
+    ['#ldpr=5', '3'],
+    ['#ldpr=0', '3'],
+    ['#ldpr=-1', '3'],
+    ['#ldpr=abc', '3'],
+    ['#ldpr=0.5x', '3'],
+    ['#xldpr=0.5', '3'],
+    ['', '3'],
+  ];
+  for (const [hash, expected] of cases) {
+    test(`${hash || '# なし'} → ${expected}`, async ({ page }) => {
+      await page.route('http://render.test/**', (route) => route.fulfill({ contentType: 'text/html', body: buildFrameHtml(probe, { palette: 'author' }) }));
+      await page.goto(`http://render.test/${hash}`);
+      await expect(page.locator('#ld-host')).toHaveAttribute('data-ld-mount', 'ok');
+      await expect(page.locator('[data-ld-part]')).toHaveAttribute('data-dpr', expected);
+      // 作品の JS が書き換えようとしても変わらない
+      expect(await page.evaluate(() => {
+        try {
+          (window as { devicePixelRatio: number }).devicePixelRatio = 9;
+        } catch {}
+        return window.devicePixelRatio;
+      })).toBe(hash === '' || expected === '3' ? 9 : Number(expected));
+    });
+  }
+});
 
 test.describe('buildFrameHtml', () => {
   test('明るい中立と暗い中立のトークンが、ホストから Shadow DOM の中に効く', async ({ page }) => {

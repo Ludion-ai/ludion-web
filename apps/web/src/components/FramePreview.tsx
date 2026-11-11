@@ -4,7 +4,7 @@ import type { Copy } from '../copy';
 import { useCopy } from '../hooks/useCopy';
 import type { Work } from '../data/works';
 import { useMediaQuery } from '../hooks/useMediaQuery';
-import { frameScale, frameUrl, type FrameSize } from '../lib/frame';
+import { frameScale, frameUrl, startFrame, type FrameSize } from '../lib/frame';
 import { setShowMotion, useShowMotion } from '../lib/motionChoice';
 import { webglAvailable } from '../lib/webgl';
 import { chipClass } from './chip';
@@ -87,6 +87,15 @@ export function FramePreview({ work, background, frames = null }: { work: Work; 
     return () => observer.disconnect();
   }, [size, isComponent]);
 
+  // 枠を、見えている細かさを付けた URL で読み始める（PREVIEW-DPR）。Worker が描いた枠は beforeApp が先に入れている
+  const frameKey = `${size}-${replays}-${motion}`;
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    const box = boxRef.current;
+    if (frame && box) startFrame(frame, isComponent ? 1 : frameScale(size, box.clientWidth));
+  }, [frameKey, isComponent]);
+
   return (
     <div>
       {webScreen && (
@@ -120,12 +129,15 @@ export function FramePreview({ work, background, frames = null }: { work: Work; 
           className={`relative overflow-hidden rounded-card border border-site-line ${BOX_CLASS[shape]}`}
         >
           <iframe
-            key={`${size}-${replays}-${motion}`}
+            key={frameKey}
+            ref={frameRef}
             data-ld-frame=""
             title={copy.work.frameTitle(work.title)}
             sandbox={SANDBOX}
+            // src は startFrame が入れる（# に見えている細かさを付ける。PREVIEW-DPR）。Worker が描いた枠には beforeApp が React より先に入れる
             // 自分だけの作品は下書きの枠（持ち主だけに返す。docs/tasks/T036.md「2」）。守りは公開の枠と同じ
-            src={frames ? `${frames[isComponent ? 'desktop' : size]}${motion ? '?motion=1' : ''}` : frameUrl(work, isComponent ? 'desktop' : size, motion)}
+            data-src={frames ? `${frames[isComponent ? 'desktop' : size]}${motion ? '?motion=1' : ''}` : frameUrl(work, isComponent ? 'desktop' : size, motion)}
+            suppressHydrationWarning
             className={FRAME_CLASS[shape]}
           />
           {work.tags.includes('motion') && (
