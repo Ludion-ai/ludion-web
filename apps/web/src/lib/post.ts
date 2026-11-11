@@ -269,3 +269,41 @@ export async function makeWorkPrivate(id: string): Promise<'ok' | 'private_limit
   const error = ((await response.json().catch(() => null)) as { error?: string } | null)?.error;
   return error === 'private_limit' ? error : 'failed';
 }
+
+export type ThumbAnswer = { ok: true } | { ok: false; error: string; limit?: string };
+
+/** 自分だけの作品に、画像だけを足す（DOC002「1」）。画像を足した新しい版が、今の版になる。 */
+export async function uploadThumb(id: string, thumb: Blob): Promise<ThumbAnswer> {
+  const form = new FormData();
+  form.append('thumb', thumb);
+  const response = await fetch(`/api/post/works/${encodeURIComponent(id)}/thumb`, { method: 'POST', body: form });
+  if (response.ok) return { ok: true };
+  const body = (await response.json().catch(() => null)) as { error?: string; limit?: string } | null;
+  return { ok: false, error: body?.error ?? (response.status === 413 ? 'too_large' : 'failed'), limit: body?.limit };
+}
+
+/** 枠から撮った絵（PNG の data URL）の上限。1280×800 の PNG は、細かい絵でも数 MB。これより大きいものは受けない。 */
+export const MAX_CAPTURE_URL_CHARS = 12 * 1024 * 1024;
+const CAPTURE_PREFIX = 'data:image/png;base64,';
+
+/**
+ * 枠から届いた絵を確かめて、PNG の Blob にする（DOC002「4」）。形が `data:image/png;base64,` で、上限の中で、読める base64 のときだけ。
+ * 絵の大きさ（幅と高さ）は、呼ぶ側が画像として読んで確かめる。
+ */
+export function captureToBlob(url: unknown): Blob | null {
+  if (typeof url !== 'string' || !url.startsWith(CAPTURE_PREFIX) || url.length > MAX_CAPTURE_URL_CHARS) return null;
+  const base64 = url.slice(CAPTURE_PREFIX.length);
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) return null;
+  let binary: string;
+  try {
+    binary = atob(base64);
+  } catch {
+    return null;
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  // PNG の印で始まること
+  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (signature.some((value, index) => bytes[index] !== value)) return null;
+  return new Blob([bytes], { type: 'image/png' });
+}
