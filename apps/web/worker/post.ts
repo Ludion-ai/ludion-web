@@ -25,7 +25,7 @@ import { CATALOG_TAG, workTag } from './cachePolicy';
 import type { Env } from './env';
 import { isSameOrigin } from './origin';
 import { purgeWithRetry } from './purge';
-import { takePostQuota } from './quota';
+import { takePostQuota, takeReviewQuota } from './quota';
 import { PRIVATE_WORKS_LIMIT, REVISION_ID, canPost, countPrivateWorks, draftFrameUrls, draftThumbUrl, loadRevisionFiles, ownedRevision, ownedWork, revisionFile, type RevisionRow } from './revisions';
 import { getSessionUser, randomHex, type SessionUser } from './session';
 import type { ThumbError, ThumbResult } from './thumb';
@@ -297,7 +297,14 @@ async function saveDraft(c: PostContext, workId: string | null): Promise<Respons
  * 下書きを確かめて書く。新しい作品（workId が null）、新しい版、今の下書きの上書きのどれか。
  * 画面の口（saveDraft）と AI の口（worker/apiV1.ts）が同じものを使う：同じ検査、同じ上限、同じ置き方。
  */
-export async function writeDraft(env: Env, user: PostUser, workId: string | null, fields: DraftFields, meta: PostMeta, { via = null }: { via?: string | null } = {}): Promise<DraftResult> {
+export async function writeDraft(
+  env: Env,
+  user: PostUser,
+  workId: string | null,
+  fields: DraftFields,
+  meta: PostMeta,
+  { via = null, privateBound = false }: { via?: string | null; privateBound?: boolean } = {},
+): Promise<DraftResult> {
   const db = env.DB;
   const fail = (body: { error: string } & Record<string, unknown>, status: 400 | 403 | 404 | 409 | 422 | 429): DraftResult => ({ ok: false, status, body });
   if (!canPost(env, user)) return fail({ error: 'not_found' }, 404);
@@ -349,7 +356,10 @@ export async function writeDraft(env: Env, user: PostUser, workId: string | null
   if (check.required.length > 0) return fail({ error: 'invalid', problems: check.required, optional: check.optional }, 422);
   // 下書きはサムネイルなしで保存できる。要るのは審査に出すとき（docs/tasks/T033.md A3）
 
-  const limited = await takePostQuota(db, user.id, !open);
+  // 自分だけになる版は、別の数え方（1日100。MCP001）。AI の口で置く版（privateBound）と、自分だけの作品の新しい版。
+  // 公開に回すときは、公開の数え方で数え直す（/works/:id/publish）
+  const scope = privateBound || work?.status === 'private' ? 'private' : 'review';
+  const limited = await takePostQuota(db, user.id, !open, Date.now(), scope);
   if (limited) return fail({ error: 'rate_limited', limit: limited }, 429);
 
   let images: Pick<ThumbResult, 'thumb' | 'og' | 'width' | 'height'> | null = null;
@@ -608,6 +618,8 @@ post.post('/revisions/:rid/submit', async (c) => {
   // 下書きは題とサムネイルなしで保存できる。審査に出すには両方が要る（docs/tasks/T033.md A3）
   if (revision.title.trim() === '') return c.json({ error: 'title_required' }, 422);
   if (revision.thumb_w <= 0) return c.json({ error: 'thumb_required' }, 422);
+  // 自分だけの作品の版は自分だけの数え方で作られたので、審査に出すときに公開の数え方（1日10）で数える（MCP001）
+  if (revision.work_status === 'private' && !(await takeReviewQuota(db, user.id))) return c.json({ error: 'rate_limited', limit: 'revisions' }, 429);
   const now = Date.now();
   const result = await db
     .prepare(`UPDATE revisions SET status = 'submitted', submitted_at = ?1, updated_at = ?1 WHERE id = ?2 AND status = 'draft' AND title <> '' AND thumb_w > 0`)
@@ -723,6 +735,8 @@ post.post('/works/:id/publish', async (c) => {
   if (revision.thumb_w <= 0) return c.json({ error: 'thumb_required' }, 422);
   // 承認は見た中身のハッシュで結ぶ。ld upload の版はハッシュがないので、ここからは出せない
   if (!revision.content_hash) return c.json({ error: 'not_placed' }, 409);
+  // 公開に回すものは1日10（POST_LIMITS）。自分だけの版は別に数えているので、ここで公開の数え方に入れる（MCP001）
+  if (!(await takeReviewQuota(db, user.id))) return c.json({ error: 'rate_limited', limit: 'revisions' }, 429);
   const now = Date.now();
   let changes: number;
   try {

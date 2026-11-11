@@ -293,7 +293,8 @@ apiV1.post('/works', async (c) => {
   };
   // 自分だけの作品の上限（docs/tasks/T036.md「5」）。書く前に数える（下書きを残さない）
   if ((await countPrivateWorks(db, user.id)) >= PRIVATE_WORKS_LIMIT) return fail(c, 409, 'private_limit', 'private_limit', { limit: PRIVATE_WORKS_LIMIT });
-  return answer(c, await writeDraft(c.env, user, null, { ...fixed, thumb: null }, meta, { via: user.via }));
+  // 新しい作品は、置くと自分だけになる（版の数え方は自分だけの方。1日100）
+  return answer(c, await writeDraft(c.env, user, null, { ...fixed, thumb: null }, meta, { via: user.via, privateBound: true }));
 });
 
 // 自分の作品に新しい版を置く。公開している作品なら、その作品の下書きの版になる（公開の版は変わらない）
@@ -327,7 +328,8 @@ apiV1.post('/works/:id/versions', async (c) => {
   if (work.status !== 'approved' && work.status !== 'private' && (await countPrivateWorks(db, user.id, id)) >= PRIVATE_WORKS_LIMIT) {
     return fail(c, 409, 'private_limit', 'private_limit', { limit: PRIVATE_WORKS_LIMIT });
   }
-  return answer(c, await writeDraft(c.env, user, id, { ...fixed, thumb: null }, meta, { via: user.via }));
+  // 公開していない作品の版は自分だけになる（1日100）。公開の作品の版は審査に回るので、公開の数え方（1日10）
+  return answer(c, await writeDraft(c.env, user, id, { ...fixed, thumb: null }, meta, { via: user.via, privateBound: work.status !== 'approved' }));
 });
 
 // 自分の作品の一覧。状態と版は、いちばん新しい版のもの
