@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { ArrowLeft, X } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { useCopy } from '../hooks/useCopy';
 import { trackEvent } from '../lib/analytics';
@@ -7,11 +7,15 @@ import { NEAR_BUTTON, placeNear } from '../lib/sheet';
 import {
   LIVELY_STORE_URL,
   PLASH_STORE_URL,
+  WINDOWS_DOWNLOAD_PATH,
+  appUrl,
   currentWallpaperDevice,
   downloadWallpaperHtml,
   plashUrl,
+  rememberApp,
   wallUrl,
   wallpaperOrder,
+  watchAppLaunch,
   type WallpaperDevice,
 } from '../lib/wallpaper';
 
@@ -47,6 +51,15 @@ export function WallpaperSheet({ workId, title, snippet, anchor, onClose }: Wall
   const [device] = useState<WallpaperDevice>(currentWallpaperDevice);
   const headingId = useId();
   const url = wallUrl(workId);
+  // 「Windows アプリを入れる」の案内（APP001）。シートの中で中身を替える（モーダルを重ねない）
+  const [view, setView] = useState<'main' | 'install'>('main');
+  const stopWatching = useRef<() => void>(undefined);
+
+  useEffect(() => () => stopWatching.current?.(), []);
+
+  useLayoutEffect(() => {
+    sheetRef.current?.focus();
+  }, [view]);
 
   useLayoutEffect(() => {
     const sheet = sheetRef.current!;
@@ -78,6 +91,19 @@ export function WallpaperSheet({ workId, title, snippet, anchor, onClose }: Wall
     trackEvent('wallpaper_open', { work_id: workId, method: 'download' });
   };
 
+  const onApp = () => {
+    trackEvent('wallpaper_open', { work_id: workId, method: 'app' });
+    stopWatching.current?.();
+    stopWatching.current = watchAppLaunch(() => setView('install'));
+  };
+
+  const onAppDownload = () => trackEvent('wallpaper_open', { work_id: workId, method: 'app_download' });
+
+  const onHaveApp = () => {
+    rememberApp();
+    setView('main');
+  };
+
   const sections = {
     mac: (
       <section key="mac" aria-label={text.mac} data-wallpaper="mac" className={sectionClass}>
@@ -98,6 +124,16 @@ export function WallpaperSheet({ workId, title, snippet, anchor, onClose }: Wall
     windows: (
       <section key="windows" aria-label={text.windows} data-wallpaper="windows" className={sectionClass}>
         <h3 className={headingClass}>{text.windows}</h3>
+        <a href={appUrl(workId)} onClick={onApp} className={`${primaryButton} mt-2`}>
+          {text.app}
+        </a>
+        <p className={noteClass}>
+          {text.appNote}
+          <button type="button" onClick={() => setView('install')} className={`${storeLink} ml-1`}>
+            {text.appInstall}
+          </button>
+        </p>
+        <h4 className={`${headingClass} mt-4`}>{text.lively}</h4>
         <p className={noteClass}>
           {text.livelyGet}
           <a href={LIVELY_STORE_URL} target="_blank" rel="noopener noreferrer" className={storeLink}>
@@ -132,8 +168,18 @@ export function WallpaperSheet({ workId, title, snippet, anchor, onClose }: Wall
     >
       <div className="rounded-card border border-site-line-2 bg-site-bg p-4 shadow-menu max-md:rounded-b-none max-md:border-x-0 max-md:border-b-0">
         <div className="flex items-center justify-between gap-3">
-          <h2 id={headingId} className="text-subhead font-semibold text-site-fg">
-            {text.heading}
+          {view === 'install' && (
+            <button
+              type="button"
+              aria-label={text.install.back}
+              onClick={() => setView('main')}
+              className="-ml-2 flex size-11 shrink-0 items-center justify-center rounded-control text-site-fg hover:bg-site-hover"
+            >
+              <ArrowLeft size={20} strokeWidth={1.75} aria-hidden="true" />
+            </button>
+          )}
+          <h2 id={headingId} className="mr-auto text-subhead font-semibold text-site-fg">
+            {view === 'install' ? text.install.heading : text.heading}
           </h2>
           <button
             type="button"
@@ -145,7 +191,9 @@ export function WallpaperSheet({ workId, title, snippet, anchor, onClose }: Wall
           </button>
         </div>
 
-        {device === 'mobile' ? (
+        {view === 'install' ? (
+          <InstallGuide onDownload={onAppDownload} onHave={onHaveApp} />
+        ) : device === 'mobile' ? (
           <>
             <p className="mt-1 text-body text-site-fg">{text.mobile}</p>
             <UrlCopy workId={workId} url={url} />
@@ -165,6 +213,33 @@ export function WallpaperSheet({ workId, title, snippet, anchor, onClose }: Wall
         )}
       </div>
     </dialog>
+  );
+}
+
+/**
+ * Windows アプリを入れる前の案内（APP001、段階 A）。署名のない .exe なので、Windows の「PC が保護されました」を先に伝える。
+ * ダウンロードは /download/windows（worker/download.ts）から。
+ */
+function InstallGuide({ onDownload, onHave }: { onDownload: () => void; onHave: () => void }) {
+  const text = useCopy().work.wallpaper.install;
+  return (
+    <div data-wallpaper="install">
+      <p className="mt-1 text-body text-site-fg">{text.lead}</p>
+      <ol className="mt-3 list-decimal space-y-2 pl-5 text-meta text-site-fg">
+        {text.steps.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+      <p className={noteClass}>{text.why}</p>
+      <a href={WINDOWS_DOWNLOAD_PATH} onClick={onDownload} className={`${primaryButton} mt-4`}>
+        {text.download}
+      </a>
+      <p className="mt-2 text-center text-meta text-site-fg-2">{text.size}</p>
+      <button type="button" onClick={onHave} className={`${whiteButton} mt-3`}>
+        {text.have}
+      </button>
+      <p className={`${noteClass} mt-4`}>{text.privacy}</p>
+    </div>
   );
 }
 

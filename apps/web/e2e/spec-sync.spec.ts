@@ -159,6 +159,10 @@ const LATIN_ALLOWED = [
   'Mac',
   'GPU',
   'PC',
+  // Windows アプリ（APP001）。入れ方の案内に出るファイルの名前と、署名の主
+  'LudionSetup.exe',
+  'Microsoft',
+  'ludion.ai',
   'https://x.com/',
   'https://',
   'ld_github_flow',

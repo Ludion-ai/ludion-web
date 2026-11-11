@@ -202,6 +202,10 @@ export const copy = {
       plashStore: 'App Store',
       plashGetAfter: ' から入れます。',
       windows: 'Windows',
+      app: 'Windows アプリで設定',
+      appNote: 'Ludion の Windows アプリ（無料）を使います。',
+      appInstall: 'アプリを入れる',
+      lively: 'Lively Wallpaper で使う',
       livelyGet: 'Lively Wallpaper（無料）は ',
       livelyStore: 'Microsoft Store',
       livelyGetAfter: ' から入れます。',
@@ -215,6 +219,22 @@ export const copy = {
       copyFailed: 'コピーできませんでした。住所を選んでコピーしてください',
       power: '動きと音のある壁紙は、電池と GPU を使います。',
       mobile: 'PC で開いてください。',
+      /** Windows アプリを入れる前の案内（APP001。段階 A：署名のない .exe） */
+      install: {
+        heading: 'Windows アプリを入れる',
+        back: '戻る',
+        lead: 'Ludion の壁紙を、デスクトップのアイコンの後ろで動かすアプリです。無料です。',
+        steps: [
+          '「ダウンロード」を押すと、ブラウザの右上に LudionSetup.exe が出ます。押して開きます（「一般的にダウンロードされていない」と出たら「保存」を押します）。',
+          '「Windows によって PC が保護されました」と出たら、「詳細情報」を押し、「実行」を押します。',
+          '入ると、壁紙の一覧が開きます。選んだ壁紙が、デスクトップに出ます。',
+        ],
+        why: '2 の表示は、アプリにまだ Microsoft の署名がないために出ます。Microsoft Store から入れられるように準備しています。',
+        privacy: 'アプリが読むのは ludion.ai のページだけです。数や記録は送りません。止める、終わるは、通知領域の Ludion から。',
+        download: 'ダウンロード',
+        size: '約 50 MB・Windows 10 と 11',
+        have: 'もう入っている',
+      },
     },
     /** リミックス（docs/tasks/T030.md） */
     remix: {
