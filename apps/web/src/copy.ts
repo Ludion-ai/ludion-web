@@ -661,7 +661,7 @@ ${code}
       edit: '新しい版を置く',
       editLabel: (title: string) => `${title}の新しい版を置く`,
       resume: '続ける',
-      resumeLabel: (title: string) => `${title}の続きを置く`,
+      resumeLabel: (title: string) => `${title}を続ける`,
       publish: '公開する',
       publishLabel: (title: string) => `${title}を公開する`,
       publishNote: '今の版を審査に出します。承認されるまで、ほかの人には見えないままです。',

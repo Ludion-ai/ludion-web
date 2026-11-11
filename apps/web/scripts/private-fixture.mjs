@@ -7,8 +7,8 @@ export const PRIVATE_OWNER = {
   userId: 'seed-private-owner',
   handle: 'seed_private_owner',
   creatorId: 'seed-creator-private-owner',
-  /** cookie の ld_session の値。D1 にはハッシュだけを置く */
-  session: 'seed-private-owner-session-token',
+  /** cookie の ld_session の値。本物と同じ形（16進64文字。worker/session.ts）。D1 にはハッシュだけを置く */
+  session: createHash('sha256').update('ludion-seed-private-owner-session').digest('hex'),
 };
 
 /** 自分だけの作品の ID。mal- で始まるので、seed を流し直すと消えて入れ直る */

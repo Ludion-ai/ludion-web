@@ -1302,6 +1302,8 @@ test.describe('投稿の画面：1つの箱（T033 段階 A）', () => {
     await page.getByLabel(LABELS.ja.box).fill(boxSnippet(unique('gate-'), { js: false }));
     await expect(page.locator('[data-box-status]')).toContainText(LABELS.ja.saved);
     for (const label of [LABELS.ja.own, LABELS.ja.mit, LABELS.ja.terms]) await page.getByLabel(label).check();
+    // 初めの値は「自分だけ」（T036）。審査に出すには「公開」を選ぶ
+    await page.getByRole('radio', { name: LABELS.ja.public }).check();
     const send = page.getByRole('button', { name: '審査に出す' });
     await expect(send).toBeDisabled();
     await expect(page.locator('[data-submit-status]')).toHaveText('題名を入れてください');
@@ -1373,7 +1375,9 @@ test.describe('投稿の画面：1つの箱（T033 段階 A）', () => {
     expect(await publicStatus(id, '1')).toEqual(VISIBLE);
     await row.getByRole('button', { name: /を自分だけにする$/ }).click();
     await row.getByRole('button', { name: '自分だけにする', exact: true }).click();
-    await expect(row).toHaveAttribute('data-own-work-state', 'private');
+    // いちばん新しい版は差し戻しのままなので、札は「差し戻し」。作品は自分だけになる
+    await expect(row).toContainText('自分だけの版（版 1）はそのままです');
+    expect(d1(`SELECT status FROM works WHERE id = ${quote(id)}`)).toEqual([{ status: 'private' }]);
     expect(await publicStatus(id, '1')).toEqual(HIDDEN);
   });
 
@@ -1387,6 +1391,7 @@ test.describe('投稿の画面：1つの箱（T033 段階 A）', () => {
     await expect(page.getByText('この画像は読めません')).toBeVisible();
     await page.getByLabel('題名', { exact: true }).fill('画像');
     for (const label of [LABELS.ja.own, LABELS.ja.mit, LABELS.ja.terms]) await page.getByLabel(label).check();
+    await page.getByRole('radio', { name: LABELS.ja.public }).check();
     await page.getByRole('button', { name: '審査に出す' }).click();
     await expect(page.getByText('審査に出しました')).toBeVisible();
   });
