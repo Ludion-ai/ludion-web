@@ -228,12 +228,13 @@ account.post('/delete', async (c) => {
     db.prepare('DELETE FROM passkeys WHERE user_id = ?').bind(user.id),
     db.prepare('DELETE FROM recovery_codes WHERE user_id = ?').bind(user.id),
     db.prepare('DELETE FROM handle_history WHERE user_id = ?').bind(user.id),
+    // 自分だけの作品も同じに取り下げる（docs/tasks/T036.md「6」）。持ち主が外れるので、だれにも見えなくなる
     db
-      .prepare(`UPDATE works SET status = 'rejected', reject_reason = ? WHERE status = 'approved' AND creator_id IN (SELECT id FROM creators WHERE user_id = ?)`)
+      .prepare(`UPDATE works SET status = 'rejected', reject_reason = ? WHERE status IN ('approved', 'private') AND creator_id IN (SELECT id FROM creators WHERE user_id = ?)`)
       .bind(REASON_ACCOUNT_DELETED, user.id),
-    // 審査待ちと下書きも止める。作者の行を外す前に
+    // 審査待ちと下書きと、自分だけで置いた版も止める。作者の行を外す前に
     db
-      .prepare(`UPDATE revisions SET status = 'revoked', updated_at = ? WHERE status IN ('draft', 'submitted', 'approved') AND work_id IN (SELECT w.id FROM works w JOIN creators c ON c.id = w.creator_id WHERE c.user_id = ?)`)
+      .prepare(`UPDATE revisions SET status = 'revoked', updated_at = ? WHERE status IN ('draft', 'submitted', 'approved', 'private') AND work_id IN (SELECT w.id FROM works w JOIN creators c ON c.id = w.creator_id WHERE c.user_id = ?)`)
       .bind(Date.now(), user.id),
     db.prepare('DELETE FROM quotas WHERE key IN (?, ?)').bind(`save:${user.id}`, `revision:${user.id}`),
     db.prepare('UPDATE creators SET user_id = NULL, name = NULL, avatar_url = NULL, x_url = NULL, site_url = NULL WHERE user_id = ?').bind(user.id),

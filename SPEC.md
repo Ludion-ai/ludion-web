@@ -231,7 +231,7 @@ CREATE TABLE works (
   tags TEXT NOT NULL DEFAULT '[]', -- JSON。dashboard、ecommerce、minimal、experimental、motion
   made_with TEXT NOT NULL CHECK (made_with IN ('human','ai-assisted')), -- 作り方（CLAUDE.md 原則9）
   version TEXT NOT NULL, license TEXT NOT NULL DEFAULT 'MIT',
-  status TEXT NOT NULL CHECK (status IN ('draft','submitted','approved','rejected')),
+  status TEXT NOT NULL CHECK (status IN ('draft','submitted','approved','rejected','private')), -- private は自分だけの作品（docs/tasks/T036.md）
   tokens_locked TEXT NOT NULL DEFAULT '[]', pin_order INTEGER, reject_reason TEXT,
   thumb_key TEXT NOT NULL, thumb_w INTEGER NOT NULL, thumb_h INTEGER NOT NULL,
   is_remix INTEGER NOT NULL DEFAULT 0, -- remix_of がある、またはコードに Remix by か Remixed by がある。一覧の帯に使う
@@ -241,7 +241,7 @@ CREATE TABLE works (
 CREATE TABLE revisions (
   id TEXT PRIMARY KEY, work_id TEXT NOT NULL,
   version TEXT NOT NULL,       -- 枠とサムネイルの URL に入る。作品の中で一意
-  status TEXT NOT NULL CHECK (status IN ('draft','submitted','approved','rejected','revoked')),
+  status TEXT NOT NULL CHECK (status IN ('draft','submitted','approved','rejected','revoked','private')), -- private は自分だけで置いた版（審査していない）
   r2_prefix TEXT NOT NULL,     -- サーバーが作る。ld upload の版は works/<id>/<version>、投稿の版は revisions/<版の id>/<中身のハッシュの頭>
   content_hash TEXT NOT NULL DEFAULT '', -- 審査で見たものと承認するものを結ぶ
   title TEXT NOT NULL, type TEXT NOT NULL, platform TEXT, category TEXT NOT NULL, subtype TEXT NOT NULL, tags TEXT NOT NULL DEFAULT '[]', made_with TEXT NOT NULL,
@@ -263,7 +263,7 @@ CREATE TABLE invites (token_hash TEXT PRIMARY KEY, creator_id TEXT, expires_at I
 
 チップと絞り込みの対応：Web → `platform='web'`、Mobile → `platform='mobile'`、Dashboard・Ecommerce・Minimal・Experimental・Motion → `tags` に含む。Components → `type='component'`。
 
-`works` は公開の値を持つ（一覧と作品のページが読む）。投稿の版を承認すると、その版の値で `works` を差し替える。直した版の審査中は、前の版の値のまま。`works.status` の `rejected` は取り下げも含む（`reject_reason` が `owner_revoked` など）。
+`works` は公開の値を持つ（一覧と作品のページが読む）。投稿の版を承認すると、その版の値で `works` を差し替える。直した版の審査中は、前の版の値のまま。`works.status` の `rejected` は取り下げも含む（`reject_reason` が `owner_revoked` など）。`works.status` の `private` は自分だけの作品で、`works` の値は本人に見せる今の版（自分だけで置いた版か、前に公開していた版）。一覧と公開の道は `approved` だけを読むので、`private` はどこにも出ない（docs/tasks/T036.md）。
 
 R2（`ludion-parts`）：版の `r2_prefix` の下に `part.html`、`part.css`、`part.js`、`meta.json`、`thumb.webp`、`og.png`。サムネイルは Worker が `Cache-Control: public, max-age=3600, s-maxage=31536000` で返す（パスに version が入るので、変わったら別の URL になる。ブラウザに長く残すと取り下げが届かないので、ブラウザには1時間。SEC001 A07）。
 
@@ -306,7 +306,10 @@ R2（`ludion-parts`）：版の `r2_prefix` の下に `part.html`、`part.css`�
 | `GET /api/post/works`、`GET /api/post/works/:id` | 自分の作品の一覧と状態。直すための版の中身 |
 | `GET /api/post/id-check?id=` | 新しい作品の ID を取れるか（`ok`、`format`、`reserved`、`taken`） |
 | `POST /api/post/revisions/:rid/submit` | 下書きを審査に出す。`{ own, mit, terms }` が全部 `true` のときだけ |
-| `POST /api/post/works/:id/revoke` | 自分の作品を取り下げる |
+| `POST /api/post/revisions/:rid/place` | 下書きを自分だけで置く（審査しない）。`{ own, mit, terms }` が全部 `true`、題が要る。サムネイルは無くてよい。公開している作品の版は置けない（`public`）。自分だけの作品は1人100作品まで（`private_limit`） |
+| `POST /api/post/works/:id/publish` | 自分だけ → 公開する。今の版を審査に出す。承認まで、ほかの人には 404 のまま。差し戻されたら自分だけのまま。サムネイルが要る |
+| `POST /api/post/works/:id/make-private` | 公開 → 自分だけにする。すぐ。審査待ちの版は下書きに戻す。`catalog` と作品の札を消す |
+| `POST /api/post/works/:id/revoke` | 自分の作品を取り下げる（画面からは使わない。持ち主の画面は「自分だけにする」。docs/reports/T036.md） |
 | `GET /api/review/queue`、`GET /api/review/revisions/:rid` | 審査待ちの一覧（古い順）と1件の全部（運営だけ。ほかの人には 404） |
 | `POST /api/review/revisions/:rid/approve` | `{ content_hash }`。見た中身のハッシュと同じときだけ承認する（運営だけ） |
 | `POST /api/review/revisions/:rid/reject` | `{ reason, note }`。理由は作り手に見える（運営だけ） |
@@ -545,7 +548,14 @@ GA4 の利用規約（Google Analytics Terms of Service の「7. Privacy」）�
 ## 19. 作品の投稿と審査（docs/tasks/T021.md。SEC001 A02、A04〜A07、B1）
 
 - 11/10 に全員に開いた（CEO の決定、T032。`wrangler.jsonc` の `POSTING_OPEN` が `"1"`）。閉じるときは `POSTING_OPEN` を `"0"` にして、同じ順（main に入れて push → `npm run deploy` → 本番で確かめる）で出す。閉じても、下書きと作品は残る。開く前は、運営だけが投稿できた（`docs/PHASE0.md` の条件。利用規約と取り下げの窓口ができてから、CEO が開く）。閉じている間は、ほかの人には `/new` が 404 で、入口も出さない。自分の作品の一覧と取り下げは使える。入口はログインした人にだけ出す（ホームの HTML は人で変えないので、`GET /api/me` の `can_post` で足す）。
-- 全部の投稿は、公開の前に運営が見る（審査）。自動の検査を通っても、それだけで公開しない。直した版も毎回見る。
+- 全部の投稿は、公開の前に運営が見る（審査）。自動の検査を通っても、それだけで公開しない。直した版も毎回見る。自分だけの作品（本人だけが見られる）は審査しない。公開するときに審査する。
+- 自分だけの作品（docs/tasks/T036.md）：
+  - `/new` の最後に「自分だけ」（初めの値）か「公開」を選ぶ。自分だけは審査に出さず、すぐ置く（版は `private`、作品は `private`）。検査と同意の3つと題は公開と同じに要る。サムネイルは無くてよい。置いた後は作品のページへ進む。公開している作品の新しい版は、今までどおり審査する。
+  - 本人のほかは、ログインしていない人、ほかの人、運営も、ない作品と同じ 404。作品のページ、`/p/<id>/code`、枠、ファイル、サムネイル、OG 画像、`/api`、一覧、検索、作り手のページ、`sitemap.xml`、数、ほかの作品の並び、リミックスの元の帯。運営は審査に出された版だけを見る。
+  - 本人の作品のページは下書きの枠（`/draft-frame/<版の id>/…`）で動かす。応答は `Cache-Control: private, no-store`、`Referrer-Policy: no-referrer`、`X-Robots-Tag: noindex`。閲覧数とコピー数を数えず、GA4 を動かさない（ページの URL に作品の ID が入るため）。いいね、しおり、共有、リミックス、知らせるは出さない。
+  - 自分だけ → 公開する：今の版を審査に出す。承認で公開。差し戻されたら自分だけのまま。公開 → 自分だけにする：すぐ。閲覧数とコピー数とほかの人のリミックスは残す。リミックスの作品のページの帯は「元の作品：〈題〉（@作者）」と元へのリンク。元が公開されていなければ「元の作品は見られません」でリンクなし。コピーされるコードの2行目はそのまま。
+  - 1人100作品まで。置く回数の上限は保存の上限（`quotas`）と同じ。退会すると、自分だけの作品も取り下げ（`rejected`、版は `revoked`）になり、だれにも見えない。
+- 自分の作品（`/account/works`）：自分の全部の作品を、新しく変えた順に並べる。1行（スマホでは1枚）に、サムネイル（無いときは題の頭の1文字）、題、状態の札（「自分だけ」「審査待ち」「公開」「差し戻し」「下書き」。古い取り下げは「取り下げ」）、最後に変えた日、版の数。絞り込みは「すべて」「自分だけ」「公開」。できること：開く、新しい版を置く（下書きは「続ける」）、公開する（自分だけの今の版）、自分だけにする（公開の作品。確かめの一言を出す）。
 - 版の状態：`draft`（下書き）→ `submitted`（審査待ち）→ `approved`（公開）／`rejected`（差し戻し。理由つき）→ `revoked`（取り下げ）。公開した版は変えない。直すと新しい版になる。直した版が審査を待つ間は、前の公開の版がそのまま出る。審査中の版は直せない。
 - 持ち主はセッションの人から決める。作者がなければ、その人の handle で作って `creators.user_id` で結ぶ（アバターは入れない）。送られてきた作者、状態、`pin_order`、`kind` は受けない。作品の ID は新しく作るときの名前としてだけ受ける（英小文字、数字、ハイフンで3〜60文字。`ludion` を含むものは取れない）。
 - 検査（`packages/rules` の `checkSubmission`。ブラウザと Worker で同じものを流す）：
@@ -561,12 +571,12 @@ GA4 の利用規約（Google Analytics Terms of Service の「7. Privacy」）�
   - 動いた後に残る入力は、題、種類（`category` と `subtype`）、サムネイル、同意（3つ。文と数は変えない）だけ。タグと作り方は「タグと作り方」にたたみ、選んだ状態から始める（作り方は `ai-assisted`）。審査に出すときに、題や画像を変えていれば先に保存し直す。
   - `/new?from=<id>`：元が承認済みの作品なら、箱の上に「〈元の題〉（@作者）のリミックスを載せる」と元の作品へのリンク。種類、タグ、「動きがある」を元から入れ、作り方は `ai-assisted`。承認済みでなければ `from` を捨てる（`GET /api/post/remix-source/:id` が 404）。保存のときにサーバーが元を確かめる（承認済み、自分自身でない。合わなければ `bad_remix_of`）。作品を作った後は `remix_of` を変えない。
 - サムネイル：作り手が PNG、JPEG、WebP の静止画で出す。Worker で完全に読み直し（600万画素まで。`@jsquash` の wasm）、WebP（幅800、80KB 以下。高さ÷幅は 0.6〜1.25、はみ出す分は切る）と OG 画像（PNG、1200×630）に作り直す。元の画像は置かない。運営の PC で他人の作品を開いて撮らない。
-- 下書きと審査待ちの版は、持ち主と運営だけが見られる（`/draft-frame/<版の id>/<desktop|mobile>.html`、`/draft-thumb/<版の id>.webp`）。枠の守りは「13」と同じ。ほかの人には 404。キャッシュしない。
+- 下書きと審査待ちの版は、持ち主と運営だけが見られる（自分だけの作品の版は持ち主だけ。運営は審査に出された版だけ。`/draft-frame/<版の id>/<desktop|mobile>.html`、`/draft-thumb/<版の id>.webp`）。枠の守りは「13」と同じ。ほかの人には 404。キャッシュしない。
 - 回数の上限（`worker/quotaLimits.ts`）：1人1日10版、全体で1日200版。保存（下書きの上書きを含む）は1人1日50回、全体で1日1000回。保存は1分に10回（IP の HMAC ごと。束縛 `LIMIT_POST`）。
 - 新しい人を作る上限：同じ回線（IP の HMAC）で1日5人、全体で1時間200人。超えるとログインの画面で知らせる。今いる人のログインは止めない。
 - 作り手自身の閲覧とコピーは数えない。
-- 取り下げ：持ち主はいつでも自分の作品を取り下げられる。公開から消え、`catalog` と作品の札を消す。直している最中の版も止まる。ファイルは R2 に残す（公開の道からは読めない）。
-- 退会すると、公開も審査待ちも下書きも `revoked` になる。
+- 取り下げ：運営の取り下げ（`/api/admin/...`）と退会で使う。持ち主の画面では「自分だけにする」に置き換えた（T036）。API の `POST /api/post/works/:id/revoke` は残る。公開から消え、`catalog` と作品の札を消す。直している最中の版も止まる。ファイルは R2 に残す（公開の道からは読めない）。
+- 退会すると、公開も審査待ちも下書きも自分だけの版も `revoked` になる。
 
 ### 審査の画面（`/admin/review`）
 

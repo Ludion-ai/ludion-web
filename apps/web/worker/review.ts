@@ -7,7 +7,7 @@ import { CATALOG_TAG } from './cachePolicy';
 import type { Env } from './env';
 import { isSameOrigin } from './origin';
 import { purgeWithRetry } from './purge';
-import { REVISION_ID, draftFrameUrls, draftThumbUrl, loadRevisionFiles, ownedRevision, remixSource, revisionFile, type RevisionRow } from './revisions';
+import { REVISION_ID, draftFrameUrls, draftThumbUrl, loadRevisionFiles, operatorMaySee, ownedRevision, remixSource, revisionFile, type RevisionRow } from './revisions';
 import { getSessionUser, type SessionUser } from './session';
 
 type ReviewEnv = { Bindings: Env; Variables: { user: SessionUser } };
@@ -56,7 +56,9 @@ review.get('/revisions/:rid', async (c) => {
   const rid = c.req.param('rid');
   if (!REVISION_ID.test(rid)) return c.json({ error: 'not_found' }, 404);
   const db = c.env.DB;
-  const revision = await ownedRevision(db, rid);
+  const found = await ownedRevision(db, rid);
+  // 自分だけの作品は、審査に出された版のほかは運営も見ない（docs/tasks/T036.md「2」）
+  const revision = found && operatorMaySee(found) ? found : null;
   const files = revision && (await loadRevisionFiles(c.env.PARTS, revision.r2_prefix));
   if (!revision || !files) return c.json({ error: 'not_found' }, 404);
 

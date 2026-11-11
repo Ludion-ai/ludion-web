@@ -1041,6 +1041,8 @@ const LABELS = {
     terms: /に同意します/,
     submit: '審査に出す',
     done: '審査に出しました',
+    /** 置くときの「公開」（T036。初めの値は「自分だけ」） */
+    public: /^公開/,
     choose: '画像を選ぶ',
     fine: 'コードを細かく直す',
   },
@@ -1055,6 +1057,7 @@ const LABELS = {
     terms: /I agree to the/,
     submit: 'Send for review',
     done: 'Sent for review',
+    public: /^Public/,
     choose: 'Choose an image',
     fine: 'Fine-tune the code',
   },
@@ -1079,6 +1082,12 @@ async function finishAndSubmit(page: Page, lang: Lang, title: string, { category
   touched += 1;
   for (const label of [l.own, l.mit, l.terms]) {
     await page.getByLabel(label).check();
+    touched += 1;
+  }
+  // 新しい作品は「自分だけ」から始まる（T036）。審査に出すには「公開」を選ぶ。公開している作品の新しい版には選ぶところがない
+  const publicChoice = page.getByRole('radio', { name: l.public });
+  if (await publicChoice.count()) {
+    await publicChoice.check();
     touched += 1;
   }
   await page.getByRole('button', { name: l.submit, exact: true }).click();
@@ -1176,8 +1185,8 @@ test.describe('投稿の画面：1つの箱（T033 段階 A）', () => {
       // 「細かく直す」は閉じたまま
       await expect(page.locator('details', { hasText: LABELS[lang].fine })).not.toHaveAttribute('open');
       const touched = await finishAndSubmit(page, lang, `Pasted ${lang} ${id}`, { subtype: 'Toggle' });
-      // 貼る（1）＋ 題、細かい種類、サムネイル、同意3つ、審査に出す
-      expect(1 + touched).toBe(8);
+      // 貼る（1）＋ 題、細かい種類、サムネイル、同意3つ、「公開」を選ぶ（T036 で足した1つ。初めの値は「自分だけ」）、審査に出す
+      expect(1 + touched).toBe(9);
       expect(saves).toHaveLength(2);
       expect(d1<{ status: string }>(`SELECT status FROM revisions WHERE work_id = ${quote(id)}`)[0].status).toBe('submitted');
 
@@ -1326,9 +1335,9 @@ test.describe('投稿の画面：1つの箱（T033 段階 A）', () => {
 
     await page.goto('/account/works');
     const row = page.locator(`[data-own-work="${id}"]`);
-    await expect(row.locator('[data-own-work-status]')).toHaveText('公開中');
+    await expect(row.locator('[data-own-work-status]')).toHaveText('公開');
     const saves = countSaves(page);
-    await row.getByRole('link', { name: /を直す$/ }).click();
+    await row.getByRole('link', { name: /の新しい版を置く$/ }).click();
     await expect(page).toHaveURL(`/new?work=${id}`);
     await expect(page.getByText('審査の間は、今の公開の版がそのまま出ます')).toBeVisible();
     await expect(page.getByLabel(LABELS.ja.box)).toHaveValue(new RegExp(`data-ld-part="${id}"`));
@@ -1353,17 +1362,18 @@ test.describe('投稿の画面：1つの箱（T033 段階 A）', () => {
     await expect(row.locator('[data-own-work-status]')).toHaveText('差し戻し');
     await expect(row).toContainText('ロゴを消してください');
     await expect(row).toContainText('公開中の版（版 1）はそのまま出ています');
-    await row.getByRole('link', { name: /を直す$/ }).click();
+    await row.getByRole('link', { name: /の新しい版を置く$/ }).click();
     await expect(page.getByText('ロゴを消してください')).toBeVisible();
 
+    // 持ち主の「取り下げ」は「自分だけにする」に置き換えた（T036）。確かめの一言の後で、すぐ公開から消える
     await page.goto('/account/works');
-    await row.getByRole('button', { name: /を取り下げる$/ }).click();
-    await expect(row).toContainText('すでにコピーされたコードは回収できません');
+    await row.getByRole('button', { name: /を自分だけにする$/ }).click();
+    await expect(row).toContainText('リンクを開いても見られなくなります');
     await row.getByRole('button', { name: 'やめる' }).click();
     expect(await publicStatus(id, '1')).toEqual(VISIBLE);
-    await row.getByRole('button', { name: /を取り下げる$/ }).click();
-    await row.getByRole('button', { name: '取り下げる', exact: true }).click();
-    await expect(row.locator('[data-own-work-status]')).toHaveText('取り下げ');
+    await row.getByRole('button', { name: /を自分だけにする$/ }).click();
+    await row.getByRole('button', { name: '自分だけにする', exact: true }).click();
+    await expect(row).toHaveAttribute('data-own-work-state', 'private');
     expect(await publicStatus(id, '1')).toEqual(HIDDEN);
   });
 
@@ -1413,7 +1423,7 @@ test.describe('投稿の画面：1つの箱（T033 段階 A）', () => {
       await expect(page.locator('[data-box-status]')).toContainText(LABELS.ja.saved);
       expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
       expect(await runAxe(page)).toEqual([]);
-      for (const target of [page.getByRole('button', { name: '審査に出す' }), page.getByText('ファイルを選ぶ'), page.getByText('コードを細かく直す'), page.getByText('画像を選ぶ')]) {
+      for (const target of [page.getByRole('button', { name: '自分だけで置く' }), page.getByText('ファイルを選ぶ'), page.getByText('コードを細かく直す'), page.getByText('画像を選ぶ')]) {
         expect((await target.boundingBox())!.height).toBeGreaterThanOrEqual(44);
       }
       await page.goto('/account/works');
