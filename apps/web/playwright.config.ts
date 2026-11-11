@@ -85,7 +85,7 @@ export default defineConfig({
     trace: process.env.CI ? 'retain-on-failure' : 'off',
   },
   projects: [
-    { name: 'home', testIgnore: /(upload|pages|accounts|account-page|api-v1|mcp|google|login-flow|post|private|passkey|shots-t020|migration|frame-escape|motion|remix-scroll|wall-size)\.spec\.ts/, use: { baseURL: BASE_URL } },
+    { name: 'home', testIgnore: /(upload|pages|accounts|account-page|api-v1|mcp|google|login-flow|post|private|passkey|shots-t020|migration|frame-escape|motion|remix-scroll|wall-size|preview-dpr)\.spec\.ts/, use: { baseURL: BASE_URL } },
     { name: 'upload', testMatch: /upload\.spec\.ts/, use: { baseURL: UPLOAD_URL } },
     { name: 'pages', testMatch: /pages\.spec\.ts/, use: { baseURL: PAGES_URL } },
     // 枠の移動を止めるのはブラウザなので、全部のブラウザで確かめる（docs/tasks/T022.md「1」）
@@ -103,6 +103,10 @@ export default defineConfig({
     // 「リミックス」が枠に重ならない（docs/tasks/FIX-remix-button.md）
     { name: 'remix-scroll-chromium', testMatch: /remix-scroll\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
     { name: 'remix-scroll-webkit', testMatch: /remix-scroll\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
+    // プレビューの枠に見えている細かさを伝える（PREVIEW-DPR）。devicePixelRatio の置き換えと、src のない枠の load の扱いはブラウザごとに確かめる
+    { name: 'preview-dpr-chromium', testMatch: /preview-dpr\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
+    { name: 'preview-dpr-webkit', testMatch: /preview-dpr\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
+    { name: 'preview-dpr-firefox', testMatch: /preview-dpr\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
     // 順に走らせる。テストが wrangler d1 execute で同じ D1 のファイルを開くので、並行にサーバーへ要求を出すと、
     // 手元の D1 が「Failed to get session commit token」で 500 を返すことがある
     // workers: 1 は、ファイルをまたいでも同時に走らせないため（1つの D1 を3つのファイルで使う）

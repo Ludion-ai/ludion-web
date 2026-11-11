@@ -8,7 +8,7 @@ import { copy } from '../src/copy';
 import { copyEn } from '../src/copy.en';
 import { formatCount } from '../src/lib/format';
 import type { Work } from '../src/data/works';
-import { pageOverflow, seed } from './helpers';
+import { framedAt, pageOverflow, seed } from './helpers';
 
 const REPO = join(import.meta.dirname, '../../..');
 const FRAME_CSP =
@@ -102,7 +102,7 @@ test.describe('悪意のある見本は、作品のページで3つとも失敗�
     for (const id of MALICIOUS) {
       await page.goto(`/p/${id}`);
       await expect(page.locator('iframe')).toHaveAttribute('sandbox', 'allow-scripts allow-forms');
-      await expect(page.locator('iframe')).toHaveAttribute('src', `/frame/${id}/1/desktop.html`);
+      await expect(page.locator('iframe')).toHaveAttribute('src', framedAt(`/frame/${id}/1/desktop.html`));
       await expect(page.locator('iframe')).toHaveAttribute('title', /のプレビュー$/);
     }
   });
@@ -366,7 +366,7 @@ test.describe('プレビュー', () => {
 
     const iframe = page.locator('iframe');
     const box = iframe.locator('..');
-    await expect(iframe).toHaveAttribute('src', '/frame/fx-landing/1/desktop.html');
+    await expect(iframe).toHaveAttribute('src', framedAt('/frame/fx-landing/1/desktop.html'));
     await expect(iframe).toHaveAttribute('sandbox', 'allow-scripts allow-forms');
     expect(await iframe.evaluate((el: HTMLIFrameElement) => el.clientWidth)).toBe(1280);
     const boxWidth = (await box.evaluate((el) => el.clientWidth)) as number;
@@ -378,7 +378,7 @@ test.describe('プレビュー', () => {
     await mobile.click();
     await expect(mobile).toHaveAttribute('aria-pressed', 'true');
     await expect(desktop).toHaveAttribute('aria-pressed', 'false');
-    await expect(iframe).toHaveAttribute('src', '/frame/fx-landing/1/mobile.html');
+    await expect(iframe).toHaveAttribute('src', framedAt('/frame/fx-landing/1/mobile.html'));
     expect(await iframe.evaluate((el: HTMLIFrameElement) => el.clientWidth)).toBe(390);
     const phone = (await iframe.boundingBox())!;
     expect(phone.width).toBe(390);
@@ -391,7 +391,7 @@ test.describe('プレビュー', () => {
     await openWork(page, 'fx-habits');
     await expect(page.getByRole('button', { name: 'デスクトップ' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'モバイル' })).toHaveCount(0);
-    await expect(page.locator('iframe')).toHaveAttribute('src', '/frame/fx-habits/1/mobile.html');
+    await expect(page.locator('iframe')).toHaveAttribute('src', framedAt('/frame/fx-habits/1/mobile.html'));
     expect(await page.locator('iframe').evaluate((el: HTMLIFrameElement) => el.clientWidth)).toBe(390);
   });
 

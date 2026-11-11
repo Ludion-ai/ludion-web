@@ -129,6 +129,19 @@ const BACKGROUND_SCRIPT =
   `const bg=getComputedStyle(r).getPropertyValue('--_bg').trim();` +
   `if(bg)document.documentElement.style.backgroundColor=bg})();`;
 
+/**
+ * 枠が実際に見えている細かさ（PREVIEW-DPR）。親が iframe の src の # に `ldpr=<値>` で付ける（apps/web/src/lib/frame.ts の withFrameDpr）。
+ * 作品のページのプレビューは、枠を 1280×800 などで描いて CSS の scale で縮めるので、作品が devicePixelRatio のまま描くと、
+ * 見えない細かさまで描いて重い（DPR 3 の端末で 4K 近く）。そこで、作品の JS より先に、window.devicePixelRatio をその値に置き換える。
+ * 上限は実際の DPR（大きくはしない）。値が読めないとき、0 以下のときは、何もしない。作品のファイルは変えない。
+ * # は Worker に届かないので、枠の応答（CSP、キャッシュ）は変わらない。# のない枠（ld preview、ld check、全画面の住所）では何もしない。
+ */
+export const DPR_HASH_KEY = 'ldpr';
+export const DPR_SCRIPT =
+  `(()=>{const m=/[#&]${DPR_HASH_KEY}=(\\d+(?:\\.\\d+)?)(?=&|$)/.exec(location.hash);if(!m)return;` +
+  `const v=Number(m[1]),real=window.devicePixelRatio;if(!(v>0)||!(v<real))return;` +
+  `Object.defineProperty(window,'devicePixelRatio',{get:()=>v,set(){},enumerable:true,configurable:false})})();`;
+
 // この文書の load を親に知らせる（apps/web/src/frameGuard.ts）。読み込みの途中に枠が移ると、知らせが来ないので、親が読み直す。
 // 作品の JS より先に仕掛ける。
 const LOADED_SCRIPT = `addEventListener('load',()=>parent.postMessage('ld-frame-loaded','*'));`;
@@ -176,7 +189,8 @@ export function buildFrameHtml(work: Work, options: FrameOptions): string {
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(meta.title)}</title>`,
     `<style>${outerCss}</style>`,
-    `<script>${LOADED_SCRIPT}</script>`,
+    // 最初の Ludion のスクリプト。作品の JS が devicePixelRatio を読む前に、見えている細かさに置き換える
+    `<script>${DPR_SCRIPT}${LOADED_SCRIPT}</script>`,
     options.motion ? `<script>${ALLOW_MOTION_SCRIPT}</script>` : '',
     '</head>',
     '<body>',

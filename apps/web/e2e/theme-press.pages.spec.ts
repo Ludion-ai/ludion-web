@@ -9,6 +9,7 @@
 // - ドラッグ（pointerdown → 4px より動く → pointerup）の後の click は捨てる。離した側は、テストが決める。
 // Ludion の枠のスクリプト（packages/render の SWITCH_SCRIPT）は、作品より先に click を受けるので、この代わりの前に動く。
 import { expect, test, type Frame, type Page } from '@playwright/test';
+import { framePath } from './helpers';
 
 const SWITCH_FRAME = 'iframe[data-ld-switch-frame]';
 const WORK = 'fx-toggle';
@@ -37,7 +38,7 @@ async function open(page: Page, scheme: 'light' | 'dark' = 'light') {
     const frame = document.querySelector<HTMLIFrameElement>(selector);
     return !!frame && !frame.inert;
   }, SWITCH_FRAME);
-  const frame = page.frames().find((f) => f.url().endsWith('/inline.html'))!;
+  const frame = page.frames().find((f) => framePath(f).endsWith('/inline.html'))!;
   // 最初の合わせ（fx-toggle の Wi-Fi は true から始まる）が終わるのを待つ
   await expect(page.frameLocator(SWITCH_FRAME).locator('[role="switch"]').first()).toHaveAttribute('aria-checked', String(scheme === 'dark'));
   return frame;

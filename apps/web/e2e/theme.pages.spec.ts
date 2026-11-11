@@ -5,6 +5,7 @@
 import { expect, test, type Frame, type Page } from '@playwright/test';
 import { join } from 'node:path';
 import { copy } from '../src/copy';
+import { framePath } from './helpers';
 import { pickThemeSwitch, THEME_SWITCH_IDS } from '../src/lib/themeSwitches';
 
 const SWITCH_FRAME = 'iframe[data-ld-switch-frame]';
@@ -44,7 +45,7 @@ async function record(page: Page, forced: string | null = WORK) {
 const log = (target: Page | Frame) => target.evaluate(() => (window as unknown as { __ldLog: Log }).__ldLog);
 const theme = (page: Page) => page.evaluate(() => document.documentElement.getAttribute('data-theme'));
 const stored = (page: Page) => page.evaluate(() => localStorage.getItem('ld-theme'));
-const switchFrame = (page: Page) => page.frames().find((frame) => frame.url().endsWith('/inline.html'))!;
+const switchFrame = (page: Page) => page.frames().find((frame) => framePath(frame).endsWith('/inline.html'))!;
 /** 枠の中のスイッチ。ヘッダーの枠は小さく、作品の根を縮めて見えない部分を切るので、押すときは中で click を起こす */
 const frameSwitch = (page: Page) => page.frameLocator(SWITCH_FRAME).locator('[role="switch"]').first();
 /** 太陽と月のボタン。page の getByRole は枠の中に入らないので、枠の中のスイッチとは混ざらない */
@@ -160,7 +161,7 @@ test.describe('ほかの窓や、形の合わない知らせでは変わらな�
   test('親の窓、作品のページの主の枠、形の違う知らせ：変わらない。対照：自分の枠からの正しい知らせで変わる。1秒に何回も来たら無視する', async ({ page }) => {
     await record(page);
     await openReady(page, `/p/${WORK}`);
-    const workFrame = page.frames().find((frame) => frame.url().endsWith('/desktop.html'))!;
+    const workFrame = page.frames().find((frame) => framePath(frame).endsWith('/desktop.html'))!;
     const own = switchFrame(page);
 
     // 親の窓から（送り元が枠ではない）。押した知らせ（ld-switch-press）も同じ

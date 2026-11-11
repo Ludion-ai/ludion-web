@@ -1,10 +1,10 @@
 import { Monitor, RotateCcw, Smartphone } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { Copy } from '../copy';
 import { useCopy } from '../hooks/useCopy';
 import type { Work } from '../data/works';
 import { useMediaQuery } from '../hooks/useMediaQuery';
-import { frameScale, frameUrl, type FrameSize } from '../lib/frame';
+import { BOX_CLASS, FRAME_CLASS, frameScale, frameUrl, isPhone, PHONE_QUERY, previewScale, startFrame, type FrameSize } from '../lib/frame';
 import { setShowMotion, useShowMotion } from '../lib/motionChoice';
 import { webglAvailable } from '../lib/webgl';
 import { chipClass } from './chip';
@@ -17,19 +17,22 @@ const sizeChoices = (copy: Copy) => [
   { size: 'mobile', label: copy.work.mobile, icon: Smartphone },
 ] as const;
 
-export const BOX_CLASS = {
-  // 部品：枠の幅のままの iframe の中央に置く（置くのは buildFrameHtml）
-  component: 'aspect-[4/3] min-h-[420px] w-full',
-  desktop: 'aspect-[1280/800]',
-  // 幅が390に足りないときは、枠の高さも同じ割合で縮める
-  mobile: 'h-[min(844px,calc(100cqw*844/390))]',
+export { BOX_CLASS, FRAME_CLASS };
+
+const watchPhone = (onChange: () => void) => {
+  const list = window.matchMedia(PHONE_QUERY);
+  list.addEventListener('change', onChange);
+  return () => list.removeEventListener('change', onChange);
 };
 
-export const FRAME_CLASS = {
-  component: 'absolute inset-0 size-full',
-  desktop: 'absolute top-0 left-0 h-[800px] w-[1280px] origin-top-left [transform:scale(var(--frame-scale,1))]',
-  mobile: 'absolute top-0 left-1/2 h-[844px] w-[390px] origin-top [transform:translateX(-50%)_scale(var(--frame-scale,1))]',
-};
+/**
+ * スマホか（lib/frame.ts の PHONE_QUERY）。Worker の描画では false。
+ * 載せる最初の描画から本当の値を使う：スマホでは beforeApp が先に枠を Mobile に替えているので、同じ形で載る。
+ * 後から値を替えると、枠を作り直して、作品を2回読み込むことになる。
+ */
+function usePhone(): boolean {
+  return useSyncExternalStore(watchPhone, isPhone, isPhone);
+}
 
 const NOTICE_CLASS = 'mb-3 rounded-control bg-site-field px-3 py-2.5 text-small text-site-fg-2';
 
@@ -66,7 +69,12 @@ export function FramePreview({ work, background, frames = null }: { work: Work; 
   /** 「もう一度」のたびに iframe を作り直す（sandbox の中身は親から読み直せない） */
   const [replays, setReplays] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
-  const shape = isComponent ? 'component' : size;
+  // スマホでは Mobile だけ。切り替えは CSS で隠す（phone:hidden）。size は PC で選んだ幅のまま持つ
+  const phone = usePhone();
+  const shown: FrameSize = webScreen && phone ? 'mobile' : size;
+  const shape = isComponent ? 'component' : shown;
+  /** Worker の HTML と形が合わなかったときに、入れ物ごと作り直す回数 */
+  const [repairs, setRepairs] = useState(0);
   const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)', false);
   const showMotion = useShowMotion();
   // 「減らす」設定でない端末では、選んだことが残っていても、ふつうの枠を読む
@@ -80,17 +88,37 @@ export function FramePreview({ work, background, frames = null }: { work: Work; 
   useLayoutEffect(() => {
     const box = boxRef.current;
     if (!box || isComponent) return;
-    const fit = () => box.style.setProperty('--frame-scale', String(frameScale(size, box.clientWidth)));
+    const fit = () => box.style.setProperty('--frame-scale', String(frameScale(shown, box.clientWidth)));
     fit();
     const observer = new ResizeObserver(fit);
     observer.observe(box);
     return () => observer.disconnect();
-  }, [size, isComponent]);
+  }, [shown, isComponent, repairs]);
+
+  // 載せた時に、Worker の HTML（と beforeApp が替えた後）の枠が、ここで描く形と違っていたら、入れ物ごと作り直す。
+  // React は、載せるときに違っていた属性を直さないため（例：beforeApp と載せる間に画面の幅が変わった）
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    if (box && !isComponent && box.dataset.frameSize !== shown) setRepairs((count) => count + 1);
+    // 載せた時に1回だけ確かめる
+  }, []);
+
+  const srcOf = (frameSize: FrameSize) => (frames ? `${frames[frameSize]}${motion ? '?motion=1' : ''}` : frameUrl(work, frameSize, motion));
+
+  // 枠を、見えている細かさを付けた URL で読み始める（PREVIEW-DPR）。Worker が描いた枠は beforeApp が先に入れている。
+  // スマホの Mobile の枠は縮めずに描くので、割合は 1（previewScale）。入れ物ごと作り直した枠（repairs）にも入れる
+  const frameKey = `${shown}-${replays}-${motion}`;
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    const box = boxRef.current;
+    if (frame && box) startFrame(frame, isComponent ? 1 : previewScale(shown, box.clientWidth, phone));
+  }, [frameKey, isComponent, repairs]);
 
   return (
     <div>
       {webScreen && (
-        <div role="group" aria-label={copy.work.previewSize} className="mb-3 flex gap-[13px]">
+        <div role="group" aria-label={copy.work.previewSize} className="mb-3 flex gap-[13px] phone:hidden">
           {sizeChoices(copy).map(({ size: choice, label, icon: Icon }) => (
             <button
               key={choice}
@@ -112,20 +140,25 @@ export function FramePreview({ work, background, frames = null }: { work: Work; 
         </p>
       )}
       {/* 枠の高さを枠の幅から決めるための入れ物（cqw） */}
-      <div className="@container">
+      <div key={repairs} className="@container">
         <div
           ref={boxRef}
-          data-frame-size={isComponent ? undefined : size}
+          data-frame-size={isComponent ? undefined : shown}
+          // スマホで beforeApp が読み始める Mobile の枠（Worker は Desktop で描く）
+          data-phone-src={webScreen ? srcOf('mobile') : undefined}
           style={background ? { backgroundColor: background } : undefined}
           className={`relative overflow-hidden rounded-card border border-site-line ${BOX_CLASS[shape]}`}
         >
           <iframe
-            key={`${size}-${replays}-${motion}`}
+            key={frameKey}
+            ref={frameRef}
             data-ld-frame=""
             title={copy.work.frameTitle(work.title)}
             sandbox={SANDBOX}
+            // src は startFrame が入れる（# に見えている細かさを付ける。PREVIEW-DPR）。Worker が描いた枠には beforeApp が React より先に入れる
             // 自分だけの作品は下書きの枠（持ち主だけに返す。docs/tasks/T036.md「2」）。守りは公開の枠と同じ
-            src={frames ? `${frames[isComponent ? 'desktop' : size]}${motion ? '?motion=1' : ''}` : frameUrl(work, isComponent ? 'desktop' : size, motion)}
+            data-src={srcOf(isComponent ? 'desktop' : shown)}
+            suppressHydrationWarning
             className={FRAME_CLASS[shape]}
           />
           {work.tags.includes('motion') && (

@@ -94,6 +94,8 @@
 @custom-variant not-mac (&:is(:root:not([data-mac]) *));
 /* 濃い地（カードの暗がり、下のタブ、リミックスの帯）の上の文字は、ダークでも明るいまま。ダークでは site-bg が暗くなるので site-fg を使う */
 @custom-variant dark (&:is([data-theme='dark'] *));
+/* スマホ（指で触る端末で、画面の幅が狭い）。src/lib/frame.ts の PHONE_QUERY と同じ条件 */
+@custom-variant phone (@media (pointer: coarse) and (max-width: 767px));
 
 @layer base {
   html {
