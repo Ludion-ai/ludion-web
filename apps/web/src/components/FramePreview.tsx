@@ -1,5 +1,5 @@
 import { Monitor, RotateCcw, Smartphone } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import type { Copy } from '../copy';
 import { useCopy } from '../hooks/useCopy';
 import type { Work } from '../data/works';
@@ -59,6 +59,7 @@ function MotionNotice({ shown }: { shown: boolean }) {
 /**
  * 作品のプレビュー。作品はこの iframe の中でだけ動く。枠から親へ来るのは「読み込めた」の知らせだけ（frameGuard.ts）。
  * 親から枠の中は見えないので、地の色は Worker が part.css から読んで渡す。
+ * その色は、枠の文書から「読み込めた」の知らせが来てから出す（frameGuard.ts の data-ld-loaded と index.css）。それまではページの地のまま。
  * 枠が自分で移ったときに読み直すのは src/frameGuard.ts（data-ld-frame を目印にする）。
  */
 export function FramePreview({ work, background, frames = null }: { work: Work; background: string | null; frames?: { desktop: string; mobile: string } | null }) {
@@ -146,7 +147,9 @@ export function FramePreview({ work, background, frames = null }: { work: Work; 
           data-frame-size={isComponent ? undefined : shown}
           // スマホで beforeApp が読み始める Mobile の枠（Worker は Desktop で描く）
           data-phone-src={webScreen ? srcOf('mobile') : undefined}
-          style={background ? { backgroundColor: background } : undefined}
+          // 作者の地の色は、枠が読み込めてから出す（index.css の [data-frame-bg]）
+          data-frame-bg={background ? '' : undefined}
+          style={background ? ({ '--frame-bg': background } as CSSProperties) : undefined}
           className={`relative overflow-hidden rounded-card border border-site-line ${BOX_CLASS[shape]}`}
         >
           <iframe
