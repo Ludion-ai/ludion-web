@@ -11,6 +11,11 @@ import {
   checkPurity,
   checkReducedMotion,
   imageSize,
+  MAX_STILL_BYTES,
+  STILL_FILES,
+  STILL_SIZES,
+  WALLPAPER_SUBTYPE,
+  stillFileName,
   type Problem,
 } from '@ludion/rules';
 import type { CreatorKind, MadeWith, Platform, WorkType } from '@ludion/render';
@@ -19,6 +24,15 @@ import type { CreatorKind, MadeWith, Platform, WorkType } from '@ludion/render';
 export const UPLOAD_FILES = ['meta.json', 'part.html', 'part.css', 'part.js', 'thumb.webp', 'og.png', 'creator.json', 'avatar.webp'] as const;
 export type UploadFileName = (typeof UPLOAD_FILES)[number];
 const OPTIONAL: readonly UploadFileName[] = ['part.js'];
+
+/** 壁紙の静止画（WALL002。wall-3840x2160.png など）。壁紙の作品だけが、任意で送る。ld upload が置く人のブラウザで作る */
+export type StillFileName = `wall-${number}x${number}.png`;
+const isStillFile = (name: string): name is StillFileName => (STILL_FILES as readonly string[]).includes(name);
+/** R2 に置く作品のファイルの名前。 */
+export type WorkFileName = Exclude<UploadFileName, 'creator.json' | 'avatar.webp'> | StillFileName;
+
+/** R2 に置くときの Content-Type。 */
+export const contentTypeOf = (name: WorkFileName | 'avatar.webp'): string => (isStillFile(name) ? 'image/png' : CONTENT_TYPES[name]);
 
 /** 1ファイルの大きさの上限（バイト）。サムネイルは SPEC.md「10」の 80KB。 */
 const MAX_BYTES: Record<UploadFileName, number> = {
@@ -71,8 +85,8 @@ export interface UploadedWork {
   };
   creator: { handle: string; name: string; kind: CreatorKind; x_url: string | null; site_url: string | null };
   thumb: { width: number; height: number };
-  /** R2 に置く作品のファイル（creator.json と avatar.webp を除く） */
-  files: { name: UploadFileName; bytes: Uint8Array }[];
+  /** R2 に置く作品のファイル（creator.json と avatar.webp を除く。壁紙の静止画を含む） */
+  files: { name: WorkFileName; bytes: Uint8Array }[];
   avatar: Uint8Array;
 }
 
@@ -102,7 +116,7 @@ export function checkUpload(files: Map<string, Uint8Array>): CheckedUpload {
   };
 
   for (const name of files.keys()) {
-    if (!(UPLOAD_FILES as readonly string[]).includes(name)) {
+    if (!(UPLOAD_FILES as readonly string[]).includes(name) && !isStillFile(name)) {
       shape.push({ message: `知らないファイル ${name} がある`, fix: `${UPLOAD_FILES.join('、')} だけを送る` });
     }
   }
@@ -175,6 +189,30 @@ export function checkUpload(files: Map<string, Uint8Array>): CheckedUpload {
   image('og.png', 'png', ({ width, height }) => (width === 1200 && height === 630 ? null : '1200×630 にする'));
   image('avatar.webp', 'webp', ({ width, height }) => (width === 96 && height === 96 ? null : '96×96 にする'));
 
+  // ---- 壁紙の静止画（WALL002）。壁紙の作品だけ。送るなら3つの大きさを全部
+  const stills = STILL_SIZES.filter((size) => files.has(stillFileName(size)));
+  if (stills.length > 0) {
+    if (m.subtype !== WALLPAPER_SUBTYPE) {
+      shape.push({ message: `静止画（${stills.map(stillFileName).join('、')}）は壁紙の作品だけが送れる`, fix: `meta.json の subtype が ${WALLPAPER_SUBTYPE} でなければ送らない` });
+    } else if (stills.length !== STILL_SIZES.length) {
+      shape.push({ message: `静止画が ${stills.length} 枚しかない`, fix: `${STILL_FILES.join('、')} を全部送る` });
+    }
+    for (const size of stills) {
+      const name = stillFileName(size);
+      const bytes = files.get(name)!;
+      if (bytes.length > MAX_STILL_BYTES) {
+        shape.push({ message: `${name} が ${(bytes.length / 1024 / 1024).toFixed(1)}MB で、上限 ${MAX_STILL_BYTES / 1024 / 1024}MB を超える`, fix: '作品の絵を細かくしすぎない' });
+        continue;
+      }
+      const got = imageSize(bytes);
+      const isPng = bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+      if (!got || !isPng) shape.push({ message: `${name} が png として読めない`, fix: 'npx ld upload で作り直す' });
+      else if (got.width !== size.width || got.height !== size.height) {
+        shape.push({ message: `${name} が ${got.width}×${got.height}（${size.width}×${size.height} にする）`, fix: 'npx ld upload で作り直す' });
+      }
+    }
+  }
+
   const failed: FailedItem[] = [];
   if (shape.length > 0) failed.push({ key: 'shape', label: ITEM_LABELS.shape, problems: shape });
   if (purity.length > 0) failed.push({ key: 'purity', label: ITEM_LABELS.purity, problems: purity });
@@ -184,10 +222,9 @@ export function checkUpload(files: Map<string, Uint8Array>): CheckedUpload {
     meta: meta as UploadedWork['meta'],
     creator: creator as UploadedWork['creator'],
     thumb,
-    files: UPLOAD_FILES.filter((name) => name !== 'creator.json' && name !== 'avatar.webp' && files.has(name)).map((name) => ({
-      name,
-      bytes: files.get(name)!,
-    })),
+    files: [...UPLOAD_FILES.filter((name): name is Exclude<UploadFileName, 'creator.json' | 'avatar.webp'> => name !== 'creator.json' && name !== 'avatar.webp'), ...STILL_FILES]
+      .filter((name) => files.has(name))
+      .map((name) => ({ name: name as WorkFileName, bytes: files.get(name)! })),
     avatar: files.get('avatar.webp')!,
   };
   return { ok: true, work, warnings };

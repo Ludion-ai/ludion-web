@@ -28,3 +28,5 @@ export { MAX_PART_BYTES, MAX_TITLE_CHARS, REJECT_CODES, SUBTYPES, checkPartCss, 
 export type { Category, FlagHit, ProblemText, RejectCode, Submission, SubmissionResult } from './submission.ts';
 export { exportMount, fixParts, joinParts, partIdOf, removeMountCall, splitSnippet } from './split.ts';
 export type { FixNote, Parts, SplitError, SplitNote, SplitResult } from './split.ts';
+export { MAX_STILL_BYTES, STILL_FILES, STILL_SIZES, WALLPAPER_SUBTYPE, stillDownloadName, stillFileName } from './stills.ts';
+export type { StillSize } from './stills.ts';

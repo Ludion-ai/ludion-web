@@ -155,6 +155,13 @@ export const copyEn: Copy = {
       copyFailed: 'Couldn’t copy. Select the URL and copy it.',
       power: 'Wallpapers with motion and sound use battery and GPU.',
       mobile: 'Open this page on a computer.',
+      still: 'Use as a still image (no app needed)',
+      stillSize: 'Image size',
+      stillSizeName: (width: number, height: number) => (width === 3840 ? `4K (${width}×${height})` : `${width}×${height}`),
+      stillDownload: 'Save PNG',
+      stillWindows: 'Windows: right-click the downloaded image → “Set as desktop background”.',
+      stillMac: 'Mac: right-click the image → “Set Desktop Picture”.',
+      live: 'Use as a live wallpaper (install a free app once)',
     },
     remix: {
       open: 'Remix',
