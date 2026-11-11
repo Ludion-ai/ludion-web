@@ -4863,7 +4863,16 @@ export function mount(root) {
     } else root.setAttribute('data-gl', 'off');
   });
 
+  // 完成した最初のコマが描けてから、絵を出す（途中の絵は見せない）。
+  // 隠れた状態（opacity 0）を先に決めてから印を付けるので、mount の前に一度も描かれていなくてもフェードする
+  const reveal = () => {
+    if (!ready || root.hasAttribute('data-ready')) return;
+    void getComputedStyle(canvas).opacity;
+    root.setAttribute('data-ready', '');
+  };
+
   // ---- 組み立て
+  root.removeAttribute('data-ready');
   readTokens();
   setInks();
   ready = setup();
@@ -4873,6 +4882,7 @@ export function mount(root) {
     // 雨が、もうしばらく降っていた状態から始める
     rainStill();
     render(0);
+    reveal();
     resume();
   } else {
     root.setAttribute('data-gl', 'off');
@@ -4889,6 +4899,7 @@ export function mount(root) {
     io.disconnect();
     ro.disconnect();
     for (const off of undo) off();
+    root.removeAttribute('data-ready');
     pending.length = 0;
     drops.length = 0;
     sound.close();
