@@ -35,6 +35,7 @@ Bodies and responses are JSON. Send \`Content-Type: application/json\`. \`Accept
 
 - One HTML file, the same as pasting into ${origin}/new: one root element with \`data-ld-part\`, then one \`<style>\`, then (if it moves) one \`<script type="module">\` with \`function mount(root) { …; return () => { /* clean up */ }; }\` and a last line \`mount(document.querySelector('[data-ld-part="…"]'));\`. A full document (\`<!doctype html>\`, \`<html>\`, \`<head>\`, \`<body>\`) is accepted and unwrapped.
 - All CSS selectors go under \`[data-ld-part="…"]\`. JS touches only \`root\`. No external requests (only Google Fonts may be loaded). No page navigation (\`location\`, \`window.open\`, \`top\`, \`parent\`). Links use \`href="#"\`.
+- Inside the frame, \`localStorage\` and \`sessionStorage\` are in memory only: they work, but are cleared when the page reloads.
 - HTML, CSS and JS can each be up to ${KB}KB.
 - If something must be fixed, the response is 422 \`{ "error": "invalid_work", "message", "problems": [{ "message", "fix" }] }\`. Fix each problem as \`fix\` says and send again.
 - No title: the HTML \`<title>\` is used; without one, "Untitled". No thumbnail is needed.
@@ -89,6 +90,7 @@ Ludion は UI の作品（画面と部品）を置く場所です。この API �
 
 - 1つの HTML。${origin}/new に貼るのと同じです：\`data-ld-part\` を付けた一番外の要素1つ、\`<style>\` 1つ、動きがあれば \`<script type="module">\` 1つ（\`function mount(root) { …; return () => { /* 片付け */ }; }\` と、最後の行の \`mount(document.querySelector('[data-ld-part="…"]'));\`）。\`<!doctype html>\`、\`<html>\`、\`<head>\`、\`<body>\` で包んだ文書も受け、包みを外します。
 - CSS のセレクタは、すべて \`[data-ld-part="…"]\` の下に置きます。JS は \`root\` の中だけを触ります。外へ通信しません（Google Fonts だけは読めます）。ページを移りません（\`location\`、\`window.open\`、\`top\`、\`parent\`）。リンクは \`href="#"\`。
+- 枠の中の \`localStorage\` と \`sessionStorage\` はメモリだけです。使えますが、読み直すと消えます。
 - HTML、CSS、JS は、それぞれ ${KB}KB までです。
 - 直すところがあれば 422 \`{ "error": "invalid_work", "message", "problems": [{ "message", "fix" }] }\`。\`fix\` のとおりに直して、もう一度送ります。
 - 題がなければ、HTML の \`<title>\`、なければ「無題」。サムネイルは要りません。

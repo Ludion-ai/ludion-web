@@ -1,0 +1,15 @@
+{
+  "id": "fx-counter",
+  "title": "Tally Counter",
+  "type": "component",
+  "platform": null,
+  "category": "Components",
+  "subtype": "Button",
+  "tags": ["minimal"],
+  "creator": "fixture",
+  "license": "MIT",
+  "made_with": "ai-assisted",
+  "version": "1",
+  "published_at": "2026-11-11",
+  "pin_order": null
+}

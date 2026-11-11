@@ -428,6 +428,8 @@ Worker で描く。ヘッダー、サイドバー、下のタブはホームと�
 
 - `inline.html` はヘッダーのスイッチの形（「3」、docs/tasks/T035.md）。違うのは見た目（地は透明、余白は0、根を枠の高さに縮めて中央に置く、作品が自分で敷くページの地を消す）と、スイッチの知らせのスクリプト（`ld-switch-press`、`ld-switch`、`ld-switch-set`）だけ。下の守りと応答の頭は同じ。
 
+- 枠の中の `localStorage` と `sessionStorage` はメモリだけで、読み直すと消える（`document.cookie` も同じ）。枠はオリジンがないので、本物は読んだだけで `SecurityError` を投げる。最初の Ludion のスクリプトが、投げるときだけメモリだけの代わりを置く（`packages/render/src/storage.ts`。`Storage` の形を全部持ち、上限は 5MB の文字数で、超えると `QuotaExceededError`）。親のページには預けない。`ld preview`、`ld check`、`ld add` の枠も同じ（FRAME001）。
+
 - `?motion=1` のときだけ、端末の「動きを減らす」設定を「減らさない」として見せる：`part.css` の `@media` の `prefers-reduced-motion` を書き換え、`matchMedia` を差し替える（`packages/render/src/motion.ts`）。守りとキャッシュの決まりは同じ。
 
 - `Sec-Fetch-Dest` が `iframe` でないとき（見出しがないときも含む）は、D1 も R2 も読まず、作品を返さずに `/p/<id>` へ 302 で戻す。作品の JS は自分のタブを外へ移せるので、URL を直接開かせると、ludion.ai のリンクが外への入口になるため。

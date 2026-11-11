@@ -36,6 +36,18 @@ async function openWork(page: Page, id: string) {
   await page.waitForFunction(() => Object.keys(document.getElementById('root')!).some((key) => key.startsWith('__reactContainer')));
 }
 
+/**
+ * ブラウザの本物の document.cookie（Document.prototype の取り出し）を読む。投げたら、その名前を返す。
+ * 枠の中の document.cookie はメモリだけの代わり（FRAME001）なので、本物に届かないことはこれで見る。evaluate に渡すので、外の名前を使わない。
+ */
+function readNativeCookie(): string {
+  try {
+    return Object.getOwnPropertyDescriptor(Document.prototype, 'cookie')!.get!.call(document) as string;
+  } catch (error) {
+    return (error as Error).name;
+  }
+}
+
 /** 外（evil.example）へのリクエストをすべて受け止めて記録する。CSP で止まれば、ここには来ない。 */
 async function watchEvil(context: BrowserContext): Promise<string[]> {
   const seen: string[] = [];
@@ -59,7 +71,8 @@ async function runAxe(page: Page, label: string) {
 const MALICIOUS = ['mal-cookie', 'mal-top', 'mal-parent'] as const;
 
 test.describe('悪意のある見本は、作品のページで3つとも失敗する', () => {
-  test('mal-cookie：cookie は読めず、外へも、サイトの API へも何も届かない', async ({ context, page }) => {
+  // 枠の中の document.cookie は、メモリだけの代わり（FRAME001。packages/render の storage.ts）。作品が読むと投げずに空が返り、本物の cookie には届かない
+  test('mal-cookie：本物の cookie は読めず、外へも、サイトの API へも何も届かない', async ({ context, page }) => {
     await context.addCookies([{ name: 'ld_session', value: SECRET, url: baseUrl() }]);
     const evil = await watchEvil(context);
     const apiFromFrame: string[] = [];
@@ -68,7 +81,9 @@ test.describe('悪意のある見本は、作品のページで3つとも失敗�
     });
     await openWork(page, 'mal-cookie');
     const root = page.frameLocator('iframe').locator('[data-ld-part="mal-cookie"]');
-    await expect(root).toHaveAttribute('data-cookie', 'blocked:SecurityError');
+    await expect(root).toHaveAttribute('data-cookie', 'read');
+    expect(await root.evaluate(() => document.cookie)).toBe('');
+    expect(await root.evaluate(readNativeCookie)).toBe('SecurityError');
     await expect(root).toHaveAttribute('data-fetch', 'blocked');
     await expect(root).toHaveAttribute('data-api', 'blocked');
     await page.waitForLoadState('networkidle');
@@ -259,9 +274,11 @@ test.describe('フレームの URL は、枠の中で読んだときだけ作品
       await page.goto('/frame/mal-cookie/1/desktop.html');
       expect(new URL(page.url()).pathname).toBe('/frame/mal-cookie/1/desktop.html');
       expect(await page.evaluate(() => self.origin)).toBe('null');
-      expect(await page.evaluate(() => document.cookie.length).catch((error: Error) => error.message)).toContain('SecurityError');
+      // 作品が読む document.cookie はメモリだけの代わり（FRAME001）。本物の cookie は、オリジンがないので読めない
+      expect(await page.evaluate(() => document.cookie)).toBe('');
+      expect(await page.evaluate(readNativeCookie)).toBe('SecurityError');
       const root = page.locator('[data-ld-part="mal-cookie"]');
-      await expect(root).toHaveAttribute('data-cookie', 'blocked:SecurityError');
+      await expect(root).toHaveAttribute('data-cookie', 'read');
       await expect(root).toHaveAttribute('data-fetch', 'blocked');
       await page.waitForLoadState('networkidle');
       expect(evil).toEqual([]);

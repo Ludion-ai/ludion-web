@@ -4,7 +4,7 @@
 
 | id | やろうとすること | 枠の中で起きること |
 | --- | --- | --- |
-| `mal-cookie` | `document.cookie` を読み、`fetch`、画像、`sendBeacon` で `https://evil.example` へ送る。サイトの API も叩く | cookie は `SecurityError` で読めない。送信は CSP で止まる |
+| `mal-cookie` | `document.cookie` を読み、`fetch`、画像、`sendBeacon` で `https://evil.example` へ送る。サイトの API も叩く | 本物の cookie は `SecurityError` で読めない。作品が読む `document.cookie` はメモリだけの代わりで、空が返る（FRAME001）。送信は CSP で止まる |
 | `mal-top` | `window.top` を `https://evil.example` へ遷移させる | `allow-top-navigation` がないので止まる |
 | `mal-parent` | 親の DOM を書き換える | オリジンが違うので `SecurityError` |
 | `mal-nav` | 押すと枠を `https://evil.example` へ移す。`part.js` の文字列の検査をすり抜ける書き方 | 親のページの `frame-src 'self'` で止まり、外へ届かない（T022） |

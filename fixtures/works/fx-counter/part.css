@@ -1,0 +1,58 @@
+[data-ld-part="fx-counter"] {
+  --_bg: var(--ld-bg, #f4f6fb);
+  --_surface: var(--ld-surface, #ffffff);
+  --_fg: var(--ld-fg, #1f2937);
+  --_muted: var(--ld-muted, #5b6472);
+  --_accent: var(--ld-accent, #2f5fd0);
+  --_radius: var(--ld-radius, 18px);
+  --_font: var(--ld-font, system-ui, sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 10px 30px rgb(0 0 0 / .08));
+  --_motion: var(--ld-motion, 120ms);
+
+  box-sizing: border-box;
+  display: grid;
+  justify-items: center;
+  gap: calc(var(--_space) * 1.5);
+  width: min(100%, 320px);
+  padding: calc(var(--_space) * 4) calc(var(--_space) * 3);
+  background: var(--_surface);
+  border-radius: var(--_radius);
+  box-shadow: var(--_shadow);
+  font-family: var(--_font);
+  color: var(--_fg);
+}
+
+[data-ld-part="fx-counter"] .label {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--_muted);
+}
+
+[data-ld-part="fx-counter"] .count {
+  font-size: 64px;
+  line-height: 72px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-ld-part="fx-counter"] .add {
+  padding: calc(var(--_space) * 1.5) calc(var(--_space) * 3);
+  border: 0;
+  border-radius: 9999px;
+  background: var(--_accent);
+  color: var(--_surface);
+  font: 600 16px/20px var(--_font);
+  cursor: pointer;
+  transition: background var(--_motion) ease;
+}
+
+[data-ld-part="fx-counter"] .add:hover {
+  background: color-mix(in oklab, var(--_accent) 85%, black);
+}
+
+[data-ld-part="fx-counter"] .add:focus-visible {
+  outline: 2px solid var(--_accent);
+  outline-offset: 3px;
+}
