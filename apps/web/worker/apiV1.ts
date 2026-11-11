@@ -25,7 +25,8 @@ import { canPost, countPrivateWorks, loadRevisionFiles, ownedRevision, ownedWork
 
 /**
  * 置く人。AI の鍵（ld_…）か、AI につないだときのアクセスのトークン（ldo_…。worker/oauth.ts、MCP001）の持ち主。
- * via：その版をどの AI から置いたか（自分の置き場の小さな印）。つないだ AI はその名前、鍵は X-Ludion-Client の見出し（なければ API）。
+ * via：その版をどの AI から置いたか（自分の置き場の小さな印）。X-Ludion-Client の見出しがあればそれ（鍵でも、つないだトークンでも）。
+ * なければ、つないだトークンはつないだときの名前、鍵は API。
  */
 export interface ApiUser {
   id: string;
@@ -43,13 +44,14 @@ export async function apiUser(db: D1Database, authorization: string | undefined,
   const match = /^Bearer[ \t]+(\S+)[ \t]*$/i.exec(authorization ?? '');
   if (!match) return null;
   const token = match[1];
+  // 見出しの印は、鍵でもつないだトークンでも同じ整え方（同じつながりを分け合うプラグイン、ld、デスクトップアプリを分けるため。VIA001）
+  const mark = client ? [...cleanClientName(client)].slice(0, MAX_VIA_CHARS).join('').trim() : null;
   if (token.startsWith('ldo_')) {
     const user = await grantUser(db, token);
-    return user && { id: user.id, handle: user.handle, isOperator: user.isOperator, via: user.clientName };
+    return user && { id: user.id, handle: user.handle, isOperator: user.isOperator, via: mark ?? user.clientName };
   }
   const user = await keyUser(db, token);
-  const via = client ? [...cleanClientName(client)].slice(0, MAX_VIA_CHARS).join('').trim() : 'API';
-  return user && { id: user.id, handle: user.handle, isOperator: user.isOperator, via };
+  return user && { id: user.id, handle: user.handle, isOperator: user.isOperator, via: mark ?? 'API' };
 }
 type ApiContext = Context<ApiEnv>;
 
