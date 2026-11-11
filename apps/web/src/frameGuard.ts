@@ -12,9 +12,13 @@
  * 知らせは真似できるので、これだけでは守りにならない（SEC001 の R1）。
  * 読み込むたびに移る作品は、MAX_RESTORES 回で読み直しをやめて空にする。もう一度（Replay）で作り直せば、また数える。
  * ヘッダーのスイッチの枠（data-ld-switch-frame。docs/tasks/T035.md「3」）も、作品の枠と同じに見張る。
+ *
+ * 知らせが来た枠には data-ld-loaded を付ける（読み直すときに外す）。作品のプレビューの入れ物は、これが付くまで
+ * 作者の地の色を出さず、ページの地のままにする（index.css。枠の文書が描かれる前に、作者の色の無地の箱が見えないように）。
  */
 const MAX_RESTORES = 3;
 const LOADED_MESSAGE = 'ld-frame-loaded';
+const LOADED_ATTRIBUTE = 'data-ld-loaded';
 const CONFIRM_WAIT_MS = 2000;
 const FRAMES = 'iframe[data-ld-frame], iframe[data-ld-switch-frame]';
 const isWatched = (frame: HTMLIFrameElement) => frame.hasAttribute('data-ld-frame') || frame.hasAttribute('data-ld-switch-frame');
@@ -48,6 +52,7 @@ function restore(frame: HTMLIFrameElement, state: FrameState) {
   state.loads = 0;
   state.confirmed = false;
   state.restores += 1;
+  frame.removeAttribute(LOADED_ATTRIBUTE);
   state.gaveUp = state.restores > MAX_RESTORES;
   if (state.gaveUp) {
     frame.src = 'about:blank';
@@ -71,6 +76,7 @@ window.addEventListener('message', (event) => {
     const state = stateOf(frame);
     state.confirmed = true;
     clearTimeout(state.timer);
+    frame.setAttribute(LOADED_ATTRIBUTE, '');
   }
 });
 

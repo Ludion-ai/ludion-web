@@ -387,6 +387,32 @@ test.describe('プレビュー', () => {
     await expect(box).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   });
 
+  test('枠の地：枠の文書から「読み込めた」が来るまではページの地のまま、来たら作品の背景', async ({ page }) => {
+    // 枠の文書の応答を止めておき、その間の入れ物の地を見る
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route('**/frame/fx-landing/**', async (route) => {
+      // route.fetch は Sec-Fetch-Dest を引き継がないので、ここで足す
+      const response = await route.fetch({ headers: { ...route.request().headers(), ...FROM_IFRAME } });
+      await held;
+      await route.fulfill({ response });
+    });
+    // 枠の読み込みを止めているので、ページの load は待たない
+    await page.goto('/p/fx-landing', { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => Object.keys(document.getElementById('root')!).some((key) => key.startsWith('__reactContainer')));
+    const iframe = page.locator('iframe[data-ld-frame]');
+    const box = iframe.locator('..');
+    await expect(iframe).toHaveAttribute('src', framedAt('/frame/fx-landing/1/desktop.html'));
+    await expect(box).toHaveAttribute('data-frame-bg', '');
+    await page.waitForTimeout(300);
+    await expect(iframe).not.toHaveAttribute('data-ld-loaded');
+    expect(await box.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+
+    release();
+    await expect(iframe).toHaveAttribute('data-ld-loaded', '');
+    await expect(box).toHaveCSS('background-color', 'rgb(247, 247, 244)');
+  });
+
   test('スマホの画面：Mobile だけで、切り替えを出さない', async ({ page }) => {
     await openWork(page, 'fx-habits');
     await expect(page.getByRole('button', { name: 'デスクトップ' })).toHaveCount(0);
