@@ -297,7 +297,7 @@ async function saveDraft(c: PostContext, workId: string | null): Promise<Respons
  * 下書きを確かめて書く。新しい作品（workId が null）、新しい版、今の下書きの上書きのどれか。
  * 画面の口（saveDraft）と AI の口（worker/apiV1.ts）が同じものを使う：同じ検査、同じ上限、同じ置き方。
  */
-export async function writeDraft(env: Env, user: PostUser, workId: string | null, fields: DraftFields, meta: PostMeta): Promise<DraftResult> {
+export async function writeDraft(env: Env, user: PostUser, workId: string | null, fields: DraftFields, meta: PostMeta, { via = null }: { via?: string | null } = {}): Promise<DraftResult> {
   const db = env.DB;
   const fail = (body: { error: string } & Record<string, unknown>, status: 400 | 403 | 404 | 409 | 422 | 429): DraftResult => ({ ok: false, status, body });
   if (!canPost(env, user)) return fail({ error: 'not_found' }, 404);
@@ -416,19 +416,19 @@ export async function writeDraft(env: Env, user: PostUser, workId: string | null
   const thumbH = images?.height ?? 0;
   const insertRevision = db
     .prepare(
-      `INSERT INTO revisions (id, work_id, version, status, r2_prefix, content_hash, title, type, platform, category, subtype, tags, made_with, thumb_w, thumb_h, tokens_ok, created_by, created_at, updated_at, is_remix, remix_of)
-       VALUES (?1, ?2, ?3, 'draft', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?17, ?18, ?19)`,
+      `INSERT INTO revisions (id, work_id, version, status, r2_prefix, content_hash, title, type, platform, category, subtype, tags, made_with, thumb_w, thumb_h, tokens_ok, created_by, created_at, updated_at, is_remix, remix_of, via)
+       VALUES (?1, ?2, ?3, 'draft', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?17, ?18, ?19, ?20)`,
     )
-    .bind(revisionId, id, version, prefix, contentHash, meta.title, type, platform, meta.category, meta.subtype, tags, meta.made_with, thumbW, thumbH, tokensOk, user.id, now, remix, remixOf);
+    .bind(revisionId, id, version, prefix, contentHash, meta.title, type, platform, meta.category, meta.subtype, tags, meta.made_with, thumbW, thumbH, tokensOk, user.id, now, remix, remixOf, via);
 
   try {
     if (open) {
       const updated = await db
         .prepare(
-          `UPDATE revisions SET r2_prefix = ?1, content_hash = ?2, title = ?3, type = ?4, platform = ?5, category = ?6, subtype = ?7, tags = ?8, made_with = ?9, thumb_w = ?10, thumb_h = ?11, tokens_ok = ?12, is_remix = ?13, updated_at = ?14
+          `UPDATE revisions SET r2_prefix = ?1, content_hash = ?2, title = ?3, type = ?4, platform = ?5, category = ?6, subtype = ?7, tags = ?8, made_with = ?9, thumb_w = ?10, thumb_h = ?11, tokens_ok = ?12, is_remix = ?13, updated_at = ?14, via = ?16
            WHERE id = ?15 AND status = 'draft'`,
         )
-        .bind(prefix, contentHash, meta.title, type, platform, meta.category, meta.subtype, tags, meta.made_with, thumbW, thumbH, tokensOk, remix, now, revisionId)
+        .bind(prefix, contentHash, meta.title, type, platform, meta.category, meta.subtype, tags, meta.made_with, thumbW, thumbH, tokensOk, remix, now, revisionId, via)
         .run();
       // 確かめた後に、審査に出された
       if (updated.meta.changes === 0) throw new Error('not a draft');
@@ -528,7 +528,8 @@ post.post('/works/:id/discard', async (c) => {
 post.get('/works', async (c) => {
   const { results } = await c.env.DB.prepare(
     `SELECT w.id, w.status AS work_status, w.version AS public_version, r.id AS revision_id, r.version, r.status, r.title, r.category, r.subtype, r.thumb_w, r.thumb_h, r.reject_code, r.reject_note, r.updated_at,
-       (SELECT COUNT(*) FROM revisions v WHERE v.work_id = w.id) AS versions
+       (SELECT COUNT(*) FROM revisions v WHERE v.work_id = w.id) AS versions,
+       (SELECT v.via FROM revisions v WHERE v.work_id = w.id AND v.via IS NOT NULL ORDER BY v.created_at DESC, v.rowid DESC LIMIT 1) AS via
      FROM works w
      JOIN creators c ON c.id = w.creator_id
      JOIN revisions r ON r.id = (SELECT id FROM revisions WHERE work_id = w.id ORDER BY created_at DESC, rowid DESC LIMIT 1)
@@ -649,12 +650,25 @@ post.post('/revisions/:rid/place', async (c) => {
   if (!revision) return c.json({ error: 'not_found' }, 404);
   if (revision.owner_id !== user.id) return c.json({ error: 'forbidden' }, 403);
   if (!(await readConfirmations(c))) return c.json({ error: 'confirm_required' }, 400);
-  if (revision.status !== 'draft') return c.json({ error: 'not_draft' }, 409);
-  if (revision.work_status === 'approved') return c.json({ error: 'public' }, 409);
-  if (revision.title.trim() === '') return c.json({ error: 'title_required' }, 422);
-  if (revision.work_status !== 'private' && (await countPrivateWorks(db, user.id, revision.work_id)) >= PRIVATE_WORKS_LIMIT) {
-    return c.json({ error: 'private_limit', limit: PRIVATE_WORKS_LIMIT }, 409);
+  const placed = await placePrivate(db, user.id, revision);
+  return placed.ok ? c.json({ id: rid, status: 'private', work_id: revision.work_id, version: revision.version }) : c.json(placed.body, placed.status);
+});
+
+export type PlaceResult = { ok: true } | { ok: false; status: 409 | 422; body: { error: string } & Record<string, unknown> };
+
+/**
+ * 下書きの版を、自分だけの作品の今の版にする（画面の「自分だけで置く」と、AI の口。docs/tasks/T036.md「1」、MCP001「1」）。
+ * 同意の3つは、呼ぶ側が確かめておく（画面はその場で、AI の口は鍵を作るときか「許可」を押すとき）。
+ */
+export async function placePrivate(db: D1Database, userId: string, revision: NonNullable<Awaited<ReturnType<typeof ownedRevision>>>): Promise<PlaceResult> {
+  const fail = (status: 409 | 422, body: { error: string } & Record<string, unknown>): PlaceResult => ({ ok: false, status, body });
+  if (revision.status !== 'draft') return fail(409, { error: 'not_draft' });
+  if (revision.work_status === 'approved') return fail(409, { error: 'public' });
+  if (revision.title.trim() === '') return fail(422, { error: 'title_required' });
+  if (revision.work_status !== 'private' && (await countPrivateWorks(db, userId, revision.work_id)) >= PRIVATE_WORKS_LIMIT) {
+    return fail(409, { error: 'private_limit', limit: PRIVATE_WORKS_LIMIT });
   }
+  const rid = revision.id;
   const now = Date.now();
   // 1つのトランザクション。版が置けたときだけ（changes() > 0）、作品の今の値をこの版にする。確かめた後に公開された作品には置かない
   const [placed, current] = await db.batch([
@@ -686,9 +700,9 @@ post.post('/revisions/:rid/place', async (c) => {
         revision.work_id,
       ),
   ]);
-  if (placed.meta.changes === 0 || current.meta.changes === 0) return c.json({ error: 'not_draft' }, 409);
-  return c.json({ id: rid, status: 'private', work_id: revision.work_id, version: revision.version });
-});
+  if (placed.meta.changes === 0 || current.meta.changes === 0) return fail(409, { error: 'not_draft' });
+  return { ok: true };
+}
 
 /**
  * 自分だけ → 公開する（docs/tasks/T036.md「4」）。今の版を審査に出す。承認されるまで、ほかの人には見えないまま。

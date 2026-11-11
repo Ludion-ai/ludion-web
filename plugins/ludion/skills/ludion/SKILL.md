@@ -5,7 +5,7 @@ description: Use when the person asks to make a UI "on Ludion", to put, update o
 
 # Ludion
 
-Ludion (ludion.ai) is a place for UI works. A work is **one HTML file**. This skill puts that file on Ludion with the person's AI key and gives back the address.
+Ludion (ludion.ai) is a place for UI works. A work is **one HTML file**. This skill puts that file on the person's Ludion as "Only me" (only they can see it) and gives back the address.
 
 The helper is `ludion.mjs` in the same folder as this SKILL.md (Node 18+, no install). Run it as:
 
@@ -17,8 +17,14 @@ Every command prints JSON. `"ok": true` means it worked. On failure, read `error
 
 ## Setup (once)
 
-- The key comes from the environment variable `LUDION_KEY`. If a command answers `"error": "no_key"`, stop and ask the person to make an AI key on their Ludion account page (`https://ludion.ai/account`, "AI keys") and set it as `LUDION_KEY` in the shell. Never write the key into a file, a commit, or the chat log, and never print it.
+- Connect once: `node ludion.mjs login` opens the browser; the person logs in to Ludion and presses Allow. The helper keeps the connection by itself (in `~/.ludion/`) and renews it. In Claude Code with the Ludion plugin, this is `/ludion:connect`.
+- Or use an AI key: the environment variable `LUDION_KEY` (made on `https://ludion.ai/account`, "AI keys"). When set, it is used instead of the connection.
+- If a command answers `"error": "no_key"`, stop and ask the person to connect (`login`) or to set `LUDION_KEY`. Never write a key or token into a file, a commit, or the chat log, and never print it.
 - `LUDION_URL` changes the server (default `https://ludion.ai`). Leave it alone unless the person says otherwise.
+
+## Auto-save (the Claude Code plugin)
+
+With the Ludion plugin, every `.html` file Claude Code writes or edits is put automatically (the same file becomes a new version; an unchanged file is not sent again). You do not need to run `put` for those; just tell the person the address the hook reports, once. To stop it: `node ludion.mjs auto off` in a folder (that folder and below), `auto off --all` everywhere, `auto on` to resume.
 
 ## 1. Make
 

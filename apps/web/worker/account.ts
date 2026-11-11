@@ -12,6 +12,7 @@ import { isGoogleAvailable, isPasskeyAvailable } from './methods';
 import { generateRecoveryCode, hashRecoveryCode } from './recoveryCode';
 import { checkHandle, HANDLE_HOLD_MS } from './handle';
 import { listIdentities, type Provider } from './identities';
+import { listGrants, revokeGrant } from './oauth';
 import { isSameOrigin } from './origin';
 import { parseProfile } from './profile';
 import { purgeWithRetry } from './purge';
@@ -55,7 +56,7 @@ account.get('/', async (c) => {
     db.prepare('SELECT credential_id AS id, label, created_at, last_used_at FROM passkeys WHERE user_id = ? ORDER BY created_at').bind(user.id),
     db.prepare('SELECT COUNT(*) AS n FROM recovery_codes WHERE user_id = ?').bind(user.id),
   ]);
-  const [identities, aiKeys] = await Promise.all([listIdentities(db, user.id), listAiKeys(db, user.id)]);
+  const [identities, aiKeys, connections] = await Promise.all([listIdentities(db, user.id), listAiKeys(db, user.id), listGrants(db, user.id)]);
   return c.json({
     profile: profile.results[0],
     identities: identities.map(({ provider, label, created_at, last_used_at }) => ({ provider, label, created_at, last_used_at })),
@@ -68,6 +69,8 @@ account.get('/', async (c) => {
     passkeys: passkeys.results,
     has_recovery_code: Number(recovery.results[0].n) > 0,
     ai_keys: aiKeys,
+    // つないでいる AI（MCP001「3」）
+    ai_connections: connections,
     works_count: works.results[0].n,
     recent_auth: isRecentAuth(user),
     available: { google: isGoogleAvailable(c.env, c.req.url), passkey: isPasskeyAvailable(c.env, c.req.url) },
@@ -231,6 +234,13 @@ account.post('/ai-keys/:id/delete', async (c) => {
   return c.body(null, 204);
 });
 
+/** つないだ AI を切る（MCP001「3」）。行を消すので、その AI のトークンはすぐ使えなくなる。 */
+account.post('/ai-connections/:id/revoke', async (c) => {
+  const id = c.req.param('id');
+  if (!/^[0-9a-f]{32}$/.test(id) || !(await revokeGrant(c.env.DB, c.get('user').id, id))) return c.json({ error: 'not_found' }, 404);
+  return c.body(null, 204);
+});
+
 /**
  * 退会。直近のログインを求める。
  * 消すもの：人、手段、パスキー、回復のコード、セッション、AI の鍵、いいね、しおり、前の handle の記録。
@@ -253,6 +263,9 @@ account.post('/delete', async (c) => {
     db.prepare('DELETE FROM recovery_codes WHERE user_id = ?').bind(user.id),
     db.prepare('DELETE FROM handle_history WHERE user_id = ?').bind(user.id),
     db.prepare('DELETE FROM ai_keys WHERE user_id = ?').bind(user.id),
+    // つないだ AI と、使われていない「許可」の証（MCP001）
+    db.prepare('DELETE FROM oauth_grants WHERE user_id = ?').bind(user.id),
+    db.prepare('DELETE FROM oauth_codes WHERE user_id = ?').bind(user.id),
     // 自分だけの作品も同じに取り下げる（docs/tasks/T036.md「6」）。持ち主が外れるので、だれにも見えなくなる
     db
       .prepare(`UPDATE works SET status = 'rejected', reject_reason = ? WHERE status IN ('approved', 'private') AND creator_id IN (SELECT id FROM creators WHERE user_id = ?)`)

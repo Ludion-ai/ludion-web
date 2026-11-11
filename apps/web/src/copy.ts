@@ -691,6 +691,9 @@ ${code}
       emptyFiltered: 'この絞り込みに合う作品はありません',
       updated: (day: string) => `${day}に変更`,
       versions: (count: number) => `版の数 ${count}`,
+      /** どの AI から置いたか（MCP001「3」）。name は AI のアプリの名前 */
+      via: (name: string) => `${name} から`,
+      viaLabel: (name: string) => `${name} から置いた作品`,
       open: '開く',
       openLabel: (title: string) => `${title}を開く`,
       edit: '新しい版を置く',
@@ -737,6 +740,37 @@ ${code}
         provider_denied: 'ログインの画面で取り消されました',
         login_failed: 'ログインできませんでした。もう一度お試しください',
       },
+    },
+    /** AI につなぐ（MCP001「3」）。コマンドと URL は画面の部品（AccountAiConnect.tsx）に置く */
+    aiConnect: {
+      heading: 'AI につなぐ',
+      intro: 'AI で作ったものが、あなたの置き場に「自分だけ」で自動で残ります。つなぐのは最初の1回だけです。公開は、今までどおりこの画面から自分でします。',
+      urlLabel: 'つなぐ先',
+      copyUrl: 'URL をコピー',
+      copied: 'コピーしました',
+      claude: {
+        name: 'Claude（Web、デスクトップ、スマホ）',
+        steps: ['設定の「コネクタ」で「カスタムコネクタを追加」を押す', '名前に「Ludion」、URL に上の URL を入れて「追加」を押す', '「連携させる」を押し、Ludion にログインして「許可する」を押す'],
+      },
+      chatgpt: {
+        name: 'ChatGPT',
+        steps: ['設定の「アプリとコネクタ」の「詳細設定」で、開発者モードをオンにする', '「作成」を押し、名前に「Ludion」、URL に上の URL を入れ、認証は OAuth にする', '「作成」の後に出る画面で、Ludion にログインして「許可する」を押す'],
+      },
+      claudeCode: {
+        name: 'Claude Code',
+        install: 'Claude Code で、次の2行を打ってプラグインを入れる',
+        connect: '次を打ち、開いたブラウザで Ludion にログインして「許可する」を押す',
+        done: 'あとは、Claude Code が HTML のファイルを書くたびに、自動で「自分だけ」で置かれます。止めるときは、そのフォルダーで次の1行目を打つ（どのフォルダーでも止めるときは2行目）',
+      },
+      connectedHeading: 'つないでいる AI',
+      none: 'まだつないでいる AI はありません',
+      connected: (day: string) => `つないだ日：${day}`,
+      lastUsed: (day: string) => `最後に使った日：${day}`,
+      neverUsed: 'まだ使っていません',
+      disconnect: '切る',
+      disconnectLabel: (name: string) => `${name} を切る`,
+      disconnectNote: '切ると、その AI はすぐに Ludion へ置けなくなります。置いた作品は残ります。',
+      disconnectFailed: '切れませんでした',
     },
     /** AI の鍵（docs/tasks/T037.md「1」） */
     aiKeys: {

@@ -1,5 +1,5 @@
-// Tests for skills/ludion/ludion.mjs against the fake server (docs/tasks/T038.md).
-//   node --test skills/test/ludion.test.mjs
+// Tests for plugins/ludion/skills/ludion/ludion.mjs against the fake server (docs/tasks/T038.md).
+//   node --test plugins/test/ludion.test.mjs
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { OTHER_KEY, TEST_KEY, startFakeServer } from './fake-server.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const CLI = path.resolve(here, '../ludion/ludion.mjs');
+const CLI = path.resolve(here, '../ludion/skills/ludion/ludion.mjs');
 
 const GOOD = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Ripple button</title>
@@ -31,7 +31,8 @@ document.querySelector('button').addEventListener('click', () => {
 /** Runs the CLI (async, so the in-process server keeps answering). */
 function run(args, { cwd, env = {} } = {}) {
   return new Promise((resolve) => {
-    execFile(process.execPath, [CLI, ...args], { cwd, env: { ...process.env, LUDION_KEY: '', LUDION_URL: '', ...env } }, (err, stdout, stderr) => {
+    // LUDION_HOME：この PC の ~/.ludion（つないだときのトークン）を読まない
+    execFile(process.execPath, [CLI, ...args], { cwd, env: { ...process.env, LUDION_KEY: '', LUDION_URL: '', LUDION_HOME: mkdtempSync(path.join(tmpdir(), 'ludion-home-')), ...env } }, (err, stdout, stderr) => {
       let json = null;
       try {
         json = JSON.parse(stdout);
@@ -87,7 +88,9 @@ describe('ludion skill', () => {
     assert.deepEqual(JSON.parse(call.body), { html: GOOD });
 
     const state = JSON.parse(readFileSync(path.join(dir, '.ludion.json'), 'utf8'));
-    assert.deepEqual(state.works['ripple.html'], { id: first.json.id, version: 1 });
+    assert.equal(state.works['ripple.html'].id, first.json.id);
+    assert.equal(state.works['ripple.html'].version, 1);
+    assert.match(state.works['ripple.html'].hash, /^[0-9a-f]{64}$/);
     assert.equal(readFileSync(path.join(dir, '.ludion.json'), 'utf8').includes(TEST_KEY), false);
 
     writeFileSync(path.join(dir, 'ripple.html'), GOOD.replace('Press', 'Press me'));

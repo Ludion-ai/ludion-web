@@ -100,6 +100,11 @@ function WorkRow({ work, reload }: { work: OwnWork; reload: () => Promise<void> 
           <span data-own-work-status={work.status} className="inline-flex h-6 items-center rounded-chip border border-site-line-2 px-2.5 text-small font-semibold">
             {text.state[state]}
           </span>
+          {work.via && (
+            <span data-own-work-via={work.via} title={text.viaLabel(work.via)} className="text-small text-site-fg-2 wrap-anywhere">
+              {text.via(work.via)}
+            </span>
+          )}
         </div>
         <p className="mt-0.5 text-small text-site-fg-2">{copy.work.meta(work.category, work.subtype)}</p>
         <p className="mt-0.5 text-small text-site-fg-2">

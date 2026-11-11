@@ -14,7 +14,9 @@ import { google } from './google';
 import { renderHome } from './home';
 import { errorType, logError, routeKind } from './log';
 import { isLoginNavigation, loginPageWithError } from './loginFlow';
+import { mcp } from './mcp';
 import { me } from './me';
+import { oauth, wellKnown } from './oauth';
 import { passkey } from './passkey';
 import { post } from './post';
 import { review } from './review';
@@ -43,7 +45,13 @@ app.use('/api/v1', rateLimit('LIMIT_ACCOUNT', undefined, apiLimitedBody));
 app.use('/api/v1/*', rateLimit('LIMIT_ACCOUNT', undefined, apiLimitedBody));
 // 作品のコードを文字で返す口（docs/tasks/T031.md「1」）。作品のページを読む人の束縛で数える。キャッシュに当たった分は Worker に来ないので数えない
 app.get('/p/:id/code', rateLimit('LIMIT_COUNT'));
+// AI につなぐ（MCP001）。許可の画面は人が開くので、ログインと同じ束縛で数える。
+// 登録、トークン、/mcp は AI のサーバーから来る（多くの人が同じ IP を通る）ので IP では数えない（oauth.ts、mcp.ts の頭）
+app.use('/oauth/authorize', rateLimit('LIMIT_AUTH'));
 
+app.route('/.well-known', wellKnown);
+app.route('/oauth', oauth);
+app.route('/mcp', mcp);
 app.route('/api/v1', apiV1);
 app.route('/api/admin', admin);
 app.route('/api/count', count);
@@ -118,5 +126,7 @@ app.onError((error, c) => {
   if (isLoginNavigation(c.req.method, c.req.path)) return c.redirect(loginPageWithError(c.req.query('next'), 'login_failed'));
   // AI の口のエラーは、どれも error と message（docs/tasks/T037.md「2」）
   if (c.req.path === '/api/v1' || c.req.path.startsWith('/api/v1/')) return c.json({ error: 'internal_error', message: 'Something went wrong on the server.' }, 500);
+  // MCP は JSON-RPC の形で返す（AI が読める形）
+  if (c.req.path === '/mcp') return c.json({ jsonrpc: '2.0', id: null, error: { code: -32603, message: 'Internal error' } }, 500);
   return c.json({ error: 'internal_error' }, 500);
 });

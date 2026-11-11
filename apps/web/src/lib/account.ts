@@ -73,6 +73,8 @@ export type AccountIdentity = { provider: LoginProvider; label: string | null; c
 export type AccountSession = { id: string; created_at: number; last_used_at: number; current: boolean };
 export type AccountPasskey = { id: string; label: string | null; created_at: number; last_used_at: number | null };
 export type AccountAiKey = { id: string; name: string; created_at: number; last_used_at: number | null };
+/** つないでいる AI（MCP001「3」）。name は AI のアプリが名乗った名前。 */
+export type AccountAiConnection = { id: string; name: string; created_at: number; last_used_at: number | null };
 export type AccountOverview = {
   profile: AccountProfile;
   identities: AccountIdentity[];
@@ -80,6 +82,7 @@ export type AccountOverview = {
   passkeys: AccountPasskey[];
   has_recovery_code: boolean;
   ai_keys: AccountAiKey[];
+  ai_connections: AccountAiConnection[];
   works_count: number;
   recent_auth: boolean;
   available: { google: boolean; passkey: boolean };
@@ -166,6 +169,12 @@ export async function postCreateAiKey(name: string, confirm: { own: boolean; mit
 export async function postDeleteAiKey(id: string): Promise<void> {
   const response = await postJson(`/api/account/ai-keys/${encodeURIComponent(id)}/delete`);
   if (!response.ok) throw new Error(`POST delete ai key: ${response.status}`);
+}
+
+/** つないだ AI を切る。 */
+export async function postRevokeAiConnection(id: string): Promise<void> {
+  const response = await postJson(`/api/account/ai-connections/${encodeURIComponent(id)}/revoke`);
+  if (!response.ok) throw new Error(`POST revoke ai connection: ${response.status}`);
 }
 
 export type PendingSignup ={ provider: LoginProvider; name: string | null; suggestions: string[] };

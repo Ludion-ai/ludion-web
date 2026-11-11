@@ -4,6 +4,7 @@ import { MAX_PART_BYTES } from '@ludion/rules';
 import type { Locale } from '../src/i18n';
 import { MAX_KEYS_PER_USER } from './aiKeys';
 import { API_LIMITS } from './quotaLimits';
+import { PRIVATE_WORKS_LIMIT } from './revisions';
 
 const KB = MAX_PART_BYTES / 1024;
 
@@ -17,6 +18,7 @@ Ludion is a place to keep UI works (screens and components). This API lets an AI
 - Send it as \`Authorization: Bearer ld_…\`. A missing, wrong, or deleted key gets 401. Cookies are not used.
 - When the person made the key, they agreed for every work put with it: it is their own UI (or they have the rights), it is published under MIT, and they accept the terms (${origin}/terms).
 - Do not write the key into files or logs.
+- An AI that supports MCP can connect without a key: add \`${origin}/mcp\` as a connector (OAuth). Its access token (\`ldo_…\`) also works here as \`Authorization: Bearer\`.
 
 ## Requests
 
@@ -41,12 +43,13 @@ Bodies and responses are JSON. Send \`Content-Type: application/json\`. \`Accept
 
 ## Who can see it
 
-- What you put is visible only to the person (a draft). \`visibility\` is \`"draft"\` (only the person), \`"public"\`, or later \`"private"\` (only the person).
+- What you put is **Only me**: visible only to the person, with no review. \`visibility\` is \`"private"\` (only the person), \`"public"\`, or \`"draft"\` (only the person; works put before Only me existed).
 - Publishing (sending for review) is done by the person on the site, at \`url\`. The API cannot publish.
+- A new version of an Only me work becomes its current version right away (the version number goes up).
 - A new version of a public work becomes that work's draft version. The public version does not change until it passes review.
-- A new version of a work that has not been reviewed yet replaces the current draft (the version number stays).
 - While a work is in review, a new version is 409 \`in_review\`.
-- \`url\` is the work page. Before the work is public, only the person can open it (it shows the draft). \`code_url\` (\`/p/<id>/code\`) works once the work is public; before that, use \`GET /api/v1/works/:id\` for the code.
+- A person can have up to ${PRIVATE_WORKS_LIMIT} Only me works; a new one past that is 409 \`private_limit\` (new versions still work).
+- \`url\` is the work page. Before the work is public, only the person (logged in on the site) can open it. \`code_url\` (\`/p/<id>/code\`) works for everyone once the work is public; before that, use \`GET /api/v1/works/:id\` for the code.
 
 ## Limits
 
@@ -56,7 +59,7 @@ Bodies and responses are JSON. Send \`Content-Type: application/json\`. \`Accept
 ## Errors
 
 Every error is \`{ "error": "<fixed word>", "message": "…" }\`:
-\`unauthorized\` (401), \`bad_request\`, \`unknown_field\`, \`bad_html\`, \`bad_title\` (400), \`not_found\` (404), \`in_review\`, \`conflict\` (409), \`too_large\` (413), \`invalid_work\`, \`bad_from\` (422), \`rate_limited\` (429), \`posting_closed\` (403).
+\`unauthorized\` (401), \`bad_request\`, \`unknown_field\`, \`bad_html\`, \`bad_title\` (400), \`not_found\` (404), \`in_review\`, \`private_limit\`, \`conflict\` (409), \`too_large\` (413), \`invalid_work\`, \`bad_from\` (422), \`rate_limited\` (429), \`posting_closed\` (403).
 `;
 
 const ja = (origin: string) => `# Ludion API v1
@@ -69,6 +72,7 @@ Ludion は UI の作品（画面と部品）を置く場所です。この API �
 - \`Authorization: Bearer ld_…\` で送ります。鍵がない、違う、消された：401。cookie では動きません。
 - 鍵を作るとき、本人は、その鍵で置くもの全部について同意しています：自分で作った、または権利がある UI であること、MIT で公開してよいこと、利用規約（${origin}/terms）に同意すること。
 - 鍵をファイルやログに書かないでください。
+- MCP を使える AI は、鍵なしでつなげます：\`${origin}/mcp\` をコネクタとして足します（OAuth）。そのアクセスのトークン（\`ldo_…\`）は、この口でも \`Authorization: Bearer\` で使えます。
 
 ## 口
 
@@ -93,12 +97,13 @@ Ludion は UI の作品（画面と部品）を置く場所です。この API �
 
 ## 誰に見えるか
 
-- 置いたものは、本人にしか見えません（下書き）。\`visibility\` は \`"draft"\`（本人だけ）、\`"public"\`、のちに \`"private"\`（本人だけ）。
+- 置いたものは「自分だけ」です。本人にしか見えず、審査はしません。\`visibility\` は \`"private"\`（本人だけ）、\`"public"\`、\`"draft"\`（本人だけ。自分だけができる前に置いたもの）。
 - 公開（審査に出す）は、本人がサイトの画面（\`url\`）からします。API からは公開できません。
+- 自分だけの作品に新しい版を置くと、すぐ今の版になります（版の番号が上がります）。
 - 公開している作品に新しい版を置くと、その作品の下書きの版になります。審査を通るまで、公開の版は変わりません。
-- まだ審査に出していない作品に新しい版を置くと、今の下書きを置き換えます（版の番号は変わりません）。
 - 審査中の作品に新しい版を置くと 409 \`in_review\`。
-- \`url\` は作品のページです。公開の前は、本人だけが開けます（下書きが出ます）。\`code_url\`（\`/p/<id>/code\`）は公開の後に使えます。それまでのコードは \`GET /api/v1/works/:id\` で取ります。
+- 自分だけの作品は1人${PRIVATE_WORKS_LIMIT}作品まで。超える新しい作品は 409 \`private_limit\`（新しい版は置けます）。
+- \`url\` は作品のページです。公開の前は、本人（サイトにログインしている人）だけが開けます。\`code_url\`（\`/p/<id>/code\`）は、公開の後はだれでも使えます。それまでのコードは \`GET /api/v1/works/:id\` で取ります。
 
 ## 上限
 
@@ -108,7 +113,7 @@ Ludion は UI の作品（画面と部品）を置く場所です。この API �
 ## エラー
 
 どれも \`{ "error": "<決まった語>", "message": "…" }\`：
-\`unauthorized\`（401）、\`bad_request\`、\`unknown_field\`、\`bad_html\`、\`bad_title\`（400）、\`not_found\`（404）、\`in_review\`、\`conflict\`（409）、\`too_large\`（413）、\`invalid_work\`、\`bad_from\`（422）、\`rate_limited\`（429）、\`posting_closed\`（403）。
+\`unauthorized\`（401）、\`bad_request\`、\`unknown_field\`、\`bad_html\`、\`bad_title\`（400）、\`not_found\`（404）、\`in_review\`、\`private_limit\`、\`conflict\`（409）、\`too_large\`（413）、\`invalid_work\`、\`bad_from\`（422）、\`rate_limited\`（429）、\`posting_closed\`（403）。
 `;
 
 export const apiDocs = (locale: Locale, origin: string) => (locale === 'ja' ? ja(origin) : en(origin));

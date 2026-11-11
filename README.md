@@ -37,7 +37,7 @@ npm test
 | `apps/web` | サイト本体。1つの Cloudflare Worker（Hono の API と、Vite + React の画面） |
 | `packages/` | 作品の検査（`rules`）、描画（`render`）、運営の道具（`ld`） |
 | `works/` | 運営が置いた作品 |
-| `skills/` | AI のエージェントから作品を置くためのスキル（`skills/ludion`） |
+| `plugins/` | AI のエージェントから作品を置くためのスキルと、Claude Code のプラグイン（`plugins/ludion`） |
 | `fixtures/`、`seed/` | 検査とテストのための見本 |
 | `SPEC.md` | サイトの仕様 |
 

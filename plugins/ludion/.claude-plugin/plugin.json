@@ -1,0 +1,9 @@
+{
+  "name": "ludion",
+  "version": "1.0.0",
+  "description": "Saves every HTML file Claude Code writes to your Ludion (ludion.ai) as \"Only me\", automatically. Connect once with /ludion:connect.",
+  "author": { "name": "Ludion", "url": "https://ludion.ai" },
+  "homepage": "https://ludion.ai",
+  "repository": "https://github.com/Ludion-ai/ludion-web",
+  "keywords": ["ludion", "ui", "html", "backup"]
+}
