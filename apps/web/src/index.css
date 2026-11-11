@@ -118,6 +118,12 @@
     text-autospace: normal;
   }
 
+  /* 作品のプレビューの入れ物（FramePreview.tsx）の地。枠の文書から「読み込めた」の知らせが来て、frameGuard.ts が
+     iframe に data-ld-loaded を付けてから、作者の地の色にする。それまでは何も塗らず、ページの地のまま */
+  [data-frame-bg]:has(> iframe[data-ld-loaded]) {
+    background-color: var(--frame-bg);
+  }
+
   /* 文節で折り返す。見出しは行の長さを揃え、1文字だけの行を作らない */
   h1,
   h2,
