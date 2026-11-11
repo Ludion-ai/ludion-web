@@ -2,7 +2,8 @@
 //
 // - 形は全画面の住所（wall.ts）に近い：サイトの頭もボタンも出さず、React も読まず、作品を枠いっぱいに出す。だから GA4 も動かない。
 //   違い：端末の「動きを減らす」設定に従う（作品のページと同じ）。角に小さく印（Ludion · Remix）を出し、押すと作品のページが新しいタブで開く。
-//   印は、枠が半分見えてから3秒でマークだけに縮み、縮んだ時は1回目で広がり、2回目で開く（EMBED001-c。下の BADGE_SCRIPT）。
+//   印は、枠が半分見えてから3秒でマークだけに縮む（EMBED001-c。下の BADGE_SCRIPT）。縮んだ時、マウスを乗せた・キーボードで選んだなら1回で開き、
+//   指で触れた時だけ1回目で広がり、2回目で開く（EMBED001-c2）。
 //   印は作品の枠の外（このページの側）に置く。作品のファイルは変えない。
 // - 作品は今と同じ封をした枠（sandbox、応答の頭の CSP、Sec-Fetch-Dest の確かめ）の中でだけ動かす（原則7）。
 //   開けるのは「誰の枠に入れるか」だけ。このページの応答と、埋め込みの枠（/frame/<id>/<version>/embed.html）の応答だけ、frame-ancestors を開ける。
@@ -88,8 +89,10 @@ export const BADGE_COLLAPSE_MS = 3000;
  * 印の動き（EMBED001-c）。はじめは帯「Ludion · Remix」。枠（この文書）が上のページの画面に半分見えてから3秒たったら、マークだけに縮む。
  * 半分見えなくなったら数え直す。マウスが乗っている間（乗せられる端末だけ）と、キーボードで選ばれている間は縮めない。
  * 押した時：名前が見えている（帯）なら、ふつうのリンクとして /p/<id> が新しいタブで開く。
- * マークだけなら、1回目は帯に戻すだけで開かない。帯に戻った後は、上と同じ（3秒で、また縮む）。
- * click だけで分けるので、指でもマウスでもキーボード（Enter）でも同じ。乗せた時やキーボードで選んだ時に見た目が広がっていても、数えるのは縮んだ状態。
+ * マークだけでも、マウスが乗っている、またはキーボードで選ばれている（held。見た目は帯に広がり、名前が見えている）なら、その1回で開く（EMBED001-c2）。
+ * 2回にするのは指で触れた時だけ：マークだけの時の1回目は帯に戻すだけで開かない。帯に戻った後は、上と同じ（3秒で、また縮む）。
+ * 指かどうかは、その click の前の pointerdown の pointerType で見る。指の後も :hover が残るので、乗せられる端末の触れる画面でも held とみなさないため。
+ * キーボード（Enter）の click には pointerdown がないので、held だけで決まる。
  * このスクリプトが動かないブラウザでは、今の帯のまま（1回で開く）。
  */
 const BADGE_SCRIPT =
@@ -100,7 +103,8 @@ const BADGE_SCRIPT =
   `if(!b.hasAttribute('data-ld-motion')){b.setAttribute('data-ld-motion','');void b.offsetWidth}b.setAttribute('data-ld-mark','')};` +
   `const arm=()=>{clearTimeout(timer);timer=seen&&!b.hasAttribute('data-ld-mark')?setTimeout(shrink,${BADGE_COLLAPSE_MS}):0};` +
   `new IntersectionObserver((es)=>{const e=es[es.length-1];seen=e.isIntersecting&&e.intersectionRatio>=0.499;arm()},{threshold:[0,0.5]}).observe(document.documentElement);` +
-  `b.addEventListener('click',(e)=>{if(!b.hasAttribute('data-ld-mark'))return;e.preventDefault();b.removeAttribute('data-ld-mark');arm()})})();`;
+  `let touch=false;b.addEventListener('pointerdown',(e)=>{touch=e.pointerType==='touch'});b.addEventListener('keydown',()=>{touch=false});` +
+  `b.addEventListener('click',(e)=>{const t=touch;touch=false;if(!b.hasAttribute('data-ld-mark')||(!t&&held()))return;e.preventDefault();b.removeAttribute('data-ld-mark');arm()})})();`;
 
 function embedDocument(body: string, title: string, background: string): string {
   return [

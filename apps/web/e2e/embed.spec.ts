@@ -128,7 +128,8 @@ test.describe('外のサイトの中で動く', () => {
 
 /**
  * 印の形（EMBED001-c）。はじめは帯「Ludion · Remix」。枠が半分見えてから3秒で、マークだけ（24×24px、押せる所は 32×32px）に縮む。
- * 名前が見えている時は1回押すと開く。マークだけの時は、1回目は広がるだけ、2回目で開く（指でもマウスでもキーボードでも）。
+ * 名前が見えている時は1回押すと開く。マークだけでも、マウスを乗せた・キーボードで選んだ時は帯に広がって名前が見えるので、1回で開く。
+ * 2回にするのは指で触れた時だけ：マークだけの時の1回目は広がるだけ、2回目で開く（EMBED001-c2）。
  * どの場合も、外のページの住所は変わらない。
  */
 test.describe('印の形（はじめは帯、半分見えて3秒でマークだけ）', () => {
@@ -201,39 +202,37 @@ test.describe('印の形（はじめは帯、半分見えて3秒でマークだ�
     expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
   });
 
-  test('マークだけの時、マウスで1回目は広がるだけで開かず、2回目で開く。外のページは移らない', async ({ context, page }) => {
-    await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`);
-    await waitForMark(page);
-    const tabs = countTabs(context);
-    await badgeOf(page).click();
-    await page.waitForTimeout(1000);
-    expect(tabs).toHaveLength(0);
-    // マウスは乗せたまま（乗っている間は縮まない）
-    await expectBand(page);
-    await expectOpensWorkPage(context, () => badgeOf(page).click());
-    expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
-  });
+  /** 縮んだまま（data-ld-mark がある）で、見た目だけ帯に広がり、名前が見えている */
+  const expectHeldOpen = async (page: Page) => {
+    const badge = badgeOf(page);
+    await expect(badge).toHaveAttribute('data-ld-mark', '');
+    await expect(badge.locator('span')).toBeVisible();
+    await expect.poll(async () => Math.round((await badge.boundingBox())!.height)).toBe(22);
+  };
 
-  test('マークだけの時、キーボード（Enter）でも1回目は開かず、2回目で開く', async ({ context, page }) => {
+  test('マークだけの時、マウスを乗せると帯に広がり、1回で開く。離すと、またマークだけ。外のページは移らない', async ({ context, page }) => {
     await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`);
     await waitForMark(page);
+    await badgeOf(page).hover();
+    await expectHeldOpen(page);
     const tabs = countTabs(context);
-    await badgeOf(page).press('Enter');
-    await page.waitForTimeout(1000);
-    expect(tabs).toHaveLength(0);
-    await expect(badgeOf(page)).not.toHaveAttribute('data-ld-mark');
-    await expectOpensWorkPage(context, () => badgeOf(page).press('Enter'));
-    expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
-  });
-
-  test('名前が見えている時（広がった後）は、1回で開く。3秒たつと、また縮む', async ({ context, page }) => {
-    await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`);
-    await waitForMark(page);
-    await badgeOf(page).click();
-    await expectBand(page);
     await expectOpensWorkPage(context, () => badgeOf(page).click());
+    expect(tabs).toHaveLength(1);
+    expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
     await page.mouse.move(1, 1);
+    await expect(badgeOf(page).locator('span')).toBeHidden();
+    await expect.poll(async () => boxSize(await badgeOf(page).boundingBox())).toEqual([24, 24]);
+  });
+
+  test('マークだけの時、キーボードで選ぶと帯に広がり、Enter 1回で開く。外のページは移らない', async ({ context, page }) => {
+    await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`);
     await waitForMark(page);
+    await badgeOf(page).focus();
+    expect(await badgeOf(page).evaluate((el) => el.matches(':focus-visible'))).toBe(true);
+    await expectHeldOpen(page);
+    const tabs = countTabs(context);
+    await expectOpensWorkPage(context, () => page.keyboard.press('Enter'));
+    expect(tabs).toHaveLength(1);
     expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
   });
 
@@ -266,6 +265,58 @@ test.describe('印の形（はじめは帯、半分見えて3秒でマークだ�
       await expect(badgeOf(page)).not.toHaveAttribute('data-ld-mark');
       await expectOpensWorkPage(context, () => badgeOf(page).tap());
       expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
+    });
+
+    test('指で広げた後、触れずにいると3秒で、また縮む。縮んだら、また1回目は広がるだけ', async ({ context, page }) => {
+      await openOutside(context, page, `${ownOrigin()}/e/fx-toggle`);
+      await waitForMark(page);
+      const tabs = countTabs(context);
+      await badgeOf(page).tap();
+      await expectBand(page);
+      await waitForMark(page);
+      await badgeOf(page).tap();
+      await page.waitForTimeout(1000);
+      expect(tabs).toHaveLength(0);
+      await expect(badgeOf(page)).not.toHaveAttribute('data-ld-mark');
+      expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
+    });
+
+    // マウスを乗せられる端末の触れる画面（触れる画面の PC など）。指で触れた後も :hover が残るが、指なら2回のまま。
+    // Playwright の hasTouch は「乗せられない端末」（(hover:hover) が偽）にするので、ここでは hasTouch を付けず、
+    // Chromium の CDP で指の操作を直に送る（ほかのブラウザにはこの道がない）。CDP の操作の位置は上のページの画面の座標なので、/e/<id> を直に開く
+    test.describe('乗せられる端末', () => {
+      test.use({ hasTouch: false });
+
+      test('乗せられる端末の触れる画面でも、指で1回目は広がるだけで開かず、2回目で開く（Chromium）', async ({ browserName, context, page }) => {
+        test.skip(browserName !== 'chromium', '乗せられる端末の触れる画面で指の操作を送れるのは Chromium の CDP だけ');
+        await page.goto(`${ownOrigin()}/e/fx-toggle`);
+        const badge = page.locator('[data-ld-badge]');
+        expect(await badge.evaluate(() => matchMedia('(hover:hover)').matches)).toBe(true);
+        await expect(badge).toHaveAttribute('data-ld-mark', '', { timeout: COLLAPSE_MS + 7000 });
+        const cdp = await context.newCDPSession(page);
+        const fingerTap = async () => {
+          const box = (await badge.boundingBox())!;
+          const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        };
+        const seen: string[] = await badge.evaluate((el) => {
+          const log: string[] = [];
+          el.addEventListener('pointerdown', (e) => log.push((e as PointerEvent).pointerType));
+          el.addEventListener('click', () => log.push(`click hover=${el.matches(':hover')}`));
+          (window as unknown as { __ldTapLog: string[] }).__ldTapLog = log;
+          return log;
+        });
+        expect(seen).toEqual([]);
+        const tabs = countTabs(context);
+        await fingerTap();
+        // 指で触れた（pointerdown が touch）。click の時に :hover が真（held だけで見れば1回で開いてしまう形）
+        await expect.poll(() => page.evaluate(() => (window as unknown as { __ldTapLog: string[] }).__ldTapLog)).toEqual(['touch', 'click hover=true']);
+        await page.waitForTimeout(1000);
+        expect(tabs).toHaveLength(0);
+        await expect(badge).not.toHaveAttribute('data-ld-mark');
+        await expectOpensWorkPage(context, fingerTap);
+      });
     });
   });
 });

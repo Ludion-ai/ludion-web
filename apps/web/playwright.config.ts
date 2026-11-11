@@ -121,7 +121,13 @@ export default defineConfig({
     // 並びの最後に置く。shard で分けたとき、時間を測る試験（theme-press-webkit など）と同じ機械で同時に走らせないため
     { name: 'embed-chromium', testMatch: /embed\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
     { name: 'embed-webkit', testMatch: /embed\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
-    { name: 'embed-firefox', testMatch: /embed\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
+    // 画面なしの Firefox は、マウスを乗せられる端末でないと答える（(hover:hover) が偽）。ふつうの PC の Firefox と同じ「細かく指せて、乗せられる」にする
+    // （値は 2＝fine と 4＝hover の和）。印の「マウスを乗せた時は1回で開く」を試すため（EMBED001-c2）。hasTouch の試験では、Playwright が今までどおり乗せられない端末にする
+    {
+      name: 'embed-firefox',
+      testMatch: /embed\.spec\.ts/,
+      use: { baseURL: PAGES_URL, browserName: 'firefox', launchOptions: { firefoxUserPrefs: { 'ui.primaryPointerCapabilities': 6, 'ui.allPointerCapabilities': 6 } } },
+    },
   ],
   webServer: {
     command: 'npm run build && node scripts/test-server.mjs',
