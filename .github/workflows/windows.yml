@@ -1,6 +1,7 @@
 # Windows アプリ（apps/windows。docs/tasks/APP001.md、ludion-app）を作って試す。
 # - main への pull request と main への push で、apps/windows を変えたときだけ動く（Windows の機械を使う。公開のリポジトリなので無料）
-# - 試験（dotnet test）→ 段階 A の .exe と、Store に出す MSIX を作り、成果物に7日残す
+# - 試験（dotnet test）→ 段階 A の .exe と、Store に出す MSIX を作る → MSIX を WACK で確かめる → 成果物に7日残す
+# - MSIX の Identity は Partner Center で予約した「Ludion」の値（秘密ではない。STORE001）
 # - 手で動かし release を選んだときだけ、Releases に「下書き」を作る。公開は CEO が GitHub の画面で押す
 #   （/download/windows は「最新」を指す。下書きは「最新」に入らないので、公開するまで誰も落とせない）
 name: windows
@@ -29,12 +30,15 @@ permissions:
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: '1'
   DOTNET_NOLOGO: '1'
+  STORE_IDENTITY_NAME: Ludion.Ludion
+  STORE_PUBLISHER: CN=A8199335-A692-41A8-8E63-3FE3DF581A81
+  STORE_PUBLISHER_DISPLAY_NAME: Ludion
 
 jobs:
   build:
     name: windows app
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -52,7 +56,21 @@ jobs:
         run: dotnet test apps/windows/tests -c Release
       - name: .exe と MSIX を作る
         shell: pwsh
-        run: ./apps/windows/scripts/build.ps1 -Target all -Version ${{ steps.version.outputs.version }}
+        run: >-
+          ./apps/windows/scripts/build.ps1 -Target all -Version ${{ steps.version.outputs.version }}
+          -IdentityName "$env:STORE_IDENTITY_NAME" -Publisher "$env:STORE_PUBLISHER"
+          -PublisherDisplayName "$env:STORE_PUBLISHER_DISPLAY_NAME"
+      - name: WACK（Windows App Certification Kit）
+        shell: pwsh
+        run: ./apps/windows/scripts/wack.ps1
+      - name: WACK の結果を残す
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wack-report-${{ steps.version.outputs.version }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: apps/windows/out/wack/report.xml
       - uses: actions/upload-artifact@v4
         with:
           name: ludion-windows-${{ steps.version.outputs.version }}
