@@ -19,6 +19,7 @@
 | `fx-bad-danger` | 部品 | 「形」だけで落ちる（`--_danger` を根で宣言せずに使う） |
 | `fx-bad-motion` | 部品（tags に `motion`） | 「形」だけで落ちる（`prefers-reduced-motion: reduce` に対応していない） |
 | `fx-bad-nav` | 部品（part.js あり） | 「形」だけで落ちる（押すと `location.href` に外の URL を入れる。T008） |
+| `fx-counter` | 部品（part.js あり） | 全部通る。読み込みで `localStorage` を読み、押すたびに書く（AI が書く HTML によくある形）。枠の中のメモリだけの storage で動くことを確かめる（FRAME001、`apps/web/e2e/frame-storage.spec.ts`） |
 | `fx-bad-link` | 部品 | 「形」だけで落ちる（`part.html` の `<a href>` が外の URL。T012） |
 
 確かめる：`npx ld check --all --fixtures`。一覧：`npx ld list --fixtures`。

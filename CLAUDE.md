@@ -135,6 +135,7 @@ export function mount(root) {
 - 片付けの関数を返す。
 - ページを移らない。`location` への代入、`location.assign`、`location.replace`、`window.open`、`document.location`、`top.`、`parent.` は「形」で落ちる。`part.html` の `<a href>` と `<area href>` も、枠の外へ移るもの（`http:`、`https:`、`//`、`javascript:` など）は「形」で落ちる。外への導線を見せたいときは `href="#"` にする（`mailto:` と `tel:` はよい）。
 - `rgb(${r} ${g} ${b})` のように値が全部式の色は、トークンから計算した色として認める（色のリテラルに数えない）。
+- 枠の中の `localStorage` と `sessionStorage` はメモリだけで、読み直すと消える（`document.cookie` も同じ）。枠はオリジンのない sandbox なので本物は投げるため、作品のスクリプトより先に代わりを置く（`packages/render/src/storage.ts`。FRAME001）。
 
 ### 動きの決まり
 

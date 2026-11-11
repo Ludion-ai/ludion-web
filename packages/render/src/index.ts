@@ -3,6 +3,7 @@ export { ALL_TOKEN_NAMES, NEUTRAL_PALETTES, OPTIONAL_TOKEN_NAMES, TOKEN_NAMES, t
 export type { TokenName, TokenValues } from './tokens.ts';
 export { DPR_HASH_KEY, DPR_SCRIPT, FRAME_CSP, FRAME_RESPONSE_CSP, FRAME_SANDBOX, HOST_ID, authorBackground, buildFrameHtml } from './frame.ts';
 export type { FrameOptions, MountStatus } from './frame.ts';
+export { MEMORY_STORAGE_LIMIT, STORAGE_SCRIPT } from './storage.ts';
 export { ALLOW_MOTION_SCRIPT, allowMotionCss, allowMotionQuery, motionLeftovers } from './motion.ts';
 export { buildCopySnippet, creditLine, creditText, remixCreditText } from './snippet.ts';
 export type { RemixSource } from './snippet.ts';
