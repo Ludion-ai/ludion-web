@@ -58,7 +58,7 @@ post.use('*', async (c, next) => {
 const purge = (c: PostContext, tags: string[]) => purgeWithRetry((c.executionCtx as unknown as ExecutionContext).cache, tags);
 
 /** 本文を読む。上限を超えたら、そこで読むのをやめて null。 */
-async function readBody(request: Request): Promise<Uint8Array | null> {
+export async function readBody(request: Request): Promise<Uint8Array | null> {
   if (Number(request.headers.get('Content-Length') ?? '0') > MAX_BODY_BYTES) return null;
   if (!request.body) return new Uint8Array(0);
   const reader = request.body.getReader();
@@ -139,7 +139,7 @@ async function readFields(c: PostContext): Promise<PostFields | Response> {
   }
 }
 
-interface PostMeta {
+export interface PostMeta {
   id: string | null;
   /** 下書きは空でよい。審査に出すときに要る（docs/tasks/T033.md A3） */
   title: string;
@@ -199,14 +199,14 @@ function parseMeta(text: string): PostMeta | { error: string } {
 export type IdStatus = 'ok' | 'format' | 'reserved' | 'taken';
 
 /** 新しい作品の ID を取れるか。ludion を含むものは、運営のものに見えるので取れない。 */
-async function checkWorkId(db: D1Database, id: string): Promise<IdStatus> {
+export async function checkWorkId(db: D1Database, id: string): Promise<IdStatus> {
   if (id.length < ID_MIN || id.length > ID_MAX || !ID_PATTERN.test(id)) return 'format';
   if (id.includes('ludion')) return 'reserved';
   return (await db.prepare('SELECT 1 FROM works WHERE id = ?').bind(id).first()) ? 'taken' : 'ok';
 }
 
 /** 投稿する人の作者。なければ、その人の handle で作って結ぶ（作者を名乗れるのは結ばれた人だけ）。 */
-async function ensureCreator(db: D1Database, user: SessionUser): Promise<{ id: string; handle: string } | null> {
+async function ensureCreator(db: D1Database, user: PostUser): Promise<{ id: string; handle: string } | null> {
   const select = db.prepare('SELECT id, handle FROM creators WHERE user_id = ? ORDER BY handle = ? COLLATE NOCASE DESC, created_at LIMIT 1').bind(user.id, user.handle);
   const own = await select.first<{ id: string; handle: string }>();
   if (own) return own;
@@ -257,15 +257,30 @@ async function deletePrefix(bucket: R2Bucket, prefix: string): Promise<void> {
   await bucket.delete(['meta.json', 'part.html', 'part.css', 'part.js', 'thumb.webp', 'og.png'].map((name) => revisionFile(prefix, name)));
 }
 
-/** 下書きの保存。新しい作品（workId が null）、新しい版、今の下書きの上書きのどれか。 */
+/** 下書きを保存する人。cookie のセッションの人か、AI の鍵の持ち主（worker/apiV1.ts）。 */
+export type PostUser = Pick<SessionUser, 'id' | 'handle' | 'isOperator'>;
+
+export type DraftFields = Omit<PostFields, 'meta'>;
+
+export interface SavedDraft {
+  work_id: string;
+  revision: { id: string; version: string; status: 'draft'; content_hash: string; frames: { desktop: string; mobile: string }; thumb: string | null; thumb_w: number; thumb_h: number };
+  remix_of: string | null;
+  optional: ProblemText[];
+}
+
+export type DraftResult =
+  | { ok: true; status: 200 | 201; body: SavedDraft }
+  | { ok: false; status: 400 | 403 | 404 | 409 | 422 | 429; body: { error: string } & Record<string, unknown> };
+
+/** 下書きの保存（画面の口）。本文を読んで、writeDraft に渡す。 */
 async function saveDraft(c: PostContext, workId: string | null): Promise<Response> {
   const user = c.get('user');
-  const db = c.env.DB;
   if (!canPost(c.env, user)) return c.json({ error: 'not_found' }, 404);
 
   // 持ち主を先に確かめる。他人の作品なら、本文を読まずに断る
-  const work = workId === null ? null : await ownedWork(db, workId);
   if (workId !== null) {
+    const work = await ownedWork(c.env.DB, workId);
     if (!work) return c.json({ error: 'not_found' }, 404);
     if (work.owner_id !== user.id) return c.json({ error: 'forbidden' }, 403);
   }
@@ -274,20 +289,37 @@ async function saveDraft(c: PostContext, workId: string | null): Promise<Respons
   if (fields instanceof Response) return fields;
   const meta = parseMeta(fields.meta);
   if ('error' in meta) return c.json({ error: meta.error }, 400);
+  const result = await writeDraft(c.env, user, workId, fields, meta);
+  return c.json(result.body, result.status);
+}
+
+/**
+ * 下書きを確かめて書く。新しい作品（workId が null）、新しい版、今の下書きの上書きのどれか。
+ * 画面の口（saveDraft）と AI の口（worker/apiV1.ts）が同じものを使う：同じ検査、同じ上限、同じ置き方。
+ */
+export async function writeDraft(env: Env, user: PostUser, workId: string | null, fields: DraftFields, meta: PostMeta): Promise<DraftResult> {
+  const db = env.DB;
+  const fail = (body: { error: string } & Record<string, unknown>, status: 400 | 403 | 404 | 409 | 422 | 429): DraftResult => ({ ok: false, status, body });
+  if (!canPost(env, user)) return fail({ error: 'not_found' }, 404);
+  const work = workId === null ? null : await ownedWork(db, workId);
+  if (workId !== null) {
+    if (!work) return fail({ error: 'not_found' }, 404);
+    if (work.owner_id !== user.id) return fail({ error: 'forbidden' }, 403);
+  }
 
   let id: string;
   if (workId === null) {
-    if (meta.id === null) return c.json({ error: 'bad_id' }, 400);
+    if (meta.id === null) return fail({ error: 'bad_id' }, 400);
     id = meta.id;
     const status = await checkWorkId(db, id);
     if (status === 'taken') {
       const existing = await ownedWork(db, id);
-      return existing?.owner_id === user.id ? c.json({ error: 'exists' }, 409) : c.json({ error: 'forbidden' }, 403);
+      return existing?.owner_id === user.id ? fail({ error: 'exists' }, 409) : fail({ error: 'forbidden' }, 403);
     }
-    if (status !== 'ok') return c.json({ error: 'bad_id', status }, 400);
+    if (status !== 'ok') return fail({ error: 'bad_id', status }, 400);
   } else {
     // 今ある作品の ID は変えられない
-    if (meta.id !== null && meta.id !== workId) return c.json({ error: 'bad_id' }, 400);
+    if (meta.id !== null && meta.id !== workId) return fail({ error: 'bad_id' }, 400);
     id = workId;
   }
 
@@ -295,12 +327,12 @@ async function saveDraft(c: PostContext, workId: string | null): Promise<Respons
   // 作品を作った後は変えられない。直した版は、作品の remix_of を引き継ぐ
   let remixOf: string | null;
   if (work) {
-    if (meta.remix_of !== undefined && meta.remix_of !== work.remix_of) return c.json({ error: 'bad_remix_of' }, 400);
+    if (meta.remix_of !== undefined && meta.remix_of !== work.remix_of) return fail({ error: 'bad_remix_of' }, 400);
     remixOf = work.remix_of;
   } else {
     remixOf = meta.remix_of ?? null;
     if (remixOf !== null && (remixOf === id || !(await db.prepare(`SELECT 1 FROM works WHERE id = ? AND status = 'approved'`).bind(remixOf).first()))) {
-      return c.json({ error: 'bad_remix_of' }, 400);
+      return fail({ error: 'bad_remix_of' }, 400);
     }
   }
 
@@ -310,29 +342,29 @@ async function saveDraft(c: PostContext, workId: string | null): Promise<Respons
     .all<Pick<RevisionRow, 'id' | 'version' | 'status' | 'r2_prefix' | 'created_at'>>();
   const open = revisions.find((revision) => revision.status === 'draft' || revision.status === 'submitted');
   // 審査中の版は変えない。見ているものと承認するものがずれないように
-  if (open?.status === 'submitted') return c.json({ error: 'in_review' }, 409);
+  if (open?.status === 'submitted') return fail({ error: 'in_review' }, 409);
 
   const { type, platform } = workShape(meta.category);
   const check = checkSubmission({ id, type, tags: meta.tags, html: fields.html, css: fields.css, js: fields.js });
-  if (check.required.length > 0) return c.json({ error: 'invalid', problems: check.required, optional: check.optional }, 422);
+  if (check.required.length > 0) return fail({ error: 'invalid', problems: check.required, optional: check.optional }, 422);
   // 下書きはサムネイルなしで保存できる。要るのは審査に出すとき（docs/tasks/T033.md A3）
 
   const limited = await takePostQuota(db, user.id, !open);
-  if (limited) return c.json({ error: 'rate_limited', limit: limited }, 429);
+  if (limited) return fail({ error: 'rate_limited', limit: limited }, 429);
 
   let images: Pick<ThumbResult, 'thumb' | 'og' | 'width' | 'height'> | null = null;
   if (fields.thumb) {
     // wasm は要るときだけ読む（Worker の起動を重くしない）
     const { processThumb } = await import('./thumb');
     const made = await processThumb(fields.thumb);
-    if ('error' in made) return c.json({ error: THUMB_STATUS[made.error] }, 422);
+    if ('error' in made) return fail({ error: THUMB_STATUS[made.error] }, 422);
     images = made;
   } else if (revisions.length > 0) {
     // 画像を出さずに直すときは、いちばん新しい版の画像を引き継ぐ。その版にも画像がなければ、画像なしの下書きのまま
     const base = revisions[0];
     const dimensions = await db.prepare('SELECT thumb_w, thumb_h FROM revisions WHERE id = ?').bind(base.id).first<{ thumb_w: number; thumb_h: number }>();
     if (dimensions && dimensions.thumb_w > 0) {
-      const [thumbObject, ogObject] = await Promise.all([c.env.PARTS.get(revisionFile(base.r2_prefix, 'thumb.webp')), c.env.PARTS.get(revisionFile(base.r2_prefix, 'og.png'))]);
+      const [thumbObject, ogObject] = await Promise.all([env.PARTS.get(revisionFile(base.r2_prefix, 'thumb.webp')), env.PARTS.get(revisionFile(base.r2_prefix, 'og.png'))]);
       if (thumbObject && ogObject) {
         images = { thumb: new Uint8Array(await thumbObject.arrayBuffer()), og: new Uint8Array(await ogObject.arrayBuffer()), width: dimensions.thumb_w, height: dimensions.thumb_h };
       }
@@ -340,7 +372,7 @@ async function saveDraft(c: PostContext, workId: string | null): Promise<Respons
   }
 
   const creator = work ? { id: work.creator_id, handle: work.creator_handle } : await ensureCreator(db, user);
-  if (!creator) return c.json({ error: 'conflict' }, 409);
+  if (!creator) return fail({ error: 'conflict' }, 409);
 
   const revisionId = open?.id ?? randomHex(16);
   const version = open?.version ?? nextVersion(revisions.map((revision) => revision.version));
@@ -374,7 +406,7 @@ async function saveDraft(c: PostContext, workId: string | null): Promise<Respons
         ] as [string, Uint8Array, string][])
       : []),
   ];
-  await Promise.all(files.map(([name, body, contentType]) => c.env.PARTS.put(revisionFile(prefix, name), body, { httpMetadata: { contentType } })));
+  await Promise.all(files.map(([name, body, contentType]) => env.PARTS.put(revisionFile(prefix, name), body, { httpMetadata: { contentType } })));
 
   const tags = JSON.stringify(meta.tags);
   const tokensOk = check.optional.length === 0 ? 1 : 0;
@@ -415,13 +447,15 @@ async function saveDraft(c: PostContext, workId: string | null): Promise<Respons
     }
   } catch {
     // 同時に送られて、もう片方が先に通った。こちらのファイルは残さない
-    if (open?.r2_prefix !== prefix) await deletePrefix(c.env.PARTS, prefix);
-    return c.json({ error: 'conflict' }, 409);
+    if (open?.r2_prefix !== prefix) await deletePrefix(env.PARTS, prefix);
+    return fail({ error: 'conflict' }, 409);
   }
-  if (open && open.r2_prefix !== prefix) await deletePrefix(c.env.PARTS, open.r2_prefix);
+  if (open && open.r2_prefix !== prefix) await deletePrefix(env.PARTS, open.r2_prefix);
 
-  return c.json(
-    {
+  return {
+    ok: true,
+    status: open ? 200 : 201,
+    body: {
       work_id: id,
       revision: {
         id: revisionId,
@@ -434,10 +468,9 @@ async function saveDraft(c: PostContext, workId: string | null): Promise<Respons
         thumb_h: thumbH,
       },
       remix_of: remixOf,
-      optional: check.optional satisfies ProblemText[],
+      optional: check.optional,
     },
-    open ? 200 : 201,
-  );
+  };
 }
 
 post.post('/works', (c) => saveDraft(c, null));

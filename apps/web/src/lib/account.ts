@@ -72,12 +72,14 @@ export type AccountProfile = AccountUser & { x_url: string | null; site_url: str
 export type AccountIdentity = { provider: LoginProvider; label: string | null; created_at: number; last_used_at: number };
 export type AccountSession = { id: string; created_at: number; last_used_at: number; current: boolean };
 export type AccountPasskey = { id: string; label: string | null; created_at: number; last_used_at: number | null };
+export type AccountAiKey = { id: string; name: string; created_at: number; last_used_at: number | null };
 export type AccountOverview = {
   profile: AccountProfile;
   identities: AccountIdentity[];
   sessions: AccountSession[];
   passkeys: AccountPasskey[];
   has_recovery_code: boolean;
+  ai_keys: AccountAiKey[];
   works_count: number;
   recent_auth: boolean;
   available: { google: boolean; passkey: boolean };
@@ -152,7 +154,21 @@ export async function postRegenerateRecoveryCode(): Promise<string> {
   return ((await response.json()) as { recovery_code: string }).recovery_code;
 }
 
-export type PendingSignup = { provider: LoginProvider; name: string | null; suggestions: string[] };
+/** AI の鍵を作る（docs/tasks/T037.md「1」）。鍵の生の値は、この答えでしか見られない。 */
+export async function postCreateAiKey(name: string, confirm: { own: boolean; mit: boolean; terms: boolean }): Promise<{ key: AccountAiKey; secret: string } | 'bad_name' | 'too_many'> {
+  const response = await postJson('/api/account/ai-keys', { name, ...confirm });
+  if (response.status === 201) return (await response.json()) as { key: AccountAiKey; secret: string };
+  const body = (await response.json().catch(() => null)) as { error?: string } | null;
+  if (body?.error === 'bad_name' || body?.error === 'too_many') return body.error;
+  throw new Error(`POST /api/account/ai-keys: ${response.status}`);
+}
+
+export async function postDeleteAiKey(id: string): Promise<void> {
+  const response = await postJson(`/api/account/ai-keys/${encodeURIComponent(id)}/delete`);
+  if (!response.ok) throw new Error(`POST delete ai key: ${response.status}`);
+}
+
+export type PendingSignup ={ provider: LoginProvider; name: string | null; suggestions: string[] };
 
 /** 手段で確かめた新しい人の、handle を選ぶ前の情報。なければ null。 */
 export async function fetchPendingSignup(): Promise<PendingSignup | null> {
