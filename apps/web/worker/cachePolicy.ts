@@ -38,6 +38,8 @@ export const CACHE_RULES: CacheRule[] = [
   { route: '/p/:id', path: /^\/p\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   // 作品のコードの文字（docs/tasks/T031.md「1」）。作品のページと同じ扱いで、取り下げと版の差し替えのときに消える
   { route: '/p/:id/code', path: /^\/p\/[^/]+\/code$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
+  // 全画面の住所（WALL001）。作品のページと同じ扱い。中の枠（/frame/...）はキャッシュしない
+  { route: '/p/:id/wall', path: /^\/p\/[^/]+\/wall$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   { route: '/c/:handle', path: /^\/c\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   // 一覧を含まないので札は要らない。文を変えるのはデプロイのときだけで、Worker の版が変わればキャッシュも変わる
   { route: '/privacy', path: /^\/privacy$/, cacheControl: PAGE_CACHE_CONTROL },

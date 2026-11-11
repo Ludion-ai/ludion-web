@@ -1,0 +1,15 @@
+{
+  "id": "fx-wallpaper",
+  "title": "Slow Dusk Wallpaper",
+  "type": "screen",
+  "platform": "web",
+  "category": "Web",
+  "subtype": "Wallpaper",
+  "tags": ["motion"],
+  "creator": "fixture",
+  "license": "MIT",
+  "made_with": "ai-assisted",
+  "version": "1",
+  "published_at": "2026-11-11",
+  "pin_order": null
+}

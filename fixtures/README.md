@@ -15,6 +15,7 @@
 | `fx-bad-radius` | 部品 | 「形」だけで落ちる（角丸が `var(--_radius)` を使わず、6px のリテラル） |
 | `fx-form` | 部品（part.js あり） | 全部通る。submit を受けて `preventDefault` し、エラーを `--_danger` で出す（T006） |
 | `fx-motion` | 部品（part.js あり、tags に `motion`） | 全部通る。canvas の色を `--_*` から読み、reduced motion で止まる（T006） |
+| `fx-wallpaper` | Webの画面（壁紙、tags に `motion`） | 全部通る。全画面の住所（`/p/<id>/wall`）と「壁紙にする」の試験に使う（WALL001） |
 | `fx-bad-danger` | 部品 | 「形」だけで落ちる（`--_danger` を根で宣言せずに使う） |
 | `fx-bad-motion` | 部品（tags に `motion`） | 「形」だけで落ちる（`prefers-reduced-motion: reduce` に対応していない） |
 | `fx-bad-nav` | 部品（part.js あり） | 「形」だけで落ちる（押すと `location.href` に外の URL を入れる。T008） |

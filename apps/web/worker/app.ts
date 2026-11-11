@@ -22,6 +22,7 @@ import { redirectSaved, renderAboutPage, renderAccountPage, renderNewWorkPage, r
 import { rateLimit } from './rateLimit';
 import { publicHandleCheck, signup } from './signup';
 import { renderSitemap } from './sitemap';
+import { renderWallPage } from './wall';
 
 export const app = new Hono<{ Bindings: Env }>();
 
@@ -68,6 +69,8 @@ app.route('/', frames);
 app.get('/', renderHome);
 app.get('/p/:id', renderWorkPage);
 app.get('/p/:id/code', renderWorkCode);
+// 全画面の住所（WALL001）。壁紙のアプリが開く。言語の文字がないので、英語の道は作らない
+app.get('/p/:id/wall', renderWallPage);
 app.get('/c/:handle', renderCreatorPage);
 app.get('/login', renderLoginPage);
 app.get('/signup', renderSignupPage);

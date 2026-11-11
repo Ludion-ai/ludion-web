@@ -36,6 +36,7 @@ const ALLOWED_ROUTES = [
   'GET /c/:handle',
   'GET /p/:id',
   'GET /p/:id/code',
+  'GET /p/:id/wall',
   'GET /privacy',
   'GET /terms',
   'GET /sitemap.xml',

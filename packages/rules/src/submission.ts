@@ -17,7 +17,7 @@ export type Category = (typeof CATEGORIES)[number];
 
 /** 種類は、今ある category と subtype から選ぶ（docs/tasks/T021.md 段階 B）。 */
 export const SUBTYPES: Record<Category, readonly string[]> = {
-  Web: ['Landing Page', 'Login Page', 'Portfolio', 'Documentation', 'Ecommerce', 'Media', 'Streaming', 'Event', 'Food', 'Education'],
+  Web: ['Landing Page', 'Login Page', 'Portfolio', 'Documentation', 'Ecommerce', 'Media', 'Streaming', 'Event', 'Food', 'Education', 'Wallpaper'],
   Mobile: ['Travel', 'Finance', 'Wellness', 'Weather', 'Food', 'Productivity', 'Ecommerce', 'Education', 'Fitness', 'Lifestyle'],
   Dashboard: ['Analytics', 'Productivity', 'CRM', 'Infrastructure', 'Helpdesk', 'Operations', 'Home'],
   Ecommerce: ['Ecommerce'],

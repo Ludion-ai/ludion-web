@@ -65,6 +65,7 @@ export const copy = {
     minimal: 'ミニマル',
     experimental: '実験',
     motion: 'モーション',
+    wallpaper: '壁紙',
   },
   sort: {
     label: '並び',
@@ -117,6 +118,7 @@ export const copy = {
     Travel: '旅行',
     'UI Kit': 'UIキット',
     Weather: '天気',
+    Wallpaper: '壁紙',
     Wellness: 'ウェルネス',
   } as Record<string, string | undefined>,
   home: {
@@ -189,6 +191,31 @@ export const copy = {
     },
     moreFrom: (handle: string) => `@${handle} のほかの作品`,
     moreOthers: 'ほかの作品',
+    /** 壁紙にする（WALL001「2」）。アプリの名前と画面の文字は、11/11 に各アプリの公式のページと画面の文字で確かめた */
+    wallpaper: {
+      open: '壁紙にする',
+      heading: '壁紙にする',
+      close: '閉じる',
+      mac: 'Mac',
+      plash: 'Plash に入れる',
+      plashGet: 'Plash（無料）は ',
+      plashStore: 'App Store',
+      plashGetAfter: ' から入れます。',
+      windows: 'Windows',
+      livelyGet: 'Lively Wallpaper（無料）は ',
+      livelyStore: 'Microsoft Store',
+      livelyGetAfter: ' から入れます。',
+      livelySteps: ['Lively を開き、「＋」（壁紙を追加）を押す', '「URL を入力」に住所を貼る'],
+      other: 'ほかのアプリ',
+      otherNote: 'Wallpaper Engine など、HTML のファイルを読み込むアプリで使います。',
+      download: 'HTML を保存',
+      urlLabel: '壁紙の住所',
+      copyUrl: '住所をコピー',
+      copied: 'コピーしました',
+      copyFailed: 'コピーできませんでした。住所を選んでコピーしてください',
+      power: '動きと音のある壁紙は、電池と GPU を使います。',
+      mobile: 'PC で開いてください。',
+    },
     /** リミックス（docs/tasks/T030.md） */
     remix: {
       open: 'リミックス',

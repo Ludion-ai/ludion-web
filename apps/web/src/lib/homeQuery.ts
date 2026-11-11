@@ -2,8 +2,12 @@ import { copy } from '../copy';
 // 検索は、データの英語でも画面の日本語でも当たる。英語の画面の文字はデータと同じなので、日本語の表だけを見る
 import type { Work } from '../data/works';
 
-export const CATEGORIES = ['web', 'mobile', 'dashboard', 'ecommerce', 'minimal', 'experimental', 'motion'] as const;
+export const CATEGORIES = ['web', 'mobile', 'dashboard', 'ecommerce', 'minimal', 'experimental', 'motion', 'wallpaper'] as const;
 export type Category = (typeof CATEGORIES)[number];
+
+/** 壁紙の作品の subtype（作品の meta.json の値。WALL001） */
+export const WALLPAPER_SUBTYPE = 'Wallpaper';
+export const isWallpaper = (work: Pick<Work, 'subtype'>) => work.subtype === WALLPAPER_SUBTYPE;
 export type Sort = 'popular' | 'new';
 
 export type HomeQuery = {
@@ -71,6 +75,8 @@ function normalize(text: string): string {
 
 function matchesCategory(work: Work, category: Category): boolean {
   if (category === 'web' || category === 'mobile') return work.platform === category;
+  // 壁紙は種類で見る（WALL001「3」）
+  if (category === 'wallpaper') return isWallpaper(work);
   return work.tags.includes(category);
 }
 
