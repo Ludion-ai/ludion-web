@@ -604,6 +604,75 @@ test('静止画の道：公開の版だけ、PNG を <id>-<幅>x<高さ>.png と
   expect((await request.get('/w/nothing-here/1/wall-1920x1080.png')).status()).toBe(404);
 });
 
+test('壁紙の作品のページ：枠の上に静止画を最初から重ね、PC は 1 秒、スマホは 2.5 秒たったら 0.4 秒で消す。もう一度でも同じ。ほかの作品には重ねない', async ({ browser, baseURL, request }) => {
+  const COVER = 'img[data-wall-cover]';
+  // Worker の HTML に最初から入る。壁紙でない作品には入らない
+  expect(await (await request.get('/p/fx-wallpaper')).text()).toMatch(/<img[^>]*data-wall-cover/);
+  expect(await (await request.get('/p/fx-button')).text()).not.toContain('data-wall-cover');
+
+  const devices = [
+    { label: 'PC', options: { viewport: { width: 1440, height: 900 } }, coarse: false, wait: 1000 },
+    { label: 'スマホ', options: { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true }, coarse: true, wait: 2500 },
+  ];
+  type CoverLog = { covered: boolean; fadeAfter: number | null };
+  for (const device of devices) {
+    const context = await browser.newContext({ baseURL, ...device.options });
+    // ページの最初の描画から、毎フレーム静止画の濃さを見る。濃い（1）のを見た後に薄くなり始めた時を、枠を読み始めた時から数えて残す
+    await context.addInitScript((selector) => {
+      if (window !== window.top) return;
+      const log: CoverLog = { covered: false, fadeAfter: null };
+      Object.defineProperty(window, '__cover', { value: log, configurable: true, writable: true });
+      const tick = () => {
+        const current = (window as unknown as { __cover: CoverLog }).__cover;
+        const img = document.querySelector(selector);
+        const frame = document.querySelector('iframe[data-ld-frame]') as (HTMLIFrameElement & { ldStartedAt?: number }) | null;
+        if (img && frame?.ldStartedAt !== undefined && current.fadeAfter === null) {
+          if (Number(getComputedStyle(img).opacity) === 1) current.covered = true;
+          else if (current.covered) current.fadeAfter = performance.now() - frame.ldStartedAt;
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }, COVER);
+    const page = await context.newPage();
+    await page.goto('/p/fx-wallpaper');
+    const cover = page.locator(COVER);
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches), device.label).toBe(device.coarse);
+    expect(await cover.getAttribute('srcset')).toBe(STILLS.map((size) => `/w/fx-wallpaper/1/${stillName(size)} ${size.width}w`).join(', '));
+    await expect.poll(() => cover.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0), device.label).toBe(true);
+    // 枠と同じ場所と大きさ
+    const [a, b] = [(await cover.boundingBox())!, (await page.locator('iframe[data-ld-frame]').boundingBox())!];
+    for (const key of ['x', 'y', 'width', 'height'] as const) expect(Math.abs(a[key] - b[key]), `${device.label} ${key}`).toBeLessThan(1);
+
+    /** 枠を読み始めてから、静止画が薄くなり始めるまで（ms） */
+    const coveredFor = async () => {
+      await page.waitForFunction(() => (window as unknown as { __cover: CoverLog }).__cover.fadeAfter !== null, null, { timeout: 15_000 });
+      return page.evaluate(() => (window as unknown as { __cover: CoverLog }).__cover.fadeAfter!);
+    };
+
+    const first = await coveredFor();
+    // 決めた時間より前には消さない。後ろは、React が載るのを待つ分（CI の機械）だけ遅れてよい
+    expect(first, device.label).toBeGreaterThanOrEqual(device.wait - 50);
+    expect(first, device.label).toBeLessThan(device.wait + 3000);
+    await expect(cover).toHaveCSS('transition-duration', '0.4s');
+    await expect(cover).toHaveCSS('opacity', '0');
+    // 消えた後は、枠を触れる（静止画はクリックを通す）
+    await expect(cover).toHaveCSS('pointer-events', 'none');
+
+    // もう一度：すぐにまた重ね、同じ時間で消す
+    await page.evaluate(() => {
+      (window as unknown as { __cover: CoverLog }).__cover = { covered: false, fadeAfter: null };
+    });
+    await page.getByRole('button', { name: copy.work.replay }).click();
+    await expect(cover).toHaveCSS('opacity', '1');
+    const again = await coveredFor();
+    expect(again, `${device.label} もう一度`).toBeGreaterThanOrEqual(device.wait - 50);
+    expect(again, `${device.label} もう一度`).toBeLessThan(device.wait + 1000);
+    await expect(cover).toHaveCSS('opacity', '0');
+    await context.close();
+  }
+});
+
 test('管理 API：静止画は壁紙の作品だけで、3つ全部。大きさが違えば「形」で 422', async ({ request }) => {
   const creator = join(REPO, 'fixtures/creators/fixture');
   const asFile = (name: string, buffer: Buffer) => ({ name, mimeType: 'image/png', buffer });

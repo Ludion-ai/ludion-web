@@ -41,7 +41,22 @@ export function startFrame(frame: HTMLIFrameElement, scale: number): void {
   const url = frame.dataset.src;
   if (!url || frame.hasAttribute('src')) return;
   frame.src = withFrameDpr(url, scale, window.devicePixelRatio);
+  // 読み始めた時を要素に残す（beforeApp と React は別の束なので、要素の上で渡す）。壁紙の静止画を重ねる時間を、ここから数える
+  (frame as FrameWithStart).ldStartedAt = performance.now();
 }
+
+type FrameWithStart = HTMLIFrameElement & { ldStartedAt?: number };
+
+/** 枠を読み始めた時（performance.now()）。まだなら null */
+export const frameStartedAt = (frame: HTMLIFrameElement): number | null => (frame as FrameWithStart).ldStartedAt ?? null;
+
+/**
+ * 壁紙の作品のプレビューに、静止画（WALL002）を重ねておく時間（CEO の指示、11/11）。
+ * 壁紙は開いた直後に絵を組み立てる途中（約2秒）が見えるので、枠を読み始めてからこの時間だけ静止画で隠し、COVER_FADE_MS で消す。
+ * スマホ（pointer: coarse）は読み込みも組み立ても遅いので長く。
+ */
+export const COVER_MS = { coarse: 2500, fine: 1000 } as const;
+export const COVER_FADE_MS = 400;
 
 /** motion：端末の「動きを減らす」設定を超えて動きを見せる枠（docs/tasks/FIX-motion.md「1」）。 */
 export function frameUrl(work: { id: string; version: string }, size: FrameSize, motion = false): string {

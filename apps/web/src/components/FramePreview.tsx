@@ -4,7 +4,9 @@ import type { Copy } from '../copy';
 import { useCopy } from '../hooks/useCopy';
 import type { Work } from '../data/works';
 import { useMediaQuery } from '../hooks/useMediaQuery';
-import { frameScale, frameUrl, startFrame, type FrameSize } from '../lib/frame';
+import type { WallStill } from '../data/pages';
+import { COVER_FADE_MS, COVER_MS, FRAME_SIZES, frameScale, frameStartedAt, frameUrl, startFrame, type FrameSize } from '../lib/frame';
+import { isWallpaper } from '../lib/homeQuery';
 import { setShowMotion, useShowMotion } from '../lib/motionChoice';
 import { webglAvailable } from '../lib/webgl';
 import { chipClass } from './chip';
@@ -58,7 +60,18 @@ function MotionNotice({ shown }: { shown: boolean }) {
  * 親から枠の中は見えないので、地の色は Worker が part.css から読んで渡す。
  * 枠が自分で移ったときに読み直すのは src/frameGuard.ts（data-ld-frame を目印にする）。
  */
-export function FramePreview({ work, background, frames = null }: { work: Work; background: string | null; frames?: { desktop: string; mobile: string } | null }) {
+export function FramePreview({
+  work,
+  background,
+  frames = null,
+  stills = [],
+}: {
+  work: Work;
+  background: string | null;
+  frames?: { desktop: string; mobile: string } | null;
+  /** 壁紙の静止画（WALL002）。大きい順 */
+  stills?: WallStill[];
+}) {
   const copy = useCopy();
   const isComponent = work.type === 'component';
   const webScreen = !isComponent && work.platform !== 'mobile';
@@ -95,6 +108,21 @@ export function FramePreview({ work, background, frames = null }: { work: Work; 
     const box = boxRef.current;
     if (frame && box) startFrame(frame, isComponent ? 1 : frameScale(size, box.clientWidth));
   }, [frameKey, isComponent]);
+
+  // 壁紙の作品：絵を組み立てる途中が見えないよう、枠を読み始めてから COVER_MS の間、静止画（WALL002）を重ねる（CEO の指示、11/11）。
+  // 枠を作り直すたび（もう一度、幅の切り替え）に、また重ねる。静止画がない壁紙（投稿の作品、自分だけの作品）では重ねない
+  const cover = !isComponent && isWallpaper(work) && stills.length > 0 ? stills : null;
+  const [covered, setCovered] = useState(true);
+  useLayoutEffect(() => {
+    if (!cover) return;
+    setCovered(true);
+    const frame = frameRef.current;
+    const wait = window.matchMedia('(pointer: coarse)').matches ? COVER_MS.coarse : COVER_MS.fine;
+    // Worker が描いた枠は、ページを開いたとき（beforeApp）から数える
+    const started = (frame && frameStartedAt(frame)) ?? performance.now();
+    const timer = setTimeout(() => setCovered(false), Math.max(0, wait - (performance.now() - started)));
+    return () => clearTimeout(timer);
+  }, [frameKey, cover !== null]);
 
   return (
     <div>
@@ -140,6 +168,21 @@ export function FramePreview({ work, background, frames = null }: { work: Work; 
             suppressHydrationWarning
             className={FRAME_CLASS[shape]}
           />
+          {cover && (
+            // 枠と同じ大きさと置き方で、枠の上に重ねる。大きさは、見えている幅 × DPR に合うものをブラウザが選ぶ（srcset）。
+            // Worker の HTML に入るので、最初の描画から出る。消えた後も外さない（もう一度で、読み直さずにすぐ出すため）
+            <img
+              data-wall-cover=""
+              alt=""
+              aria-hidden="true"
+              decoding="async"
+              src={cover[cover.length - 1].url}
+              srcSet={cover.map((still) => `${still.url} ${still.width}w`).join(', ')}
+              sizes={shape === 'mobile' ? `${FRAME_SIZES.mobile.width}px` : '(min-width: 1024px) 65vw, 100vw'}
+              style={{ opacity: covered ? 1 : 0, transition: covered ? 'none' : `opacity ${COVER_FADE_MS}ms ease-out` }}
+              className={`${FRAME_CLASS[shape]} pointer-events-none object-cover`}
+            />
+          )}
           {work.tags.includes('motion') && (
             <button
               type="button"

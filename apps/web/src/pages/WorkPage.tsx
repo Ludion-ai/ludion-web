@@ -175,7 +175,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
     <>
       <div className="grid grid-cols-1 gap-8 md:mt-[27px] lg:grid-cols-[minmax(0,65fr)_minmax(0,35fr)]">
         <div className="min-w-0">
-          <FramePreview key={work.id} work={work} background={background} frames={page.private?.frames ?? null} />
+          <FramePreview key={work.id} work={work} background={background} frames={page.private?.frames ?? null} stills={page.stills} />
           {/* 1023px以下：「コードをコピー」は最初の画面の外なので、プレビューのすぐ下に置く。浮かせない（作品の枠に重なるため。docs/tasks/FIX-remix-button.md） */}
           {!isPrivate && remixButton('mt-3 lg:hidden')}
         </div>
