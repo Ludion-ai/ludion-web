@@ -14,14 +14,26 @@ internal sealed class Settings
     /// <summary>音は初めは消しておく（APP001「4」）。</summary>
     public bool Muted { get; set; } = true;
 
-    /// <summary>止める（通知領域から）。</summary>
+    /// <summary>
+    /// Ludion の壁紙のオンとオフ。オフのときは壁紙の窓を閉じて、元の Windows の壁紙に戻す（アプリは通知領域に残る）。
+    /// 選んだ壁紙（WallpaperId）は残すので、オンに戻すと同じ壁紙に戻る。
+    /// </summary>
+    public bool WallpaperOn { get; set; } = true;
+
+    /// <summary>動きの一時停止（通知領域から）。絵は残したまま、動きと音を止める。</summary>
     public bool Paused { get; set; }
+
+    /// <summary>デスクトップの何もない所での左のクリックとマウスの動きを、壁紙に渡す。初めは渡す。</summary>
+    public bool ForwardClicks { get; set; } = true;
 
     /// <summary>電池で動いている間は止める。初めは「止める」。</summary>
     public bool PauseOnBattery { get; set; } = true;
 
     public static string Folder { get; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Ludion");
+        Environment.GetEnvironmentVariable("LUDION_DATA_DIR") is { Length: > 0 } dev && Path.IsPathFullyQualified(dev)
+            // 開発の確かめのときだけ：設定、WebView2 の置き場、記録を、ほかの場所に置く
+            ? dev
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Ludion");
 
     private static string FilePath => Path.Combine(Folder, "settings.json");
 

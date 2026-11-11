@@ -8,6 +8,7 @@ namespace Ludion.Wallpaper;
 
 /// <summary>
 /// 壁紙を選ぶ窓（APP001「2」）。一覧の絵はアプリの中の picker.html。中身（/api/works）はアプリが読んで渡す。
+/// 上に2つの切り替え：Ludion の壁紙のオンとオフ、Windows の起動で始める。値はアプリが持ち、変わるたびに渡す。
 /// </summary>
 internal sealed class PickerWindow : Form
 {
@@ -15,12 +16,16 @@ internal sealed class PickerWindow : Form
     private readonly CoreWebView2Environment environment;
     private readonly Func<string?> current;
     private readonly Action<string> onPick;
+    private readonly Func<PickerState> state;
+    private readonly Action<string, bool> onSet;
 
-    public PickerWindow(CoreWebView2Environment environment, Func<string?> current, Action<string> onPick)
+    public PickerWindow(CoreWebView2Environment environment, Func<string?> current, Func<PickerState> state, Action<string> onPick, Action<string, bool> onSet)
     {
         this.environment = environment;
         this.current = current;
+        this.state = state;
         this.onPick = onPick;
+        this.onSet = onSet;
         Text = Strings.Current.PickerTitle;
         Icon = AppIcon.Window;
         StartPosition = FormStartPosition.Manual;
@@ -67,7 +72,11 @@ internal sealed class PickerWindow : Form
             if (!args.Uri.StartsWith("data:", StringComparison.Ordinal) && args.Uri != "about:blank") args.Cancel = true;
         };
         core.WebMessageReceived += OnMessage;
-        core.NavigationCompleted += async (_, _) => await SendWorksAsync();
+        core.NavigationCompleted += async (_, _) =>
+        {
+            SendState();
+            await SendWorksAsync();
+        };
         core.NavigateToString(PageHtml());
     }
 
@@ -79,6 +88,13 @@ internal sealed class PickerWindow : Form
         return reader.ReadToEnd()
             .Replace("__ORIGIN__", origin, StringComparison.Ordinal)
             .Replace("__LANG__", Strings.Current.Lang, StringComparison.Ordinal);
+    }
+
+    /// <summary>切り替えの今の値を、一覧のページに渡す（通知領域から変えたときも）。</summary>
+    public void SendState()
+    {
+        if (IsDisposed || view.CoreWebView2 is not { } core) return;
+        core.PostWebMessageAsJson(JsonSerializer.Serialize(state(), CatalogJson.Default.PickerState));
     }
 
     private async Task SendWorksAsync()
@@ -116,6 +132,10 @@ internal sealed class PickerWindow : Form
                     break;
                 case "retry":
                     await SendWorksAsync();
+                    break;
+                case "set" when root.TryGetProperty("key", out var key) && key.GetString() is "on" or "startup"
+                    && root.TryGetProperty("value", out var value) && value.ValueKind is JsonValueKind.True or JsonValueKind.False:
+                    onSet(key.GetString()!, value.GetBoolean());
                     break;
             }
         }

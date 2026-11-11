@@ -69,6 +69,13 @@ internal sealed class CreatorJson
     [JsonPropertyName("kind")] public string? Kind { get; set; }
 }
 
+/// <summary>一覧の窓の上の2つの切り替えの値（Ludion の壁紙のオンとオフ、Windows の起動で始める）。</summary>
+internal sealed record PickerState(
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("on")] bool On,
+    [property: JsonPropertyName("startup")] bool Startup,
+    [property: JsonPropertyName("startupInWindowsSettings")] bool StartupInWindowsSettings);
+
 /// <summary>一覧の窓へ渡す中身。</summary>
 internal sealed record PickerMessage(
     [property: JsonPropertyName("type")] string Type,
@@ -78,5 +85,6 @@ internal sealed record PickerMessage(
 
 [JsonSerializable(typeof(WorksResponse))]
 [JsonSerializable(typeof(PickerMessage))]
+[JsonSerializable(typeof(PickerState))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class CatalogJson : JsonSerializerContext;
