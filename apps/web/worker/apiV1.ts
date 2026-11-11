@@ -169,7 +169,7 @@ apiV1.get('/', (c) => {
   return c.body(apiDocs(locale, origin(c as unknown as ApiContext)), 200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Language': locale });
 });
 
-apiV1.use('/works', authenticate);
+// '/works/*' は '/works' にも当たる（Hono）。'/works' にも付けると、1回の要求で2回数える
 apiV1.use('/works/*', authenticate);
 
 /** 鍵を確かめ、回数を数える。cookie は見ない。 */

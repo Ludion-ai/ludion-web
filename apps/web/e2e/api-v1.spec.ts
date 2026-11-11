@@ -419,6 +419,23 @@ test.describe('AI の口 /api/v1', () => {
     expect(await readLimited.json()).toMatchObject({ error: 'rate_limited', retry_at: expect.any(String) });
   });
 
+  test('数え方：1回の POST /works で置くのが1、GET /works と GET /works/:id で読むのが1だけ増える', async () => {
+    const { visitor, id } = await person();
+    const key = (await makeKey(visitor)).secret;
+    // 時の境をまたいでもよいように、桶を全部足す
+    const used = (kind: 'put' | 'read') => d1<{ n: number }>(`SELECT COALESCE(SUM(n), 0) AS n FROM quotas WHERE key = ${quote(`api-${kind}:${id}`)}`)[0].n;
+    const before = { put: used('put'), read: used('read') };
+
+    const work = await put(key, { html: workHtml(unique('count-')) });
+    expect.soft({ put: used('put'), read: used('read') }).toEqual({ put: before.put + 1, read: before.read });
+
+    expect((await api(key, '/api/v1/works')).status).toBe(200);
+    expect.soft({ put: used('put'), read: used('read') }).toEqual({ put: before.put + 1, read: before.read + 1 });
+
+    expect((await api(key, `/api/v1/works/${work.id}`)).status).toBe(200);
+    expect.soft({ put: used('put'), read: used('read') }).toEqual({ put: before.put + 1, read: before.read + 2 });
+  });
+
   test('1日の版：自分だけの版は100まで（公開に回す10とは別に数える）。自分だけから公開するときは、公開の10で数える', async () => {
     const { visitor, id } = await person();
     const key = (await makeKey(visitor)).secret;
