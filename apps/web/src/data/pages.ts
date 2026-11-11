@@ -8,6 +8,9 @@ export type CreatorProfile = Work['creator'] & {
 
 export type CreatorTotals = { works: number; views: number; copies: number };
 
+/** 壁紙の静止画の1枚（WALL002）。url は同じサイトの道（/w/<id>/<version>/wall-<幅>x<高さ>.png） */
+export type WallStill = { width: number; height: number; url: string };
+
 /**
  * Worker が HTML に埋め込むページのデータ（worker/pages.ts）。ブラウザで取り直さない。
  * 人によって変わる情報は入れない（SPEC.md 10）。
@@ -35,6 +38,8 @@ export type PageData =
        * 枠は下書きの枠（持ち主だけに返す）。公開の作品では null
        */
       private: { frames: { desktop: string; mobile: string } } | null;
+      /** 壁紙の静止画（WALL002）。ld upload が置いた公開の壁紙の作品にだけある（大きい順）。ほかは空 */
+      stills: WallStill[];
     }
   | { kind: 'creator'; creator: CreatorProfile; totals: CreatorTotals; works: Work[] }
   /** ログインの画面。使える手段はサイトの設定で決まる（Google とパスキーは workers.dev で使えない） */

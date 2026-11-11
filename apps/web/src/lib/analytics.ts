@@ -73,7 +73,7 @@ export type AnalyticsEvents = {
   /** 入力があったかどうかと、指示文の形だけ。入力の中身は送らない（CLAUDE.md 原則6） */
   remix_prompt_copy: { work_id: string; has_brief: boolean; mode: 'url' | 'full' };
   /** 「壁紙にする」のシートで押したもの（WALL001「2」）。plash：Plash に入れる、copy：住所をコピー、download：HTML を保存 */
-  wallpaper_open: { work_id: string; method: 'plash' | 'copy' | 'download' };
+  wallpaper_open: { work_id: string; method: 'plash' | 'copy' | 'download' | 'still' };
 };
 
 /** GA4 のイベント。startAnalytics が動いていなければ window.gtag がないので、何もしない */

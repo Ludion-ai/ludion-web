@@ -306,7 +306,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
         />
       )}
       {wallpaperAnchor && (
-        <WallpaperSheet workId={work.id} title={work.title} snippet={snippet} anchor={wallpaperAnchor} onClose={() => setWallpaperAnchor(null)} />
+        <WallpaperSheet workId={work.id} title={work.title} snippet={snippet} stills={page.stills} anchor={wallpaperAnchor} onClose={() => setWallpaperAnchor(null)} />
       )}
     </>
   );

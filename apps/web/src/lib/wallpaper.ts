@@ -44,6 +44,27 @@ export function currentWallpaperDevice(): WallpaperDevice {
 export const wallpaperOrder = (device: WallpaperDevice): ('mac' | 'windows')[] => (device === 'windows' ? ['windows', 'mac'] : ['mac', 'windows']);
 
 /**
+ * 静止画（WALL002）の初めの大きさ：開いている画面の画素の幅（CSS の幅 × 画素の密度）に一番近いもの。同じ近さなら大きい方。
+ * 画面の大きさは選ぶのに使うだけで、送らず、保存しない。
+ */
+export function nearestStill<T extends { width: number }>(stills: readonly T[], screenPixels: number): T {
+  let best = stills[0];
+  for (const still of stills) {
+    const gap = Math.abs(still.width - screenPixels);
+    const bestGap = Math.abs(best.width - screenPixels);
+    if (gap < bestGap || (gap === bestGap && still.width > best.width)) best = still;
+  }
+  return best;
+}
+
+export function currentScreenPixels(): number {
+  return Math.round((window.screen?.width || window.innerWidth) * (window.devicePixelRatio || 1));
+}
+
+/** 落とすときのファイルの名前（<id>-3840x2160.png。Worker の Content-Disposition と同じ） */
+export const stillDownloadName = (id: string, still: { width: number; height: number }) => `${id}-${still.width}x${still.height}.png`;
+
+/**
  * 「HTML を保存」：コピーされるコードと同じ中身を、そのままファイルにする（クレジット行も残る）。
  * リンクは開いているシート（container）の中に置く。モーダルの外は inert なので。
  */

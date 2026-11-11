@@ -215,6 +215,14 @@ export const copy = {
       copyFailed: 'コピーできませんでした。住所を選んでコピーしてください',
       power: '動きと音のある壁紙は、電池と GPU を使います。',
       mobile: 'PC で開いてください。',
+      /** 静止画（WALL002）。OS の画面の文字は、Windows 11 のエクスプローラーと macOS の Finder の右クリックのメニューの名前 */
+      still: '静止画で使う（アプリ不要）',
+      stillSize: '画像の大きさ',
+      stillSizeName: (width: number, height: number) => (width === 3840 ? `4K（${width}×${height}）` : `${width}×${height}`),
+      stillDownload: 'PNG を保存',
+      stillWindows: 'Windows は、落とした画像を右クリック →「デスクトップの背景として設定」。',
+      stillMac: 'Mac は、画像を右クリック →「デスクトップピクチャを設定」。',
+      live: '動く壁紙にする（無料のアプリを1回入れる）',
     },
     /** リミックス（docs/tasks/T030.md） */
     remix: {

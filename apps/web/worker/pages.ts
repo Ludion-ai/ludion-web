@@ -2,16 +2,18 @@
 // 数は描画のときに D1 から入れる。作品のコードは R2 から読み、コピー用の文字列だけをページに入れる。ページの中では動かさない。
 
 import { authorBackground, buildCopySnippet } from '@ludion/render';
+import { STILL_SIZES, stillFileName } from '@ludion/rules';
 import type { Context } from 'hono';
-import type { CreatorProfile } from '../src/data/pages';
+import type { CreatorProfile, WallStill } from '../src/data/pages';
 import type { Work } from '../src/data/works';
 import { copyFor, localeOfPath, localizedPath } from '../src/i18n';
+import { isWallpaper } from '../src/lib/homeQuery';
 import { shareOrigin } from './cachePolicy';
 import { isGoogleAvailable, isPasskeyAvailable } from './methods';
 import { safeNext } from './loginFlow';
 import { findMovedCreator, getApprovedWork, getCreator, getCreatorTotals, getPrivateWork, listApprovedWorks, listCreatorWorks } from './catalog';
 import type { Env } from './env';
-import { canPost, draftFrameUrls, loadRevisionFiles, ownedWork, privateCurrentRevision } from './revisions';
+import { canPost, draftFrameUrls, loadRevisionFiles, ownedWork, privateCurrentRevision, revisionFile } from './revisions';
 import { getSessionUser } from './session';
 import { renderDocument } from './ssr';
 
@@ -62,6 +64,20 @@ async function loadWork(c: PageContext) {
   return { ...found, files, snippet, source: band };
 }
 
+/**
+ * 壁紙の静止画（WALL002）。ld upload が公開の版と一緒に置いたものだけ。R2 にあるかを見て、ある大きさだけを返す。
+ * 投稿（/new）の壁紙や自分だけの作品には置かれないので、空になる（シートに「静止画で使う」を出さない）。
+ */
+async function wallStills(bucket: R2Bucket, work: Work, prefix: string): Promise<WallStill[]> {
+  if (!isWallpaper(work)) return [];
+  const found = await Promise.all(STILL_SIZES.map((size) => bucket.head(revisionFile(prefix, stillFileName(size)))));
+  return STILL_SIZES.filter((_, i) => found[i]).map((size) => ({
+    width: size.width,
+    height: size.height,
+    url: `/w/${encodeURIComponent(work.id)}/${encodeURIComponent(work.version)}/${stillFileName(size)}`,
+  }));
+}
+
 const PLAIN_TEXT = { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' };
 
 /**
@@ -103,6 +119,7 @@ export async function renderWorkPage(c: PageContext): Promise<Response> {
       background: authorBackground(files.css),
       source,
       private: loaded.private && { frames: draftFrameUrls(loaded.private.revisionId) },
+      stills: loaded.private ? [] : await wallStills(c.env.PARTS, work, loaded.prefix),
     },
     // 自分だけの作品には共有の画像と canonical を付けない（公開の道からは見えない）
     head: loaded.private
