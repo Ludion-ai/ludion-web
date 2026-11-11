@@ -339,6 +339,32 @@ export function checkSubmission({ id, type, tags, html, css, js }: Submission): 
   return { required, optional };
 }
 
+// ---------------------------------------------------------------- 文書の作品（DOC001）
+
+/** 文書の上限（バイト）。今の上限の合計（part.html、part.css、part.js の 256KB ずつ）と同じ。 */
+export const MAX_DOCUMENT_BYTES = 3 * MAX_PART_BYTES;
+
+/** 読めない文字：NUL と、対になっていないサロゲート（UTF-8 で保存すると U+FFFD に変わり、置いたものと違うものになる）。 */
+// eslint-disable-next-line no-control-regex
+const UNREADABLE = /\u0000|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+
+/**
+ * 文書の作品の検査。作品の契約の検査（根、セレクタ、mount、document、外への通信）はしない。見るのは、大きさと、読める文字か。
+ * 外への通信は落とさない（枠の CSP が止める）。人をだます作りかは、公開の前に運営が見る（原則5。差し戻しの理由 deceptive）。
+ */
+export function checkDocument(document: string): ProblemText[] {
+  const found: ProblemText[] = [];
+  if (document.trim() === '') return [problem('HTML が空です', '作品の HTML を html に入れる', 'The HTML is empty', 'Put the work’s HTML in html')];
+  const size = bytesOf(document);
+  if (size > MAX_DOCUMENT_BYTES) {
+    found.push(problem(`HTML が ${(size / 1024).toFixed(1)}KB で、上限 ${MAX_DOCUMENT_BYTES / 1024}KB を超える`, '小さくする', `The HTML is ${(size / 1024).toFixed(1)}KB, over the ${MAX_DOCUMENT_BYTES / 1024}KB limit`, 'Make it smaller'));
+  }
+  if (UNREADABLE.test(document)) {
+    found.push(problem('HTML に読めない文字（NUL か、壊れた文字）がある', 'UTF-8 の文字だけにする', 'The HTML has unreadable characters (NUL or a broken character)', 'Use only UTF-8 text'));
+  }
+  return found;
+}
+
 // ---------------------------------------------------------------- 審査の印
 
 export interface FlagHit {

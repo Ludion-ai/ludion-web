@@ -415,6 +415,25 @@ test.describe('MCP サーバー /mcp', () => {
     expect(d1(`SELECT via FROM revisions WHERE work_id = ${quote(part)}`)).toEqual([{ via: 'MCP' }]);
   });
 
+  test('ふつうの HTML 文書を、そのまま save_work で置ける（DOC001）。get_work はその文書で、クレジット行は doctype の直後', async () => {
+    const { visitor } = await person();
+    const made = await visitor.post('/api/account/ai-keys', { name: 'MCP の鍵', ...CONFIRM });
+    const { secret } = (await made.json()) as { secret: string };
+    const doc = `<!doctype html>\n<html><head><title>Plain Pad</title><style>body { margin: 0; background: #222 }</style></head>\n<body><button id="b">Tap</button><script>document.getElementById('b').onclick = () => document.body.style.background = '#444'</script></body></html>\n`;
+    const saved = await call(secret, 'save_work', { html: doc });
+    expect(saved.isError ?? false, saved.content[0].text).toBe(false);
+    const id = saved.structuredContent!.work_id as string;
+    expect(d1<{ type: string }>(`SELECT type FROM revisions WHERE work_id = ${quote(id)}`)).toEqual([{ type: 'screen' }]);
+    const code = (await call(secret, 'get_work', { work_id: id })).structuredContent!.code as string;
+    expect(code.startsWith('<!doctype html>\n<!-- UI by @')).toBe(true);
+    expect(code.endsWith(doc.slice('<!doctype html>'.length))).toBe(true);
+    // 道具の説明は「1つの HTML 文書を、そのまま」を先に書く
+    const { body } = await rpc(secret, 'tools/list');
+    const description = (body!.result as unknown as { tools: { name: string; description: string }[] }).tools.find((tool) => tool.name === 'save_work')!.description;
+    expect(description).toContain('one ordinary, self-contained HTML document, as it is');
+    expect(description.indexOf('as it is')).toBeLessThan(description.indexOf('component form'));
+  });
+
   test('つないだトークンで /api/v1 に置く：X-Ludion-Client があればそれが印（鍵と同じ整え方）、なければつないだときの名前（VIA001）', async () => {
     const { visitor } = await person();
     const token = (await connect(visitor, 'Claude Code')).tokens.access_token;

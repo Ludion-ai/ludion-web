@@ -79,6 +79,8 @@ const CONTENT_TYPES = {
   'part.html': 'text/html; charset=utf-8',
   'part.css': 'text/css; charset=utf-8',
   'part.js': 'text/javascript; charset=utf-8',
+  // 文書の作品（DOC001）
+  'index.html': 'text/html; charset=utf-8',
   'meta.json': 'application/json; charset=utf-8',
   'thumb.webp': 'image/webp',
   'og.png': 'image/png',
@@ -207,7 +209,7 @@ try {
       // ld upload で送った版があれば、そのままにする
       if (await db.prepare('SELECT 1 AS found FROM works WHERE id = ?').bind(meta.id).first()) return false;
       const files = {};
-      for (const name of ['part.html', 'part.css', 'part.js', 'meta.json']) {
+      for (const name of ['part.html', 'part.css', 'part.js', 'index.html', 'meta.json']) {
         if (existsSync(join(dir, name))) files[name] = readFileSync(join(dir, name));
       }
       const thumb = readFileSync(join(imagesDir, 'thumb.webp'));

@@ -85,7 +85,7 @@ export default defineConfig({
     trace: process.env.CI ? 'retain-on-failure' : 'off',
   },
   projects: [
-    { name: 'home', testIgnore: /(upload|pages|accounts|account-page|api-v1|mcp|google|login-flow|post|private|passkey|shots-t020|migration|frame-escape|motion|remix-scroll|wall-size|preview-dpr|frame-storage)\.spec\.ts/, use: { baseURL: BASE_URL } },
+    { name: 'home', testIgnore: /(upload|pages|accounts|account-page|api-v1|mcp|google|login-flow|post|private|passkey|shots-t020|migration|frame-escape|motion|remix-scroll|wall-size|preview-dpr|frame-storage|frame-document)\.spec\.ts/, use: { baseURL: BASE_URL } },
     { name: 'upload', testMatch: /upload\.spec\.ts/, use: { baseURL: UPLOAD_URL } },
     { name: 'pages', testMatch: /pages\.spec\.ts/, use: { baseURL: PAGES_URL } },
     // 枠の移動を止めるのはブラウザなので、全部のブラウザで確かめる（docs/tasks/T022.md「1」）
@@ -111,6 +111,10 @@ export default defineConfig({
     { name: 'frame-storage-chromium', testMatch: /frame-storage\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
     { name: 'frame-storage-webkit', testMatch: /frame-storage\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     { name: 'frame-storage-firefox', testMatch: /frame-storage\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
+    // 文書の作品の枠（DOC001）。守りが今の枠と同じであることを、SEC001 の形で全部のブラウザで確かめる
+    { name: 'document-chromium', testMatch: /frame-document\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
+    { name: 'document-webkit', testMatch: /frame-document\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
+    { name: 'document-firefox', testMatch: /frame-document\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
     // 順に走らせる。テストが wrangler d1 execute で同じ D1 のファイルを開くので、並行にサーバーへ要求を出すと、
     // 手元の D1 が「Failed to get session commit token」で 500 を返すことがある
     // workers: 1 は、ファイルをまたいでも同時に走らせないため（1つの D1 を3つのファイルで使う）
