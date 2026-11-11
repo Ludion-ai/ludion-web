@@ -1,14 +1,15 @@
 # Ludion の Windows アプリを作る。
 #   pwsh apps/windows/scripts/build.ps1 -Target exe   … 段階 A：署名のない1つの .exe（out/LudionSetup.exe）
 #   pwsh apps/windows/scripts/build.ps1 -Target msix  … Store に出す MSIX（out/Ludion.msix。署名は Store がする）
-# MSIX の Identity は、Partner Center でアプリの名前を取った後に出る値を渡す（それまでは仮の値で作れる）：
-#   -IdentityName "12345Ludion.Ludion" -Publisher "CN=…" -PublisherDisplayName "…"
+# MSIX の Identity の既定は、Partner Center で予約した「Ludion」の値（秘密ではない。STORE001）。
+#   -IdentityName "Ludion.Ludion" -Publisher "CN=A8199335-A692-41A8-8E63-3FE3DF581A81" -PublisherDisplayName "Ludion"
+# 版は3つの数で渡す（-Version 1.0.0）。MSIX には4つ目に 0 を足す（4つ目は Store が使うので 0 のまま）。
 # 要るもの：.NET 10 SDK。makeappx は NuGet の Microsoft.Windows.SDK.BuildTools から取る（Windows SDK を入れなくてよい）。
 param(
   [ValidateSet('exe', 'msix', 'all')][string]$Target = 'all',
-  [string]$Version = '0.1.0',
-  [string]$IdentityName = 'Ludion.Wallpaper',
-  [string]$Publisher = 'CN=Ludion',
+  [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '1.0.0',
+  [string]$IdentityName = 'Ludion.Ludion',
+  [string]$Publisher = 'CN=A8199335-A692-41A8-8E63-3FE3DF581A81',
   [string]$PublisherDisplayName = 'Ludion'
 )
 $ErrorActionPreference = 'Stop'

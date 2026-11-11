@@ -27,11 +27,14 @@ Ludion の壁紙（`https://ludion.ai/p/<id>/wall`）を、デスクトップの
 dotnet test apps/windows/tests
 pwsh apps/windows/scripts/build.ps1 -Target exe    # 段階 A：out/LudionSetup.exe（署名なし、約 47 MB）
 pwsh apps/windows/scripts/build.ps1 -Target msix   # Store：out/Ludion.msix（署名は Store がする）
+pwsh apps/windows/scripts/wack.ps1                 # MSIX を WACK で確かめる（管理者で。out/wack/report.xml）
 ```
 
-MSIX の `Identity` は、Partner Center でアプリの名前を取った後に出る値を `-IdentityName`、`-Publisher`、`-PublisherDisplayName` で渡す。
+MSIX の `Identity` の既定は、Partner Center で予約した「Ludion」の値（`Ludion.Ludion`、`CN=A8199335-A692-41A8-8E63-3FE3DF581A81`、`Ludion`）。版は `Ludion.Wallpaper.csproj` の `Version`（3つの数）に、MSIX では4つ目の `0` を足す（4つ目は Store が使う）。Store に新しい版を出すときは、`Version` を上げる。
 
-Actions（`.github/workflows/windows.yml`）が、pull request ごとに試験と2つのファイルを作る。手で動かして `release` を選ぶと、Releases に下書きを作る（公開は手で）。
+WACK は試しに入れて動かすため、署名のある写しが要る。`wack.ps1` は、試しのためだけの自分の署名を付けた写しを作って確かめ、終わったら鍵と写しを消す。Store に上げるのは署名のない `out/Ludion.msix`。
+
+Actions（`.github/workflows/windows.yml`）が、pull request ごとに試験と2つのファイルを作り、MSIX を WACK で確かめる。手で動かして `release` を選ぶと、Releases に下書きを作る（公開は手で）。
 
 ## 段階 A の入れ方
 

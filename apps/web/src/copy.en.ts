@@ -783,6 +783,10 @@ ${code}
         detail: 'You can sign in with Google. Avatars of people signed in with Google are loaded from Google. When you go to Google’s login screen, we pass only what the redirect needs.',
       },
     },
+    windowsApp: {
+      heading: 'Windows app',
+      detail: 'The Ludion app for Windows only loads pages from ludion.ai (the full-screen wallpaper page and the works list API). The app sends no counts, logs, or information about your PC to Ludion. Your chosen wallpaper and settings (sound, battery, paused) are stored only on your PC, in the app’s folder. When pages load, your IP address and the app’s name and version reach ludion.ai as part of how the internet works, but they are not stored.',
+    },
     thirdParty: {
       heading: 'Sharing with third parties',
       detail: 'Except as described here, we do not give the information we collect to third parties, unless required by law.',
