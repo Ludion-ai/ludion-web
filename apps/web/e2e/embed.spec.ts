@@ -4,8 +4,10 @@
 // 外の枠の中から、上のページを動かせない、新しい窓を開けない、フォームを送れない、通信できないことを確かめる。
 // 今ある枠の応答（desktop、mobile、inline、wall）の CSP は、文字で確かめる（1文字も変わらない）。
 import { expect, test, type BrowserContext, type FrameLocator, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { join } from 'node:path';
 import { PRIVATE_OWNER, privateFixtureId } from '../scripts/private-fixture.mjs';
 
 /** 親の見張りが「読み込めた」の知らせを待つ時間（src/frameGuard.ts の CONFIRM_WAIT_MS）より長く */
@@ -340,6 +342,107 @@ test.describe('印の形（はじめは帯、半分見えて3秒でマークだ�
         await expectOpensWorkPage(context, fingerTap);
       });
     });
+  });
+});
+
+// 文書の作品（DOC001）：AI が書いた1つの HTML 文書を、そのまま置いたもの。作品の契約の形（#ld-host、mount）ではない。
+// 見本は fixtures/documents/fx-doc-ripple（Ludion を知らない AI が書いた「押すと波紋が広がるボタン」。t033-real/naive-1.html の写し）と、悪意のある mal-doc。
+// 枠の中は Frame から探す（frameLocator の中の html は、経路を差し替えたページで親の html に当たることがある。frame-document.spec.ts）
+test.describe('文書の作品（DOC001）も外のサイトの中で動く', () => {
+  const DOC_ID = 'fx-doc-ripple';
+  const DOC_SOURCE = readFileSync(join(import.meta.dirname, '../../../fixtures/documents', DOC_ID, 'index.html'), 'utf8');
+
+  /** 作品の枠が /frame/<id>/1/embed.html を読み終えるまで待つ */
+  async function documentFrame(page: Page, id: string) {
+    await expect.poll(() => (workFrame(page) ? workPath(page) : '')).toBe(`/frame/${id}/1/embed.html`);
+    const frame = workFrame(page);
+    await frame.waitForLoadState('load');
+    return frame;
+  }
+
+  test('fx-doc-ripple：文書がそのまま動き、押せる。pageerror は0。外へ届かない。枠は封をした形（sandbox）', async ({ context, page }) => {
+    const { seen, errors } = await openOutside(context, page, `${ownOrigin()}/e/${DOC_ID}`);
+    await expect(embed(page).locator('iframe[data-ld-frame]')).toHaveAttribute('sandbox', 'allow-scripts allow-forms');
+    const frame = await documentFrame(page, DOC_ID);
+    const button = frame.locator('#btn');
+    await expect(button).toHaveText('押してみて');
+    // 何かが描かれている（ボタンに大きさがある）
+    const box = await button.boundingBox();
+    expect(box && box.width > 0 && box.height > 0).toBe(true);
+    await button.click();
+    await expect(frame.locator('#count')).toHaveText('1 回押しました');
+    await button.click();
+    await expect(frame.locator('#count')).toHaveText('2 回押しました');
+    await page.waitForTimeout(AFTER_GUARD_MS);
+    expect(errors).toEqual([]);
+    expect(seen).toEqual([]);
+    // 親の見張りが読み直していない（押した数が残る）。外のページも移らない
+    await expect(frame.locator('#count')).toHaveText('2 回押しました');
+    expect(workPath(page)).toBe(`/frame/${DOC_ID}/1/embed.html`);
+    expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
+  });
+
+  test('端末の「動きを減らす」設定に従う（文書の作品でも「動きを見る」の差し込みをしない）', async ({ context, page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openOutside(context, page, `${ownOrigin()}/e/${DOC_ID}`);
+    const frame = await documentFrame(page, DOC_ID);
+    await expect(frame.locator('#btn')).toBeVisible();
+    expect(await frame.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
+  });
+
+  test('枠の応答：文書は1文字も変えず、<!doctype> の直後にサイトの小さなスクリプトだけ。封は埋め込みの枠と同じ。キャッシュしない', async ({ request }) => {
+    const page = await request.get(`/e/${DOC_ID}`);
+    expect(page.status()).toBe(200);
+    expect(await page.text()).toContain(`src="/frame/${DOC_ID}/1/embed.html"`);
+    const response = await request.get(`/frame/${DOC_ID}/1/embed.html`, { headers: { 'Sec-Fetch-Dest': 'iframe', 'Sec-Fetch-Site': 'same-origin' } });
+    expect(response.status()).toBe(200);
+    expect(response.headers()['content-security-policy']).toBe(FRAME_CSP_TEXT.replace("frame-ancestors 'self'", 'frame-ancestors *'));
+    expect(response.headers()['cache-control']).toBe('private, no-store');
+    const body = await response.text();
+    const doctype = '<!doctype html>';
+    expect(DOC_SOURCE.startsWith(doctype)).toBe(true);
+    expect(body.startsWith(doctype)).toBe(true);
+    expect(body.endsWith(DOC_SOURCE.slice(doctype.length))).toBe(true);
+    const inserted = body.slice(doctype.length, body.length - (DOC_SOURCE.length - doctype.length));
+    expect(inserted).toContain('ld-frame-loaded');
+    expect(inserted).not.toContain('</head>');
+    // 外から開くと作品のページへ戻る（今の埋め込みの枠と同じ）
+    const away = await request.get(`/frame/${DOC_ID}/1/embed.html`, { headers: { 'Sec-Fetch-Dest': 'document' }, maxRedirects: 0 });
+    expect(away.status()).toBe(302);
+    expect(away.headers()['location']).toBe(`/p/${DOC_ID}`);
+  });
+
+  test('mal-doc：外の枠の中の文書からも、通信、上のページ、親の DOM、新しい窓、フォーム、外へのリンクのどれも届かない', async ({ context, page }) => {
+    const { seen } = await openOutside(context, page, `${ownOrigin()}/e/mal-doc`);
+    const tabs: Page[] = [];
+    context.on('page', (tab) => tabs.push(tab));
+    const frame = await documentFrame(page, 'mal-doc');
+    const html = frame.locator('html');
+    await expect(html).toHaveAttribute('data-ready', '1');
+    await frame.locator('#fetch').click();
+    await expect(html).toHaveAttribute('data-fetch-done', '1');
+    expect(await html.getAttribute('data-fetch')).toBe('blocked');
+    expect(await html.getAttribute('data-site-api')).toBe('blocked');
+    await frame.locator('#top').click();
+    await frame.locator('#parent').click();
+    await expect(html).toHaveAttribute('data-parent', /Error/);
+    await frame.locator('#open').click();
+    // Firefox は null を返さず InvalidAccessError を投げる（frame-document.spec.ts と同じ）
+    await expect(html).toHaveAttribute('data-open', /^(null|InvalidAccessError)$/);
+    await frame.locator('#submit').click();
+    await page.waitForTimeout(AFTER_GUARD_MS);
+    expect(seen).toEqual([]);
+    expect(tabs).toEqual([]);
+    expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
+    // 枠を移すもの（外へのリンク、location の代入）は最後に。移れないので、外へ届かない
+    await frame.locator('#link').click().catch(() => {});
+    await page.waitForTimeout(AFTER_GUARD_MS);
+    await workFrame(page).locator('#nav').click({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(AFTER_GUARD_MS);
+    expect(seen).toEqual([]);
+    expect(tabs).toEqual([]);
+    expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
+    await expect(embed(page).locator('iframe[data-ld-frame]')).toBeAttached();
   });
 });
 

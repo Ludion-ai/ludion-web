@@ -14,7 +14,7 @@
 // Auto-save (the Claude Code plugin's hook): on unless `auto off` (this folder and below, kept in .ludion.json) or `auto off --all`.
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import os from 'node:os';
@@ -269,7 +269,7 @@ function readHtml(file) {
   return readFileSync(file, 'utf8');
 }
 
-function baseUrl() {
+export function baseUrl() {
   return (process.env.LUDION_URL || DEFAULT_URL).replace(/\/+$/, '');
 }
 
@@ -299,37 +299,37 @@ const authFile = () => path.join(homeDir(), AUTH_FILE);
 const configFile = () => path.join(homeDir(), CONFIG_FILE);
 const loadAuth = () => readJson(authFile(), { servers: {} });
 
-function saveConnection(entry) {
+function saveConnection(entry, base = baseUrl()) {
   const auth = loadAuth();
   auth.servers = auth.servers && typeof auth.servers === 'object' ? auth.servers : {};
-  if (entry) auth.servers[baseUrl()] = entry;
-  else delete auth.servers[baseUrl()];
+  if (entry) auth.servers[base] = entry;
+  else delete auth.servers[base];
   writePrivate(authFile(), auth);
 }
 
-const connectionOf = () => loadAuth().servers?.[baseUrl()] ?? null;
+const connectionOf = (base = baseUrl()) => loadAuth().servers?.[base] ?? null;
 
 // ---------- credentials ----------
 
-const NOT_CONNECTED = () => [
+const NOT_CONNECTED = (base = baseUrl()) => [
   'no_key',
   'Not connected to Ludion. Run `node ludion.mjs login` once (in Claude Code: /ludion:connect) and allow it in the browser, or set an AI key as the LUDION_KEY environment variable (do not paste it into files).',
   {
-    how: `Run "node ludion.mjs login" and allow it in the browser. Or sign in at ${baseUrl()}/account, make a key in "AI keys", and set LUDION_KEY in the shell that runs this command.`,
+    how: `Run "node ludion.mjs login" and allow it in the browser. Or sign in at ${base}/account, make a key in "AI keys", and set LUDION_KEY in the shell that runs this command.`,
   },
 ];
 
 /** A fresh access token from the saved connection (refreshes it when it has expired). null if not connected. */
-async function connectionToken() {
-  const saved = connectionOf();
+async function connectionToken(base = baseUrl()) {
+  const saved = connectionOf(base);
   if (!saved?.refresh_token || !saved.client_id) return null;
   if (saved.access_token && Number(saved.access_expires_at) > Date.now() + 60_000) return saved.access_token;
   let res;
   try {
-    res = await fetch(`${baseUrl()}/oauth/token`, {
+    res = await fetch(`${base}/oauth/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: saved.refresh_token, client_id: saved.client_id, resource: `${baseUrl()}/mcp` }),
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: saved.refresh_token, client_id: saved.client_id, resource: `${base}/mcp` }),
     });
   } catch {
     return null;
@@ -337,44 +337,47 @@ async function connectionToken() {
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.access_token) {
     // Disconnected on the site, or expired: forget it so the person can connect again
-    if (res.status === 400 || res.status === 401) saveConnection(null);
+    if (res.status === 400 || res.status === 401) saveConnection(null, base);
     return null;
   }
-  saveConnection({ ...saved, access_token: data.access_token, access_expires_at: Date.now() + Number(data.expires_in ?? 3600) * 1000, refresh_token: data.refresh_token ?? saved.refresh_token });
+  saveConnection({ ...saved, access_token: data.access_token, access_expires_at: Date.now() + Number(data.expires_in ?? 3600) * 1000, refresh_token: data.refresh_token ?? saved.refresh_token }, base);
   return data.access_token;
 }
 
-/** The Authorization value: the AI key if set, otherwise the saved connection. Prints the failure and returns null if neither. */
-async function authorization() {
+/** The Authorization value: the AI key (env LUDION_KEY) if set, otherwise the saved connection (refreshed as needed). null if neither. */
+export async function authorizationFor(base = baseUrl()) {
   const k = process.env.LUDION_KEY;
   if (k) return `Bearer ${k}`;
-  const token = await connectionToken();
-  if (token) return `Bearer ${token}`;
-  fail(...NOT_CONNECTED());
-  return null;
+  const token = await connectionToken(base);
+  return token ? `Bearer ${token}` : null;
 }
 
-/** Calls the API. Returns the parsed body, or null after printing the failure. */
-async function api(method, pathname, body, hints = {}) {
-  const auth = await authorization();
-  if (!auth) return null;
+/**
+ * Calls the API. Returns { ok: true, data } or { ok: false, error, message, extra } (nothing is printed).
+ * options: base (the server), client (the X-Ludion-Client mark; default env LUDION_CLIENT).
+ */
+export async function request(method, pathname, body, hints = {}, { base = baseUrl(), client = process.env.LUDION_CLIENT } = {}) {
+  const auth = await authorizationFor(base);
+  if (!auth) {
+    const [error, message, extra] = NOT_CONNECTED(base);
+    return { ok: false, error, message, extra };
+  }
   let res;
   try {
-    res = await fetch(`${baseUrl()}${pathname}`, {
+    res = await fetch(`${base}${pathname}`, {
       method,
       headers: {
         Authorization: auth,
         Accept: 'application/json',
         'Accept-Language': process.env.LUDION_LANG || 'en',
         // Which AI put it (a small mark on the person's works). The plugin's hook sets it
-        ...(process.env.LUDION_CLIENT ? { 'X-Ludion-Client': process.env.LUDION_CLIENT } : {}),
+        ...(client ? { 'X-Ludion-Client': client } : {}),
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch (e) {
-    fail('network', `Could not reach ${baseUrl()}: ${e.cause?.code ?? e.message}`);
-    return null;
+    return { ok: false, error: 'network', message: `Could not reach ${base}: ${e.cause?.code ?? e.message}`, extra: {} };
   }
   let data = null;
   const text = await res.text();
@@ -383,7 +386,7 @@ async function api(method, pathname, body, hints = {}) {
   } catch {
     data = { message: text.slice(0, 500) };
   }
-  if (res.ok) return data;
+  if (res.ok) return { ok: true, data };
   const extra = { status: res.status };
   if (Array.isArray(data.problems)) extra.problems = data.problems;
   if (res.status === 429) {
@@ -394,13 +397,20 @@ async function api(method, pathname, body, hints = {}) {
   const message = hints[res.status]
     ? hints[res.status]
     : res.status === 401
-      ? `${data.message ?? 'The key was refused'}. The key may be wrong or deleted, or the connection was cut on the site; connect again (node ludion.mjs login) or make a new key at ${baseUrl()}/account.`
+      ? `${data.message ?? 'The key was refused'}. The key may be wrong or deleted, or the connection was cut on the site; connect again (node ludion.mjs login) or make a new key at ${base}/account.`
       : res.status === 422 && extra.problems
         ? `${data.message ?? 'The work was not accepted'}. Fix each problem (see problems[].fix) and put again.`
         : res.status === 429
           ? `${data.message ?? 'Too many requests'}. Wait until retry_at, then try again.`
           : (data.message ?? `HTTP ${res.status}`);
-  fail(data.error ?? `http_${res.status}`, message, extra);
+  return { ok: false, error: data.error ?? `http_${res.status}`, message, extra };
+}
+
+/** Calls the API. Returns the parsed body, or null after printing the failure. */
+async function api(method, pathname, body, hints = {}) {
+  const r = await request(method, pathname, body, hints);
+  if (r.ok) return r.data;
+  fail(r.error, r.message, r.extra);
   return null;
 }
 
@@ -417,28 +427,63 @@ function findStateFile(start) {
   }
 }
 
-function findStateDir() {
-  return findStateFile(process.cwd()) ?? process.cwd();
-}
-
 function readState(file) {
   const state = existsSync(file) ? readJson(file, { works: {} }) : { works: {} };
   if (!state.works || typeof state.works !== 'object') state.works = {};
   return state;
 }
 
-function loadState() {
-  const dir = findStateDir();
-  const file = path.join(dir, STATE_FILE);
-  return { dir, file, state: readState(file) };
+/** The .ludion.json that covers `start` (the nearest one from there up; a new one in `start` if none). */
+export function loadState(start = process.cwd()) {
+  return stateIn(findStateFile(start) ?? path.resolve(start));
 }
 
-function stateKey(dir, file) {
+/** The .ludion.json in exactly this folder (no looking up; a new one there if none). */
+export function stateIn(dir) {
+  const file = path.join(path.resolve(dir), STATE_FILE);
+  return { dir: path.dirname(file), file, state: readState(file) };
+}
+
+export function stateKey(dir, file) {
   return path.relative(dir, path.resolve(file)).split(path.sep).join('/');
 }
 
-function saveState({ file, state }) {
-  writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`);
+/**
+ * Changes .ludion.json safely when several programs (the plugin, ld, other sessions) use the same one: reads it again just before
+ * writing (so what others wrote meanwhile is kept), writes a temporary file next to it, then renames it into place (so a reader never
+ * sees a half-written file). Returns the state as written.
+ * @param {string} file
+ * @param {(state: { works: Record<string, any>, auto?: boolean }) => void} change
+ */
+export function updateState(file, change) {
+  const state = readState(file);
+  change(state);
+  const temp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  writeFileSync(temp, `${JSON.stringify(state, null, 2)}\n`);
+  try {
+    renameInto(temp, file);
+  } catch (e) {
+    rmSync(temp, { force: true });
+    throw e;
+  }
+  return state;
+}
+
+/**
+ * rename, retried for up to 5 seconds: on Windows it fails (EPERM, EBUSY, EACCES) while another program is reading the target or
+ * renaming onto it at the same moment. The waits are a little random so that programs waiting on each other do not retry in step.
+ */
+function renameInto(from, to) {
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (e) {
+      if (Date.now() > deadline || !['EPERM', 'EBUSY', 'EACCES'].includes(e?.code)) throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2 + Math.floor(Math.random() * 20));
+    }
+  }
 }
 
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
@@ -467,47 +512,61 @@ export const hasCredentials = () => Boolean(process.env.LUDION_KEY) || Boolean(c
 
 // ---------- commands ----------
 
-async function put(file, flags) {
-  const html = readHtml(file);
-  if (html === null) return;
-  const title = flags['--title'];
+/**
+ * Puts one HTML as an "Only me" work, remembering which key (a file, or what the caller names) is which work in .ludion.json.
+ * The same key again makes a new version of the same work. Returns the result object (nothing is printed):
+ * { ok: true, action: 'created' | 'new_version' | 'unchanged', file, id, version, ... } or { ok: false, error, message, extra }.
+ * options: key (default: the file's path from the .ludion.json folder), stateStart (where to look for .ludion.json; default the
+ * current folder), stateDir (use the .ludion.json in exactly this folder instead of looking up), title, from, ifChanged, base, client.
+ * @param {string} html
+ * @param {{ file?: string, key?: string, stateStart?: string, stateDir?: string, title?: string, from?: string, ifChanged?: boolean, base?: string, client?: string }} [options]
+ */
+export async function putHtml(html, { file, key, stateStart, stateDir, title, from, ifChanged = false, base, client } = {}) {
   const local = staticCheck(html);
   // A title given on the command line stands in for a missing <title>
   const problems = title ? local.problems.filter((p) => p.code !== 'no_title') : local.problems;
   if (problems.length) {
-    fail('check_failed', 'The file did not pass the check; nothing was sent. Fix each problem and put again.', { problems });
-    return;
+    return { ok: false, error: 'check_failed', message: 'The file did not pass the check; nothing was sent. Fix each problem and put again.', extra: { problems } };
   }
-  const st = loadState();
-  const k = stateKey(st.dir, file);
+  const st = stateDir ? stateIn(stateDir) : loadState(stateStart);
+  const k = key ?? stateKey(st.dir, file);
   const known = st.state.works[k];
   const hash = sha256(html);
-  if (flags['--if-changed'] && known?.id && known.hash === hash) {
-    out({ ok: true, action: 'unchanged', file: k, id: known.id, version: known.version, note: 'Same as the version already put; nothing was sent.' });
-    return;
+  if (ifChanged && known?.id && known.hash === hash) {
+    return { ok: true, action: 'unchanged', file: k, id: known.id, version: known.version, note: 'Same as the version already put; nothing was sent.' };
   }
-  let data;
+  const options = { base, client };
+  let r;
   let note;
   if (known?.id) {
-    if (flags['--from']) note = '--from is ignored: this file is already a work, so a new version was put';
-    data = await api('POST', `/api/v1/works/${encodeURIComponent(known.id)}/versions`, { html, ...(title ? { title } : {}) }, {
-      404: `Work ${known.id} (from ${STATE_FILE}) is not yours or no longer exists. To put this file as a new work, remove "${k}" from ${st.file} and put again.`,
-    });
-    if (!data) return;
+    if (from) note = '--from is ignored: this file is already a work, so a new version was put';
+    const hints = { 404: `Work ${known.id} (from ${STATE_FILE}) is not yours or no longer exists. To put this file as a new work, remove "${k}" from ${st.file} and put again.` };
+    r = await request('POST', `/api/v1/works/${encodeURIComponent(known.id)}/versions`, { html, ...(title ? { title } : {}) }, hints, options);
   } else {
-    data = await api('POST', '/api/v1/works', { html, ...(title ? { title } : {}), ...(flags['--from'] ? { from: flags['--from'] } : {}) });
-    if (!data) return;
+    r = await request('POST', '/api/v1/works', { html, ...(title ? { title } : {}), ...(from ? { from } : {}) }, {}, options);
   }
-  st.state.works[k] = { id: data.id, version: data.version, hash };
-  saveState(st);
-  out({
+  if (!r.ok) return r;
+  const { data } = r;
+  // Read again just before writing, so fields written meanwhile (auto, other works) are kept
+  updateState(st.file, (state) => {
+    state.works[k] = { id: data.id, version: data.version, hash };
+  });
+  return {
     ok: true,
     action: known?.id ? 'new_version' : 'created',
     file: k,
     ...data,
     note: note ?? 'Only the owner can see this work. To publish it, the owner sends it for review from the site.',
     state_file: st.file,
-  });
+  };
+}
+
+async function put(file, flags) {
+  const html = readHtml(file);
+  if (html === null) return;
+  const r = await putHtml(html, { file, title: flags['--title'], from: flags['--from'], ifChanged: Boolean(flags['--if-changed']) });
+  if (r.ok) out(r);
+  else fail(r.error, r.message, r.extra);
 }
 
 async function list() {
@@ -524,8 +583,9 @@ async function get(id, flags) {
   writeFileSync(outFile, data.code ?? '');
   const st = loadState();
   const k = stateKey(st.dir, outFile);
-  st.state.works[k] = { id: data.id, version: data.version };
-  saveState(st);
+  updateState(st.file, (state) => {
+    state.works[k] = { id: data.id, version: data.version };
+  });
   const { code, ...rest } = data;
   out({ ok: true, ...rest, written: outFile, bytes: byteLength(code ?? ''), note: `Putting ${outFile} again makes a new version of ${data.id}` });
 }
@@ -552,8 +612,15 @@ function openBrowser(url) {
 const DONE_PAGE = (ok) => `<!doctype html><meta charset="utf-8"><title>Ludion</title><body style="font:16px system-ui;margin:48px;max-width:480px">
 <p style="font-weight:800">Ludion</p><p>${ok ? 'Connected. You can close this tab and go back to Claude Code.<br>つながりました。このタブは閉じてかまいません。' : 'Not connected. Go back to Claude Code and try again.<br>つながりませんでした。Claude Code に戻って、もう一度お試しください。'}</p></body>`;
 
-async function login() {
-  const base = baseUrl();
+/** A failure result of connect (printed by the caller). */
+const failure = (error, message, extra = {}) => ({ ok: false, error, message, extra });
+
+/**
+ * Connects once: the person logs in and allows it in the browser (OAuth with PKCE); the tokens go to ~/.ludion/auth.json.
+ * Returns { ok: true, connected: true, server } or { ok: false, error, message, extra } (nothing is printed on stdout; the
+ * address to open goes to stderr). options: base (the server), clientName (the name shown on the person's account page).
+ */
+export async function connect({ base = baseUrl(), clientName = CLIENT_NAME } = {}) {
   // 1. Wait for the browser to come back to this computer (only on 127.0.0.1)
   const verifier = base64url(randomBytes(48));
   const challenge = base64url(createHash('sha256').update(verifier).digest());
@@ -586,13 +653,13 @@ async function login() {
       res = await fetch(`${base}/oauth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ client_name: CLIENT_NAME, redirect_uris: [redirectUri], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none' }),
+        body: JSON.stringify({ client_name: clientName, redirect_uris: [redirectUri], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none' }),
       });
     } catch (e) {
-      return stop(fail('network', `Could not reach ${base}: ${e.cause?.code ?? e.message}`));
+      return stop(failure('network', `Could not reach ${base}: ${e.cause?.code ?? e.message}`));
     }
     const client = await res.json().catch(() => ({}));
-    if (!res.ok || !client.client_id) return stop(fail('register_failed', `Ludion did not accept the registration (${res.status} ${client.error ?? ''}).`));
+    if (!res.ok || !client.client_id) return stop(failure('register_failed', `Ludion did not accept the registration (${res.status} ${client.error ?? ''}).`));
 
     // 3. The person logs in and allows it in the browser
     const authorize = new URL(`${base}/oauth/authorize`);
@@ -605,7 +672,7 @@ async function login() {
     const back = await done;
     clearTimeout(timer);
     if (back.error) {
-      return stop(fail(back.error === 'access_denied' ? 'denied' : back.error, back.error === 'timeout' ? 'Nobody allowed it in the browser in time. Run login again.' : `Not connected (${back.error}). Run login again.`, { authorize_url: authorize.toString() }));
+      return stop(failure(back.error === 'access_denied' ? 'denied' : back.error, back.error === 'timeout' ? 'Nobody allowed it in the browser in time. Run login again.' : `Not connected (${back.error}). Run login again.`, { authorize_url: authorize.toString() }));
     }
 
     // 4. Exchange the code for tokens, and keep them where only the person can read them
@@ -615,12 +682,18 @@ async function login() {
       body: new URLSearchParams({ grant_type: 'authorization_code', code: back.code, redirect_uri: redirectUri, client_id: client.client_id, code_verifier: verifier, resource: `${base}/mcp` }),
     });
     const tokens = await tokenRes.json().catch(() => ({}));
-    if (!tokenRes.ok || !tokens.access_token || !tokens.refresh_token) return stop(fail('token_failed', `Ludion did not give a token (${tokenRes.status} ${tokens.error ?? ''}). Run login again.`));
-    saveConnection({ client_id: client.client_id, access_token: tokens.access_token, access_expires_at: Date.now() + Number(tokens.expires_in ?? 3600) * 1000, refresh_token: tokens.refresh_token, connected_at: new Date().toISOString() });
-    return stop(out({ ok: true, connected: true, server: base, note: 'Connected. From now on, HTML files you write are saved to Ludion as "Only me" automatically (the Claude Code plugin). Disconnect any time on the account page.' }));
+    if (!tokenRes.ok || !tokens.access_token || !tokens.refresh_token) return stop(failure('token_failed', `Ludion did not give a token (${tokenRes.status} ${tokens.error ?? ''}). Run login again.`));
+    saveConnection({ client_id: client.client_id, access_token: tokens.access_token, access_expires_at: Date.now() + Number(tokens.expires_in ?? 3600) * 1000, refresh_token: tokens.refresh_token, connected_at: new Date().toISOString() }, base);
+    return stop({ ok: true, connected: true, server: base });
   } catch (e) {
-    return stop(fail('login_failed', String(e.message ?? e)));
+    return stop(failure('login_failed', String(e.message ?? e)));
   }
+}
+
+async function login() {
+  const r = await connect();
+  if (r.ok) out({ ...r, note: 'Connected. From now on, HTML files you write are saved to Ludion as "Only me" automatically (the Claude Code plugin). Disconnect any time on the account page.' });
+  else fail(r.error, r.message, r.extra);
 }
 
 async function logout() {
@@ -651,10 +724,9 @@ function auto(value, flags) {
     writePrivate(configFile(), { ...readJson(configFile(), {}), auto: on });
     return out({ ok: true, auto: on, scope: 'all', note: on ? 'Auto-save is on (folders turned off with "auto off" stay off).' : 'Auto-save is off everywhere.' });
   }
-  const file = path.join(process.cwd(), STATE_FILE);
-  const state = readState(file);
-  state.auto = on;
-  saveState({ file, state });
+  updateState(path.join(process.cwd(), STATE_FILE), (state) => {
+    state.auto = on;
+  });
   out({ ok: true, auto: on, scope: 'folder', folder: process.cwd(), note: on ? 'Auto-save is on in this folder.' : 'Auto-save is off in this folder and the folders inside it.' });
 }
 

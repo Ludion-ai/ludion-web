@@ -8,7 +8,7 @@
  * 4. プレビューの枠を、見えている細かさ（実際の DPR × 縮めた割合）を付けた URL で読み始める（PREVIEW-DPR。lib/frame.ts の startFrame）。
  * 5. iPhone の消音モードでも、作品の音が鳴るようにする（下の audioSession）。
  */
-import { BOX_CLASS, FRAME_CLASS, frameScale, isPhone, previewScale, startFrame, type FrameSize } from './lib/frame';
+import { startPreview } from './lib/previewStart';
 import { gridShape, WIDE_QUERY } from './lib/gridShape';
 import { layoutMasonry } from './lib/masonry';
 
@@ -25,26 +25,9 @@ if (audioSession) {
   }
 }
 
-const phone = isPhone();
-const frameBox = document.querySelector<HTMLElement>('[data-frame-size]');
-if (frameBox) {
-  // Worker はどの端末かを知らないので、Web の画面を Desktop の枠で描く。スマホなら、React が同じ形で載るよう、ここで Mobile に替える。
-  // 枠はまだ読み始めていない（src がない。下の startFrame が入れる）ので、読む先（data-src）と形を替えるだけでよい
-  const phoneSrc = frameBox.dataset.phoneSrc;
-  const frame = frameBox.querySelector<HTMLIFrameElement>('iframe[data-ld-frame]');
-  if (frame && phoneSrc && frameBox.dataset.frameSize === 'desktop' && phone && !frame.hasAttribute('src')) {
-    frameBox.dataset.frameSize = 'mobile';
-    frameBox.className = frameBox.className.replace(BOX_CLASS.desktop, BOX_CLASS.mobile);
-    frame.className = FRAME_CLASS.mobile;
-    frame.dataset.src = phoneSrc;
-  }
-  frameBox.style.setProperty('--frame-scale', String(frameScale(frameBox.dataset.frameSize as FrameSize, frameBox.clientWidth)));
-}
-for (const frame of document.querySelectorAll<HTMLIFrameElement>('iframe[data-ld-frame][data-src]')) {
-  // 部品の枠は縮めない（data-frame-size のない入れ物）。スマホの Mobile の枠も縮めない（previewScale）
-  const box = frame.closest<HTMLElement>('[data-frame-size]');
-  startFrame(frame, box ? previewScale(box.dataset.frameSize as FrameSize, box.clientWidth, phone) : 1);
-}
+// 2〜4 は lib/previewStart.ts。作品のページでは、枠の入れ物の直後の台本が先に一度呼んでいる（PERF002「1」）。
+// ここでは、それより後に置かれた枠を読み始め、倍率をページが全部並んだ後の幅で決め直す
+startPreview();
 
 
 // 作品のページには、同じ作者の並びとほかの作者の並びの2つがある

@@ -1,12 +1,13 @@
 // GET /api/v1 の説明（docs/tasks/T037.md「4」）。AI が読んで使えるように、Markdown で返す。中身は docs/tasks/T037.md「2」の表と同じ。
 
-import { MAX_PART_BYTES } from '@ludion/rules';
+import { MAX_DOCUMENT_BYTES, MAX_PART_BYTES } from '@ludion/rules';
 import type { Locale } from '../src/i18n';
 import { MAX_KEYS_PER_USER } from './aiKeys';
 import { API_LIMITS, POST_LIMITS, PRIVATE_LIMITS } from './quotaLimits';
 import { PRIVATE_WORKS_LIMIT } from './revisions';
 
 const KB = MAX_PART_BYTES / 1024;
+const DOC_KB = MAX_DOCUMENT_BYTES / 1024;
 
 const en = (origin: string) => `# Ludion API v1
 
@@ -33,13 +34,25 @@ Bodies and responses are JSON. Send \`Content-Type: application/json\`. \`Accept
 
 ## The html
 
-- One HTML file, the same as pasting into ${origin}/new: one root element with \`data-ld-part\`, then one \`<style>\`, then (if it moves) one \`<script type="module">\` with \`function mount(root) { …; return () => { /* clean up */ }; }\` and a last line \`mount(document.querySelector('[data-ld-part="…"]'));\`. A full document (\`<!doctype html>\`, \`<html>\`, \`<head>\`, \`<body>\`) is accepted and unwrapped.
+**You can send one ordinary HTML document as it is.** If \`html\` starts with \`<!doctype html>\` or \`<html>\`, Ludion keeps the document exactly as written and runs it as it is, as a screen (full width).
+- One self-contained file: put images, sounds and fonts inside it (inline \`<svg>\`, \`data:\` URLs, CSS drawing, Web Audio). Requests to outside are blocked in the frame (only Google Fonts load), so things loaded from a CDN will not work.
+- Up to ${DOC_KB}KB. Ludion does not check its form: it needs no \`data-ld-part\` and no \`mount\`.
+- It runs in a sandboxed frame: no page navigation, no new windows, no form submission to anywhere, no access to the page around it. \`localStorage\` and \`sessionStorage\` are in memory only (they work, but are cleared when the page reloads).
+- The \`<title>\` becomes the title. No real company logos, trademarks or product names.
+
+### Optional: the component form
+
+Use this only when you want the work to be a component that can be pasted into other pages and take the person's design tokens.
+- One HTML fragment, the same as pasting into ${origin}/new: one root element with \`data-ld-part\`, then one \`<style>\`, then (if it moves) one \`<script type="module">\` with \`function mount(root) { …; return () => { /* clean up */ }; }\` and a last line \`mount(document.querySelector('[data-ld-part="…"]'));\`. A document whose \`<body>\` holds exactly this (the root with \`data-ld-part\`, and \`mount\` if it moves) is also taken in this form and unwrapped.
 - All CSS selectors go under \`[data-ld-part="…"]\`. JS touches only \`root\`. No external requests (only Google Fonts may be loaded). No page navigation (\`location\`, \`window.open\`, \`top\`, \`parent\`). Links use \`href="#"\`.
 - Inside the frame, \`localStorage\` and \`sessionStorage\` are in memory only: they work, but are cleared when the page reloads.
 - HTML, CSS and JS can each be up to ${KB}KB.
+
+### Both forms
+
 - If something must be fixed, the response is 422 \`{ "error": "invalid_work", "message", "problems": [{ "message", "fix" }] }\`. Fix each problem as \`fix\` says and send again.
 - No title: the HTML \`<title>\` is used; without one, "Untitled". No thumbnail is needed.
-- The credit line (\`<!-- UI by @… -->\`) is added by Ludion. Keep it when you edit code you got from Ludion; it is removed and made again when you put.
+- The credit line (\`<!-- UI by @… -->\`) is added by Ludion (in a document, right after \`<!doctype html>\`). Keep it when you edit code you got from Ludion; it is removed and made again when you put.
 - \`from\`: the ID of a public work this one remixes. A missing work, a work that is not public, or the work itself is 422 \`bad_from\`. The source's code is at \`${origin}/p/<id>/code\`.
 
 ## Who can see it
@@ -88,13 +101,25 @@ Ludion は UI の作品（画面と部品）を置く場所です。この API �
 
 ## html
 
-- 1つの HTML。${origin}/new に貼るのと同じです：\`data-ld-part\` を付けた一番外の要素1つ、\`<style>\` 1つ、動きがあれば \`<script type="module">\` 1つ（\`function mount(root) { …; return () => { /* 片付け */ }; }\` と、最後の行の \`mount(document.querySelector('[data-ld-part="…"]'));\`）。\`<!doctype html>\`、\`<html>\`、\`<head>\`、\`<body>\` で包んだ文書も受け、包みを外します。
+**ふつうの HTML 文書を1つ、そのまま送ってかまいません。** \`html\` が \`<!doctype html>\` か \`<html>\` で始まるなら、Ludion は文書を書いたとおりに置き、そのまま動かします。種類は画面（幅いっぱい）です。
+- 1つのファイルで完結させます。画像、音、書体はファイルの中に入れます（\`<svg>\`、\`data:\` の URL、CSS で描く、Web Audio）。枠の中では外への通信が止まる（Google Fonts だけは読めます）ので、CDN から読むものは動きません。
+- ${DOC_KB}KB まで。形の検査はしません。\`data-ld-part\` も \`mount\` も要りません。
+- sandbox の枠の中で動きます。ページを移れません。新しい窓を開けません。フォームの送信は届きません。まわりのページには触れません。\`localStorage\` と \`sessionStorage\` はメモリだけです（使えますが、読み直すと消えます）。
+- \`<title>\` が題になります。実在の会社のロゴ、商標、製品名は入れません。
+
+### 任意：部品の形
+
+ほかのページに貼れて、使う人のトークンを受ける部品にしたいときだけ使います。
+- 1つの HTML の断片。${origin}/new に貼るのと同じです：\`data-ld-part\` を付けた一番外の要素1つ、\`<style>\` 1つ、動きがあれば \`<script type="module">\` 1つ（\`function mount(root) { …; return () => { /* 片付け */ }; }\` と、最後の行の \`mount(document.querySelector('[data-ld-part="…"]'));\`）。\`<body>\` の中がちょうどこの形（\`data-ld-part\` の根と、動きがあれば \`mount\`）の文書も、この形として受け、包みを外します。
 - CSS のセレクタは、すべて \`[data-ld-part="…"]\` の下に置きます。JS は \`root\` の中だけを触ります。外へ通信しません（Google Fonts だけは読めます）。ページを移りません（\`location\`、\`window.open\`、\`top\`、\`parent\`）。リンクは \`href="#"\`。
 - 枠の中の \`localStorage\` と \`sessionStorage\` はメモリだけです。使えますが、読み直すと消えます。
 - HTML、CSS、JS は、それぞれ ${KB}KB までです。
+
+### どちらの形でも
+
 - 直すところがあれば 422 \`{ "error": "invalid_work", "message", "problems": [{ "message", "fix" }] }\`。\`fix\` のとおりに直して、もう一度送ります。
 - 題がなければ、HTML の \`<title>\`、なければ「無題」。サムネイルは要りません。
-- クレジット行（\`<!-- UI by @… -->\`）は Ludion が入れます。Ludion から取ったコードを直すときは消さずに残してください。置くときに外して、作り直します。
+- クレジット行（\`<!-- UI by @… -->\`）は Ludion が入れます（文書では \`<!doctype html>\` の直後）。Ludion から取ったコードを直すときは消さずに残してください。置くときに外して、作り直します。
 - \`from\`：リミックスの元の、公開されている作品の ID。ない作品、公開されていない作品、自分自身は 422 \`bad_from\`。元のコードは \`${origin}/p/<id>/code\` にあります。
 
 ## 誰に見えるか

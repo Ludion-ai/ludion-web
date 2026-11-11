@@ -4,14 +4,31 @@
 //   ブラウザから呼ぶものではないので、CORS の頭は付けない。MCP サーバー（mcp.ts）は、この口を中から呼ぶ。
 // - 置いたものは「自分だけ」（docs/tasks/T036.md）。本人にしか見えない。公開（審査に出す）は、サイトの画面から本人がする。ここからは公開できない。
 //   公開している作品に置いた新しい版だけは、今までどおり下書き（審査に出すまで公開の版は変わらない）。
+// - html がふつうの HTML 文書（<!doctype か <html で始まる）なら、文書のまま置く（DOC001）。作品の契約の検査をせず、見るのは大きさと読める文字だけ。
+//   種類は画面（screen）。枠は文書をそのまま返す（frames.ts）。作者が書いた契約の形（根と mount）の文書は、下の今までの受け方（htmlForm）。
 // - html は /new の1つの箱と同じ受け方：同じ分け方（splitSnippet、fixParts）、同じ検査（checkSubmission）、同じ大きさの上限、
 //   同じ保存（post.ts の writeDraft）。投稿の1日の上限（POST_LIMITS）もそのまま効く。
 // - 回数の上限：置くのは1人1時間30回、ほかの読み取りは1時間300回（quotas）。超えたら 429 と、次に使える時刻。
 // - エラーはどれも { error: <決まった語>, message }。文は Accept-Language で日本語か英語。
 // - 鍵の生の値は、ログに出さない（log.ts は道の種類と決まった語だけ）。
 
-import { buildCopySnippet } from '@ludion/render';
-import { fixParts, ID_PATTERN, MAX_PART_BYTES, MAX_TITLE_CHARS, partIdOf, splitSnippet, SUBTYPES, type Category, type ProblemText, type SplitError } from '@ludion/rules';
+import { buildCopySnippet, stripDocumentCredits } from '@ludion/render';
+import {
+  checkDocument,
+  fixParts,
+  htmlForm,
+  ID_PATTERN,
+  MAX_DOCUMENT_BYTES,
+  MAX_PART_BYTES,
+  MAX_TITLE_CHARS,
+  partIdOf,
+  splitSnippet,
+  SUBTYPES,
+  workShape,
+  type Category,
+  type ProblemText,
+  type SplitError,
+} from '@ludion/rules';
 import { Hono, type Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { localizedPath, type Locale } from '../src/i18n';
@@ -25,7 +42,8 @@ import { canPost, countPrivateWorks, loadRevisionFiles, ownedRevision, ownedWork
 
 /**
  * 置く人。AI の鍵（ld_…）か、AI につないだときのアクセスのトークン（ldo_…。worker/oauth.ts、MCP001）の持ち主。
- * via：その版をどの AI から置いたか（自分の置き場の小さな印）。つないだ AI はその名前、鍵は X-Ludion-Client の見出し（なければ API）。
+ * via：その版をどの AI から置いたか（自分の置き場の小さな印）。X-Ludion-Client の見出しがあればそれ（鍵でも、つないだトークンでも）。
+ * なければ、つないだトークンはつないだときの名前、鍵は API。
  */
 export interface ApiUser {
   id: string;
@@ -43,13 +61,14 @@ export async function apiUser(db: D1Database, authorization: string | undefined,
   const match = /^Bearer[ \t]+(\S+)[ \t]*$/i.exec(authorization ?? '');
   if (!match) return null;
   const token = match[1];
+  // 見出しの印は、鍵でもつないだトークンでも同じ整え方（同じつながりを分け合うプラグイン、ld、デスクトップアプリを分けるため。VIA001）
+  const mark = client ? [...cleanClientName(client)].slice(0, MAX_VIA_CHARS).join('').trim() : null;
   if (token.startsWith('ldo_')) {
     const user = await grantUser(db, token);
-    return user && { id: user.id, handle: user.handle, isOperator: user.isOperator, via: user.clientName };
+    return user && { id: user.id, handle: user.handle, isOperator: user.isOperator, via: mark ?? user.clientName };
   }
   const user = await keyUser(db, token);
-  const via = client ? [...cleanClientName(client)].slice(0, MAX_VIA_CHARS).join('').trim() : 'API';
-  return user && { id: user.id, handle: user.handle, isOperator: user.isOperator, via };
+  return user && { id: user.id, handle: user.handle, isOperator: user.isOperator, via: mark ?? 'API' };
 }
 type ApiContext = Context<ApiEnv>;
 
@@ -88,6 +107,7 @@ const MESSAGES = {
   bad_title: { ja: `title は ${MAX_TITLE_CHARS} 文字までの文字にしてください（改行なし）`, en: `title must be a string of up to ${MAX_TITLE_CHARS} characters, without line breaks.` },
   bad_from: { ja: 'from の作品がない、公開されていない、または自分自身です。公開されている作品の ID を入れてください', en: 'The from work does not exist, is not public, or is the work itself. Use the ID of a public work.' },
   too_large: { ja: `HTML、CSS、JS は、それぞれ ${MAX_PART_BYTES / 1024}KB までです`, en: `The HTML, CSS and JS can each be up to ${MAX_PART_BYTES / 1024}KB.` },
+  too_large_document: { ja: `HTML の文書は ${MAX_DOCUMENT_BYTES / 1024}KB までです`, en: `An HTML document can be up to ${MAX_DOCUMENT_BYTES / 1024}KB.` },
   invalid_work: { ja: 'このままでは置けません。problems の fix のとおりに直して、もう一度送ってください', en: 'The work can’t be put as it is. Fix each item in problems (see fix) and send it again.' },
   not_found: { ja: '作品が見つかりません。自分の作品の ID を入れてください', en: 'Work not found. Use the ID of one of your own works.' },
   in_review: { ja: 'この作品は審査中です。審査が終わるまで、新しい版は置けません', en: 'This work is in review. You can’t put a new version until the review is done.' },
@@ -149,7 +169,7 @@ apiV1.get('/', (c) => {
   return c.body(apiDocs(locale, origin(c as unknown as ApiContext)), 200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Language': locale });
 });
 
-apiV1.use('/works', authenticate);
+// '/works/*' は '/works' にも当たる（Hono）。'/works' にも付けると、1回の要求で2回数える
 apiV1.use('/works/*', authenticate);
 
 /** 鍵を確かめ、回数を数える。cookie は見ない。 */
@@ -229,6 +249,37 @@ function splitWork(c: ApiContext, html: string) {
   return parts;
 }
 
+/**
+ * 文書の作品（DOC001）の文書。大きさと読める文字だけを見る。だめなら応答。
+ * 頭のクレジット行は外す（載せるときにサーバーが作り直す。get_work で取ったコードを送り直しても重ならない）。ほかは1文字も変えない。
+ */
+function documentWork(c: ApiContext, html: string): string | Response {
+  if (new TextEncoder().encode(html).length > MAX_DOCUMENT_BYTES) return fail(c, 413, 'too_large', 'too_large_document');
+  const problems = checkDocument(html);
+  if (problems.length > 0) return fail(c, 422, 'invalid_work', 'invalid_work', { problems: problemsOf(problems, c.get('locale')) });
+  return stripDocumentCredits(html);
+}
+
+/** 文書の作品の種類。画面（screen）の種類だけ。部品の種類（中央寄せで背景が縮む。MCP002「7」）なら Web にする。 */
+function documentCategory(preferred: { category: string; subtype: string } | null): { category: Category; subtype: string } {
+  const known = preferred && (SUBTYPES as Record<string, readonly string[]>)[preferred.category] ? (preferred.category as Category) : null;
+  const category: Category = known && workShape(known).type === 'screen' ? known : 'Web';
+  const subtype = preferred && SUBTYPES[category].includes(preferred.subtype) ? preferred.subtype : SUBTYPES[category][0];
+  return { category, subtype };
+}
+
+/** 題から作る ID の案（英数字だけ。ほかの文字は - にする）。作れなければ null（pickId が乱数で決める）。 */
+export function idFromTitle(title: string | null): string | null {
+  const slug = (title ?? '')
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/, '');
+  return slug.length >= 3 ? slug : null;
+}
+
 /** writeDraft の答えを、この口の形にする。 */
 async function answer(c: ApiContext, result: Awaited<ReturnType<typeof writeDraft>>) {
   if (result.ok) {
@@ -272,6 +323,20 @@ apiV1.post('/works', async (c) => {
     if (!source) return fail(c, 422, 'bad_from');
   }
 
+  // 文書の作品（DOC001）：文書のまま置く。種類は画面
+  if (htmlForm(input.html) === 'document') {
+    const document = documentWork(c, input.html);
+    if (document instanceof Response) return document;
+    const title = input.title ?? titleOfHtml(document) ?? UNTITLED[c.get('locale')];
+    const id = await pickId(db, idFromTitle(input.title ?? titleOfHtml(document)));
+    if (id === null) return fail(c, 409, 'conflict', 'no_id');
+    if (id === input.from) return fail(c, 422, 'bad_from');
+    const { category, subtype } = documentCategory(source);
+    const meta: PostMeta = { id, title, remix_of: input.from, category, subtype, tags: [...new Set(source ? (JSON.parse(source.tags) as string[]) : [])], made_with: 'ai-assisted' };
+    if ((await countPrivateWorks(db, user.id)) >= PRIVATE_WORKS_LIMIT) return fail(c, 409, 'private_limit', 'private_limit', { limit: PRIVATE_WORKS_LIMIT });
+    return answer(c, await writeDraft(c.env, user, null, { html: '', css: '', js: null, thumb: null, document }, meta, { via: user.via, privateBound: true }));
+  }
+
   const parts = splitWork(c, input.html);
   if (parts instanceof Response) return parts;
   const id = await pickId(db, partIdOf(parts));
@@ -310,6 +375,26 @@ apiV1.post('/works/:id/versions', async (c) => {
   if (input instanceof Response) return input;
   const latest = await db.prepare('SELECT title, category, subtype, tags FROM revisions WHERE work_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').bind(id).first<Pick<RevisionRow, 'title' | 'category' | 'subtype' | 'tags'>>();
   if (!latest) return fail(c, 404, 'not_found');
+  // まだ自分だけでも公開でもない作品（T036 の前に置いた下書き）は、置くと自分だけになるので、上限を先に数える
+  const overLimit = async () => work.status !== 'approved' && work.status !== 'private' && (await countPrivateWorks(db, user.id, id)) >= PRIVATE_WORKS_LIMIT;
+
+  // 文書の作品（DOC001）：文書のまま置く。今までの版が部品の種類でも、文書の版は画面にする
+  if (htmlForm(input.html) === 'document') {
+    const document = documentWork(c, input.html);
+    if (document instanceof Response) return document;
+    const { category, subtype } = documentCategory(latest);
+    const meta: PostMeta = {
+      id,
+      title: input.title ?? titleOfHtml(document) ?? (latest.title.trim() || UNTITLED[c.get('locale')]),
+      remix_of: undefined,
+      category,
+      subtype,
+      tags: JSON.parse(latest.tags) as string[],
+      made_with: 'ai-assisted',
+    };
+    if (await overLimit()) return fail(c, 409, 'private_limit', 'private_limit', { limit: PRIVATE_WORKS_LIMIT });
+    return answer(c, await writeDraft(c.env, user, id, { html: '', css: '', js: null, thumb: null, document }, meta, { via: user.via, privateBound: work.status !== 'approved' }));
+  }
 
   const parts = splitWork(c, input.html);
   if (parts instanceof Response) return parts;
@@ -324,10 +409,7 @@ apiV1.post('/works/:id/versions', async (c) => {
     tags: JSON.parse(latest.tags) as string[],
     made_with: 'ai-assisted',
   };
-  // まだ自分だけでも公開でもない作品（T036 の前に置いた下書き）は、置くと自分だけになるので、上限を先に数える
-  if (work.status !== 'approved' && work.status !== 'private' && (await countPrivateWorks(db, user.id, id)) >= PRIVATE_WORKS_LIMIT) {
-    return fail(c, 409, 'private_limit', 'private_limit', { limit: PRIVATE_WORKS_LIMIT });
-  }
+  if (await overLimit()) return fail(c, 409, 'private_limit', 'private_limit', { limit: PRIVATE_WORKS_LIMIT });
   // 公開していない作品の版は自分だけになる（1日100）。公開の作品の版は審査に回るので、公開の数え方（1日10）
   return answer(c, await writeDraft(c.env, user, id, { ...fixed, thumb: null }, meta, { via: user.via, privateBound: work.status !== 'approved' }));
 });

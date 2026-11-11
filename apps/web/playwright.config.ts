@@ -85,13 +85,18 @@ export default defineConfig({
     trace: process.env.CI ? 'retain-on-failure' : 'off',
   },
   projects: [
-    { name: 'home', testIgnore: /(upload|pages|accounts|account-page|api-v1|mcp|google|login-flow|post|private|passkey|shots-t020|migration|frame-escape|motion|remix-scroll|wall-size|preview-dpr|frame-storage|embed|embed-limit)\.spec\.ts/, use: { baseURL: BASE_URL } },
+    { name: 'home', testIgnore: /(upload|pages|accounts|account-page|api-v1|mcp|google|login-flow|post|private|passkey|shots-t020|migration|frame-escape|motion|remix-scroll|wall-size|preview-dpr|frame-storage|frame-document|embed|embed-limit)\.spec\.ts/, use: { baseURL: BASE_URL } },
     { name: 'upload', testMatch: /upload\.spec\.ts/, use: { baseURL: UPLOAD_URL } },
     { name: 'pages', testMatch: /pages\.spec\.ts/, use: { baseURL: PAGES_URL } },
     // 枠の移動を止めるのはブラウザなので、全部のブラウザで確かめる（docs/tasks/T022.md「1」）
     { name: 'escape-chromium', testMatch: /frame-escape\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
     { name: 'escape-webkit', testMatch: /frame-escape\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     { name: 'escape-firefox', testMatch: /frame-escape\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
+    // 文書の作品の枠（DOC001）。守りが今の枠と同じであることを、SEC001 の形で全部のブラウザで確かめる。
+    // WebKit を theme-press-webkit のすぐ前に置く。時間を測る試験が、shard の中で最初に WebKit を起こす試験にならないように
+    { name: 'document-chromium', testMatch: /frame-document\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
+    { name: 'document-firefox', testMatch: /frame-document\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
+    { name: 'document-webkit', testMatch: /frame-document\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     // ヘッダーのスイッチを押した瞬間に色が変わる（docs/tasks/T035.md「11/11 9:10 の CTO の答え」の1）。Chromium は pages で流れる
     { name: 'theme-press-webkit', testMatch: /theme-press\.pages\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     // 「動きを減らす」の扱いと WebGL の知らせ（docs/tasks/FIX-motion.md「3」）

@@ -35,11 +35,13 @@ function preloadInter(): Plugin {
  * - virtual:ludion/entry-server：React の木（src/entry-server.tsx）
  * - virtual:ludion/before-app：HTML の直後にインラインで動かすスクリプト（src/beforeApp.ts を1本にした文字列）
  * - virtual:ludion/frame-guard：作品のページの #root より前でインラインで動かすスクリプト（src/frameGuard.ts を1本にした文字列）
+ * - virtual:ludion/preview-start：作品のページの #root より前でインラインで動かすスクリプト（src/previewStart.ts を1本にした文字列）
  */
 function workerModules(): Plugin {
   const INLINE_SCRIPTS: Record<string, string> = {
     'virtual:ludion/before-app': 'src/beforeApp.ts',
     'virtual:ludion/frame-guard': 'src/frameGuard.ts',
+    'virtual:ludion/preview-start': 'src/previewStart.ts',
   };
   const ENTRY_SERVER = 'virtual:ludion/entry-server';
   const root = import.meta.dirname;

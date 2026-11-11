@@ -24,6 +24,8 @@ export interface WorkMeta {
   pin_order: number | null;
   /** 任意。サムネイルと OG 画像を撮り、崩れとアクセシビリティを測るまで、読み込みから待つ時間（0〜8000。既定は0） */
   capture?: { delay_ms: number };
+  /** 任意。'document' は文書の作品（DOC001）：AI が書いた1つの HTML 文書を、そのまま置いて動かす。ファイルは index.html。ないときは作品の契約の形 */
+  format?: 'document';
 }
 
 /** 描画に要る作品の中身。ファイルの読み方は使う側（ld、Worker）が決める。 */
@@ -35,6 +37,8 @@ export interface Work {
   css: string;
   /** part.js（動きがあるときだけ） */
   js?: string | null;
+  /** 文書の作品（meta.format が 'document'）の index.html。このとき html と css は空で、js は null */
+  document?: string | null;
 }
 
 /** creators/<handle>/creator.json の中身。 */
