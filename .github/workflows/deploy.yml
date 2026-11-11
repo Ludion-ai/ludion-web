@@ -1,12 +1,19 @@
-# 本番に出す（CI001「3」）。npm run deploy と同じ中身（確かめ → ビルド → D1 の migration → Worker）を流す。
+# 本番に出す（CI001「3」、DEPLOY002）。npm run deploy と同じ中身（確かめ → ビルド → D1 の migration → Worker）を流す。
 # 承認の形は、リポジトリの変数 DEPLOY_MODE で選ぶ（設定は CEO）。
-# 入っていなければ、この job は動かない。秘密の値が承認の設定より先に入っても、承認なしで本番に出ないようにするため。
-# 11/11 の CEO の決定：本番に出すのは、公開のリポジトリ Ludion-ai/ludion-web のこの workflow から（PUB002）。DEPLOY_MODE は approval にする。
-# - approval：main への push のテスト（test.yml）が通った後に動き、environment「production」の承認者（CEO）の承認を待つ。
-#   承認者を置けるのは、公開のリポジトリか GitHub Enterprise だけ。置いてから approval にする
+# 入っていなければ、この workflow は動かない。秘密の値が承認の設定より先に入っても、承認なしで本番に出ないようにするため。
+# 11/11 の CEO の決定：本番に出すのは、公開のリポジトリ Ludion-ai/ludion-web のこの workflow から（PUB002）。
+# 11/11 16:20 の CEO の決定（DEPLOY002）：ふだんは承認なしで出す。D1 の migration を含むときだけ CEO が承認する。
+# - auto：main への push のテスト（test.yml）が通った後に動く。まず「決める」の job が、今の本番の版（GitHub の deploy の記録の、
+#   いちばん新しい成功したもの）から出す commit までに apps/web/migrations/ の変更があるかを見る（apps/web/scripts/deploy-gate.mjs）。
+#   - ない：environment「production-auto」（承認者なし。main だけ）で、承認なしで出す
+#   - ある、または今の本番の版が読めない：environment「production」の承認者（CEO）の承認を待つ（安全な側）
+#   どちらでも、当たる migration を実行の Summary の頭に書く
+# - approval：いつも environment「production」の承認を待つ（auto の前の形。自動を止めたいときに戻す）
+#   承認者を置けるのは、公開のリポジトリか GitHub Enterprise だけ
 # - manual：CEO が Actions の画面の Run workflow で手で流したときだけ動く。流せるのは変数 DEPLOY_APPROVER の GitHub の名前の人だけ
-#   （セッションが CEO と別のアカウントで動いているときだけ、承認の意味がある）
-# - 同時に1本だけ。migration が同時に2つ走らない
+#   （セッションが CEO と別のアカウントで動いているときだけ、承認の意味がある）。いつも承認を待つ
+# - 手で流す（Run workflow）道は、どの形でも残す。auto では、手で流しても同じ決め方をする
+# - 同時に1本だけ（workflow ごと）。migration が同時に2つ走らず、次の「決める」は前の deploy の記録が残ってから動く
 # - 出すのは ludion-web の main と同じコミットだけ（scripts/deploy-guard.mjs が、origin が ludion-web で、HEAD が origin/main と同じかを確かめる）
 # - 触るのは wrangler.jsonc の ludion-web と、その D1（ludion-app）と R2（ludion-parts）だけ。ludion で始まる古いリソースには触らない
 name: deploy
@@ -26,24 +33,65 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
-    name: 本番に出す
+  decide:
+    name: 承認を待つかを決める
     if: >-
-      vars.DEPLOY_MODE == 'approval' &&
+      (vars.DEPLOY_MODE == 'auto' || vars.DEPLOY_MODE == 'approval') &&
       (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' ||
        github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       vars.DEPLOY_MODE == 'manual' && vars.DEPLOY_APPROVER != '' &&
       github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == vars.DEPLOY_APPROVER
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      deployments: read
+    outputs:
+      environment: ${{ steps.gate.outputs.environment }}
+      head: ${{ steps.head.outputs.sha }}
+    steps:
+      - id: head
+        name: 出す commit（テストが通ったコミット。手で流したときは main の先頭）
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          MAIN_SHA: ${{ github.sha }}
+        run: |
+          # deploy の記録（GitHub の deployment）には github.sha（main の先頭）が残る。
+          # 出す commit と同じときだけ進めて、記録の commit と本番の中身をずらさない
+          if [ "$HEAD_SHA" != "$MAIN_SHA" ]; then
+            echo "::notice::main が先に進んだ（テストが通ったのは ${HEAD_SHA:0:7}、main は ${MAIN_SHA:0:7}）。新しい方の deploy が出すので、これは出さない"
+            printf '## 出さない\n\nmain が先に進んだ（%s → %s）。新しい方の deploy が出す。\n' "${HEAD_SHA:0:7}" "${MAIN_SHA:0:7}" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        if: steps.head.outputs.sha != ''
+        with:
+          ref: ${{ steps.head.outputs.sha }}
+          # 今の本番の版と比べるため、履歴を全部取る
+          fetch-depth: 0
+      - id: gate
+        if: steps.head.outputs.sha != ''
+        name: 今の本番の版から migration が増えたか
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEPLOY_MODE: ${{ vars.DEPLOY_MODE }}
+          HEAD_SHA: ${{ steps.head.outputs.sha }}
+        run: node apps/web/scripts/deploy-gate.mjs --mode "$DEPLOY_MODE" --head "$HEAD_SHA"
+
+  deploy:
+    name: 本番に出す（${{ needs.decide.outputs.environment }}）
+    needs: decide
+    if: needs.decide.outputs.environment != ''
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment:
-      name: production
+      name: ${{ needs.decide.outputs.environment }}
       url: https://ludion.ai/
     steps:
       - uses: actions/checkout@v4
         with:
-          # テストが通ったコミット。手で流したときは main の先頭
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ needs.decide.outputs.head }}
       - name: origin/main を取ってくる（deploy-guard.mjs が比べる）
         run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
       - uses: actions/setup-node@v4
@@ -55,9 +103,10 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ENVIRONMENT: ${{ needs.decide.outputs.environment }}
         run: |
-          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::environment production の Secrets に CLOUDFLARE_API_TOKEN がない"; exit 1; }
-          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::environment production の Secrets に CLOUDFLARE_ACCOUNT_ID がない"; exit 1; }
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::environment $ENVIRONMENT の Secrets に CLOUDFLARE_API_TOKEN がない"; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::environment $ENVIRONMENT の Secrets に CLOUDFLARE_ACCOUNT_ID がない"; exit 1; }
       - name: npm run deploy（確かめ → ビルド → D1 の migration → Worker）
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -73,6 +122,7 @@ jobs:
             echo ""
             echo "| 項目 | 値 |"
             echo "| --- | --- |"
+            echo "| environment | \`${{ needs.decide.outputs.environment }}\` |"
             echo "| Worker の版 | \`${version:-（ログに見つからない）}\` |"
             echo "| 中身のコミット | \`$(git rev-parse HEAD)\` |"
             echo "| main の先頭 | \`$(git rev-parse refs/remotes/origin/main)\` |"
