@@ -92,6 +92,11 @@ export default defineConfig({
     { name: 'escape-chromium', testMatch: /frame-escape\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
     { name: 'escape-webkit', testMatch: /frame-escape\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     { name: 'escape-firefox', testMatch: /frame-escape\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
+    // 文書の作品の枠（DOC001）。守りが今の枠と同じであることを、SEC001 の形で全部のブラウザで確かめる。
+    // WebKit を theme-press-webkit のすぐ前に置く。時間を測る試験が、shard の中で最初に WebKit を起こす試験にならないように
+    { name: 'document-chromium', testMatch: /frame-document\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
+    { name: 'document-firefox', testMatch: /frame-document\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
+    { name: 'document-webkit', testMatch: /frame-document\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     // ヘッダーのスイッチを押した瞬間に色が変わる（docs/tasks/T035.md「11/11 9:10 の CTO の答え」の1）。Chromium は pages で流れる
     { name: 'theme-press-webkit', testMatch: /theme-press\.pages\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     // 「動きを減らす」の扱いと WebGL の知らせ（docs/tasks/FIX-motion.md「3」）
@@ -111,10 +116,6 @@ export default defineConfig({
     { name: 'frame-storage-chromium', testMatch: /frame-storage\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
     { name: 'frame-storage-webkit', testMatch: /frame-storage\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     { name: 'frame-storage-firefox', testMatch: /frame-storage\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
-    // 文書の作品の枠（DOC001）。守りが今の枠と同じであることを、SEC001 の形で全部のブラウザで確かめる
-    { name: 'document-chromium', testMatch: /frame-document\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
-    { name: 'document-webkit', testMatch: /frame-document\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
-    { name: 'document-firefox', testMatch: /frame-document\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
     // 順に走らせる。テストが wrangler d1 execute で同じ D1 のファイルを開くので、並行にサーバーへ要求を出すと、
     // 手元の D1 が「Failed to get session commit token」で 500 を返すことがある
     // workers: 1 は、ファイルをまたいでも同時に走らせないため（1つの D1 を3つのファイルで使う）
