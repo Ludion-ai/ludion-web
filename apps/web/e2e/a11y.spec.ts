@@ -123,7 +123,7 @@ test.describe('キーボードだけで操作する', () => {
     await openHome(page);
     const visited: string[] = [];
     // サイトの情報（利用規約など）は、サイドバーの下からヘッダーのメニューへ移った（T035「1」）
-    for (let i = 0; i < 21; i += 1) {
+    for (let i = 0; i < 22; i += 1) {
       await page.keyboard.press('Tab');
       await expectVisibleFocus(page, `Tab ${i + 1}回目`);
       visited.push((await focusedName(page))!);
@@ -145,6 +145,7 @@ test.describe('キーボードだけで操作する', () => {
       'ミニマル',
       '実験',
       'モーション',
+      '壁紙',
       '人気',
       '新着',
       'Studio Portfolio Landing@seed_a',

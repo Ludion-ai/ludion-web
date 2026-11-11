@@ -410,6 +410,7 @@ test.describe('チップ（SPEC 4）', () => {
     ['ミニマル', 'minimal', hasTag('minimal')],
     ['実験', 'experimental', hasTag('experimental')],
     ['モーション', 'motion', hasTag('motion')], // seed にはないので 0。作品が出ることは upload.spec.ts で確かめる
+    ['壁紙', 'wallpaper', countWorks((work) => work.subtype === 'Wallpaper')], // seed にはないので 0。作品が出ることは wallpaper.pages.spec.ts で確かめる
   ];
 
   for (const [label, param, count] of cases) {
