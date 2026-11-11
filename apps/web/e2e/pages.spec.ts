@@ -497,9 +497,8 @@ test.describe('コピー', () => {
     expect(clipboard.split('\n')[0]).toBe('<!-- UI by @fixture — ludion.ai/p/fx-button (MIT) -->');
     expect(clipboard).toContain('/* UI by @fixture — ludion.ai/p/fx-button (MIT) */');
     expect(clipboard).toContain(readFileSync(join(REPO, 'fixtures/works/fx-button/part.css'), 'utf8').trim());
-    // ページの JSON（Worker が buildCopySnippet で作ったもの）と全部同じ
-    const embedded = JSON.parse((await page.locator('#ld-page').textContent())!) as { snippet: string };
-    expect(clipboard).toBe(embedded.snippet);
+    // Worker が buildCopySnippet で作ったもの（/p/:id/code と同じ文字列）と全部同じ
+    expect(clipboard).toBe(await (await request.get('/p/fx-button/code')).text());
 
     await expect(page.getByRole('button', { name: 'コピーしました' })).toBeVisible();
     await expect(page.getByTestId('copy-count')).toHaveText(String(before + 1));
@@ -1022,8 +1021,7 @@ test.describe('コードの箱のたたみ', () => {
     await page.getByRole('button', { name: 'コードをコピー' }).click();
     await expect(page.getByRole('button', { name: 'コピーしました' })).toBeVisible();
     const clipboard = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n');
-    const embedded = JSON.parse((await page.locator('#ld-page').textContent())!) as { snippet: string };
-    expect(clipboard).toBe(embedded.snippet);
+    expect(clipboard).toBe(await (await page.request.get('/p/fx-landing/code')).text());
     expect(clipboard.split('\n')[0]).toBe(CREDIT);
     await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
   });

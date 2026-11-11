@@ -13,6 +13,12 @@ declare module 'virtual:ludion/frame-guard' {
   export default code;
 }
 
+declare module 'virtual:ludion/preview-start' {
+  /** 作品のページの #root より前でインラインで動かすスクリプト（src/previewStart.ts を1本にしたもの）。枠を読み始める関数を置く。 */
+  const code: string;
+  export default code;
+}
+
 declare module 'virtual:ludion/entry-server' {
   import type { PageData } from '../src/data/pages';
   import type { Work } from '../src/data/works';
