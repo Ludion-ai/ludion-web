@@ -23,11 +23,8 @@ internal sealed class PickerWindow : Form
         this.onPick = onPick;
         Text = Strings.Current.PickerTitle;
         Icon = AppIcon.Window;
-        StartPosition = FormStartPosition.CenterScreen;
-        AutoScaleMode = AutoScaleMode.Dpi;
-        AutoScaleDimensions = new SizeF(96, 96);
-        ClientSize = new Size(1040, 720);
-        MinimumSize = new Size(560, 480);
+        StartPosition = FormStartPosition.Manual;
+        AutoScaleMode = AutoScaleMode.None;
         BackColor = Color.White;
         view = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.White, AllowExternalDrop = false };
         Controls.Add(view);
@@ -36,6 +33,12 @@ internal sealed class PickerWindow : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        // 大きさは 96 DPI の値を、開いた画面の DPI に合わせて広げる（4K の 150% でも同じ見た目の大きさ）。作業の場所に収める
+        var scale = DeviceDpi / 96f;
+        var area = Screen.FromPoint(Cursor.Position).WorkingArea;
+        var size = new Size(Math.Min((int)(1040 * scale), area.Width), Math.Min((int)(720 * scale), area.Height));
+        MinimumSize = new Size((int)(560 * scale), (int)(480 * scale));
+        Bounds = new Rectangle(area.Left + (area.Width - size.Width) / 2, area.Top + (area.Height - size.Height) / 2, size.Width, size.Height);
         // 一覧のページは Windows の色に合わせる（picker.html の prefers-color-scheme）。窓の枠も合わせる
         if (!Native.AppsUseDarkTheme()) return;
         var dark = 1;
