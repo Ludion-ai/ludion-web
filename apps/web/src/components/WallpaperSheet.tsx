@@ -1,5 +1,6 @@
 import { ArrowLeft, X } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import type { WallStill } from '../data/pages';
 import { useCopy } from '../hooks/useCopy';
 import { trackEvent } from '../lib/analytics';
 import { COPIED_MS } from '../lib/count';
@@ -9,10 +10,13 @@ import {
   PLASH_STORE_URL,
   WINDOWS_DOWNLOAD_PATH,
   appUrl,
+  currentScreenPixels,
   currentWallpaperDevice,
   downloadWallpaperHtml,
+  nearestStill,
   plashUrl,
   rememberApp,
+  stillDownloadName,
   wallUrl,
   wallpaperOrder,
   watchAppLaunch,
@@ -24,6 +28,8 @@ interface WallpaperSheetProps {
   title: string;
   /** コピーされるコード。「HTML を保存」はこれをそのまま保存する */
   snippet: string;
+  /** 静止画（WALL002）。空なら「静止画で使う」を出さない */
+  stills: WallStill[];
   /** シートを開いたボタン。閉じるとフォーカスを戻す */
   anchor: HTMLElement;
   onClose: () => void;
@@ -42,7 +48,7 @@ const storeLink = 'font-semibold text-site-fg underline';
  * 「壁紙にする」のシート（WALL001「2」）。形は「リミックス」のシートと同じ（RemixSheet.tsx）。
  * 開いている端末に合わせて、Mac か Windows の方を先に出す。端末の種類は並びを変えるだけで、送らず、保存しない。
  */
-export function WallpaperSheet({ workId, title, snippet, anchor, onClose }: WallpaperSheetProps) {
+export function WallpaperSheet({ workId, title, snippet, stills, anchor, onClose }: WallpaperSheetProps) {
   const copy = useCopy();
   const text = copy.work.wallpaper;
   const sheetRef = useRef<HTMLDialogElement>(null);
@@ -107,7 +113,7 @@ export function WallpaperSheet({ workId, title, snippet, anchor, onClose }: Wall
   const sections = {
     mac: (
       <section key="mac" aria-label={text.mac} data-wallpaper="mac" className={sectionClass}>
-        <h3 className={headingClass}>{text.mac}</h3>
+        <h4 className={headingClass}>{text.mac}</h4>
         <a href={plashUrl(workId, title)} onClick={() => trackEvent('wallpaper_open', { work_id: workId, method: 'plash' })} className={`${primaryButton} mt-2`}>
           {text.plash}
         </a>
@@ -123,7 +129,7 @@ export function WallpaperSheet({ workId, title, snippet, anchor, onClose }: Wall
     ),
     windows: (
       <section key="windows" aria-label={text.windows} data-wallpaper="windows" className={sectionClass}>
-        <h3 className={headingClass}>{text.windows}</h3>
+        <h4 className={headingClass}>{text.windows}</h4>
         <a href={appUrl(workId)} onClick={onApp} className={`${primaryButton} mt-2`}>
           {text.app}
         </a>
@@ -133,7 +139,7 @@ export function WallpaperSheet({ workId, title, snippet, anchor, onClose }: Wall
             {text.appInstall}
           </button>
         </p>
-        <h4 className={`${headingClass} mt-4`}>{text.lively}</h4>
+        <h5 className={`${headingClass} mt-4`}>{text.lively}</h5>
         <p className={noteClass}>
           {text.livelyGet}
           <a href={LIVELY_STORE_URL} target="_blank" rel="noopener noreferrer" className={storeLink}>
@@ -200,14 +206,21 @@ export function WallpaperSheet({ workId, title, snippet, anchor, onClose }: Wall
           </>
         ) : (
           <>
-            {wallpaperOrder(device).map((name) => sections[name])}
-            <section aria-label={text.other} data-wallpaper="other" className={sectionClass}>
-              <h3 className={headingClass}>{text.other}</h3>
-              <p className={noteClass}>{text.otherNote}</p>
-              <button type="button" onClick={onDownload} className={`${whiteButton} mt-2`}>
-                {text.download}
-              </button>
-            </section>
+            {stills.length > 0 && <StillSection workId={workId} stills={stills} device={device} />}
+            {/* 動く壁紙（WALL001 のまま）。見出しの上に線を引き、見出しと最初のアプリの間には引かない */}
+            <div className={stills.length > 0 ? 'mt-5 border-t border-site-line pt-4' : 'mt-1'}>
+              <h3 className={headingClass}>{text.live}</h3>
+              <div className="[&>section:first-child]:mt-3 [&>section:first-child]:border-t-0 [&>section:first-child]:pt-0">
+                {wallpaperOrder(device).map((name) => sections[name])}
+                <section aria-label={text.other} data-wallpaper="other" className={sectionClass}>
+                  <h4 className={headingClass}>{text.other}</h4>
+                  <p className={noteClass}>{text.otherNote}</p>
+                  <button type="button" onClick={onDownload} className={`${whiteButton} mt-2`}>
+                    {text.download}
+                  </button>
+                </section>
+              </div>
+            </div>
             <p className="mt-4 text-meta text-site-fg-2">{text.power}</p>
           </>
         )}
@@ -240,6 +253,56 @@ function InstallGuide({ onDownload, onHave }: { onDownload: () => void; onHave: 
       </button>
       <p className={`${noteClass} mt-4`}>{text.privacy}</p>
     </div>
+  );
+}
+
+/**
+ * 「静止画で使う（アプリ不要）」（WALL002）。大きさを選び、PNG を落とす。初めの大きさは、開いている画面に一番近いもの。
+ * その下に1行、開いている端末の OS で壁紙にする手順（どちらか分からなければ両方）。
+ */
+function StillSection({ workId, stills, device }: { workId: string; stills: WallStill[]; device: WallpaperDevice }) {
+  const text = useCopy().work.wallpaper;
+  const [chosen, setChosen] = useState(() => nearestStill(stills, currentScreenPixels()));
+  const name = useId();
+  const steps = device === 'windows' ? [text.stillWindows] : device === 'mac' ? [text.stillMac] : [text.stillWindows, text.stillMac];
+
+  return (
+    <section aria-label={text.still} data-wallpaper="still" className="mt-1">
+      <h3 className={headingClass}>{text.still}</h3>
+      <fieldset className="mt-2">
+        <legend className="sr-only">{text.stillSize}</legend>
+        <div className="grid grid-cols-3 gap-1 rounded-control bg-site-field p-1">
+          {stills.map((still) => (
+            <label key={still.url} className="relative">
+              <input
+                type="radio"
+                name={name}
+                value={`${still.width}x${still.height}`}
+                checked={still.url === chosen.url}
+                onChange={() => setChosen(still)}
+                className="peer sr-only"
+              />
+              <span className="flex h-9 cursor-pointer items-center justify-center rounded-[calc(var(--radius-control)-4px)] px-1 text-center text-meta font-semibold whitespace-nowrap text-site-fg-2 peer-checked:bg-site-bg peer-checked:text-site-fg peer-checked:shadow-menu peer-focus-visible:outline-2 peer-focus-visible:outline-site-fg">
+                {text.stillSizeName(still.width, still.height)}
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <a
+        href={chosen.url}
+        download={stillDownloadName(workId, chosen)}
+        onClick={() => trackEvent('wallpaper_open', { work_id: workId, method: 'still' })}
+        className={`${primaryButton} mt-2`}
+      >
+        {text.stillDownload}
+      </a>
+      {steps.map((step) => (
+        <p key={step} className={noteClass}>
+          {step}
+        </p>
+      ))}
+    </section>
   );
 }
 

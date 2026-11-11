@@ -10,13 +10,16 @@ import type { Env } from './env';
 import { logError } from './log';
 import { purgeWithRetry } from './purge';
 import { isRemixSource } from '../src/lib/isRemix';
-import { CONTENT_TYPES, checkUpload, compareVersions } from './upload';
+import { CONTENT_TYPES, checkUpload, compareVersions, contentTypeOf } from './upload';
 
 type AdminEnv = { Bindings: Env };
 type CreatorRow = { id: string; handle: string; kind: 'person' | 'label'; user_id: string | null };
 
-/** 1回に受け取る大きさの上限（全部のファイルの合計の目安）。 */
-const MAX_BODY_BYTES = 4 * 1024 * 1024;
+/**
+ * 1回に受け取る大きさの上限（全部のファイルの合計の目安）。壁紙の静止画（WALL002。1枚 12MB まで、3枚）が入る大きさ。
+ * Worker は multipart を全部メモリーに読むので、Worker のメモリー（128MB）の半分を超えない値にする。
+ */
+const MAX_BODY_BYTES = 40 * 1024 * 1024;
 
 const encoder = new TextEncoder();
 
@@ -121,7 +124,7 @@ admin.post('/works', async (c) => {
   // 先に R2 に置く。D1 に書けなかったときは、同じ版をもう一度送れば上書きされる
   await Promise.all([
     ...work.files.map((file) =>
-      c.env.PARTS.put(workKey(meta.id, meta.version, file.name), file.bytes, { httpMetadata: { contentType: CONTENT_TYPES[file.name] } }),
+      c.env.PARTS.put(workKey(meta.id, meta.version, file.name), file.bytes, { httpMetadata: { contentType: contentTypeOf(file.name) } }),
     ),
     ...(avatar ? [c.env.PARTS.put(avatar, work.avatar, { httpMetadata: { contentType: CONTENT_TYPES['avatar.webp'] } })] : []),
   ]);

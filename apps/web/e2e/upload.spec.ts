@@ -4,7 +4,8 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { copy } from '../src/copy';
 import type { Work } from '../src/data/works';
 import { comparePopular } from '../src/lib/popular';
 
@@ -557,4 +558,142 @@ test('Worker も part.js の色と reduced motion を確かめる：fx-bad-motio
     rmSync(motion, { recursive: true, force: true });
     rmSync(color, { recursive: true, force: true });
   }
+});
+
+// ---------------------------------------------------------------- 壁紙の静止画（WALL002）
+
+/** PNG の幅と高さ（IHDR）。PNG でなければ null。 */
+function pngSize(bytes: Buffer): { width: number; height: number } | null {
+  if (bytes.length < 24 || bytes.toString('latin1', 1, 4) !== 'PNG') return null;
+  return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+}
+
+const STILLS = [
+  { width: 3840, height: 2160 },
+  { width: 2560, height: 1440 },
+  { width: 1920, height: 1080 },
+];
+const stillName = (size: { width: number; height: number }) => `wall-${size.width}x${size.height}.png`;
+const wallText = copy.work.wallpaper;
+
+test('壁紙の作品は ld upload で静止画を3つの大きさで作り、R2 に置く。ほかの作品には作らない', () => {
+  const sent = ld(['upload', 'fx-wallpaper', '--publish', '--env', 'dev']);
+  expect(sent.code, sent.out).toBe(0);
+  expect(sent.out).toContain('静止画：3840×2160');
+  for (const size of STILLS) {
+    const still = r2(`works/fx-wallpaper/1/${stillName(size)}`);
+    expect(still, stillName(size)).not.toBeNull();
+    expect(pngSize(still!)).toEqual(size);
+  }
+  // 壁紙でない作品（先に送った見本）には作らない
+  expect(r2(`works/fx-button/1/${stillName(STILLS[2])}`)).toBeNull();
+});
+
+test('静止画の道：公開の版だけ、PNG を <id>-<幅>x<高さ>.png として返す。ない大きさ、ない版、壁紙でない作品は 404', async ({ request }) => {
+  for (const size of STILLS) {
+    const response = await request.get(`/w/fx-wallpaper/1/${stillName(size)}`);
+    expect(response.status()).toBe(200);
+    expect(response.headers()['content-type']).toBe('image/png');
+    expect(response.headers()['content-disposition']).toBe(`attachment; filename="fx-wallpaper-${size.width}x${size.height}.png"`);
+    expect(response.headers()['cache-control']).toBe('private, no-store');
+    expect(pngSize(await response.body())).toEqual(size);
+  }
+  expect((await request.get('/w/fx-wallpaper/1/wall-1280x720.png')).status()).toBe(404);
+  expect((await request.get('/w/fx-wallpaper/9/wall-1920x1080.png')).status()).toBe(404);
+  expect((await request.get('/w/fx-button/1/wall-1920x1080.png')).status()).toBe(404);
+  expect((await request.get('/w/nothing-here/1/wall-1920x1080.png')).status()).toBe(404);
+});
+
+test('管理 API：静止画は壁紙の作品だけで、3つ全部。大きさが違えば「形」で 422', async ({ request }) => {
+  const creator = join(REPO, 'fixtures/creators/fixture');
+  const asFile = (name: string, buffer: Buffer) => ({ name, mimeType: 'image/png', buffer });
+  const stills = Object.fromEntries(STILLS.map((size) => [stillName(size), asFile(stillName(size), r2(`works/fx-wallpaper/1/${stillName(size)}`)!)]));
+  const dir = mkdtempSync(join(tmpdir(), 'ld-post-'));
+  const send = (extra: Record<string, { name: string; mimeType: string; buffer: Buffer }>) => {
+    const body: Record<string, { name: string; mimeType: string; buffer: Buffer }> = { ...extra };
+    for (const name of readdirSync(dir)) body[name] = { name, mimeType: 'application/octet-stream', buffer: readFileSync(join(dir, name)) };
+    for (const name of ['creator.json', 'avatar.webp']) body[name] = { name, mimeType: 'application/octet-stream', buffer: readFileSync(join(creator, name)) };
+    return request.post('/api/admin/works', { headers: { Authorization: `Bearer ${TOKEN}` }, multipart: body });
+  };
+  try {
+    // 壁紙でない作品
+    cpSync(join(REPO, 'fixtures/works/fx-button'), dir, { recursive: true });
+    editJson(join(dir, 'meta.json'), (meta) => ({ ...meta, version: '9' }));
+    const notWallpaper = await send(stills);
+    expect(notWallpaper.status()).toBe(422);
+    expect(JSON.stringify((await notWallpaper.json()).failed)).toContain('壁紙の作品だけ');
+
+    // 壁紙の作品でも、1枚足りない、または大きさが違えば 422
+    rmSync(dir, { recursive: true, force: true });
+    cpSync(join(REPO, 'fixtures/works/fx-wallpaper'), dir, { recursive: true });
+    editJson(join(dir, 'meta.json'), (meta) => ({ ...meta, version: '2' }));
+    const missing = await send({ [stillName(STILLS[0])]: stills[stillName(STILLS[0])], [stillName(STILLS[1])]: stills[stillName(STILLS[1])] });
+    expect(missing.status()).toBe(422);
+    expect(JSON.stringify((await missing.json()).failed)).toContain('静止画が 2 枚しかない');
+    const swapped = await send({ ...stills, [stillName(STILLS[0])]: asFile(stillName(STILLS[0]), stills[stillName(STILLS[2])].buffer) });
+    expect(swapped.status()).toBe(422);
+    expect(JSON.stringify((await swapped.json()).failed)).toContain('wall-3840x2160.png が 1920×1080');
+    // どれも置かれていない
+    expect(d1<{ version: string }>("SELECT version FROM works WHERE id = 'fx-wallpaper'")).toEqual([{ version: '1' }]);
+    expect(d1("SELECT id FROM revisions WHERE work_id = 'fx-button' AND version = '9'")).toEqual([]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test.describe('作品のページの「静止画で使う（アプリ不要）」', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  async function openSheet(page: Page) {
+    await page.goto('/p/fx-wallpaper');
+    await page.getByRole('heading', { level: 1 }).waitFor();
+    await page.waitForFunction(() => Object.keys(document.getElementById('root')!).some((key) => key.startsWith('__reactContainer')));
+    await page.getByRole('button', { name: wallText.open, exact: true }).locator('visible=true').click();
+    return page.getByRole('dialog', { name: wallText.heading });
+  }
+
+  test('シートの一番上にあり、3つの大きさの PNG が落ちる（大きさが合う）。押した数は wallpaper_open の still', async ({ page }) => {
+    const sent: [string, unknown][] = [];
+    await page.exposeFunction('__sent', (name: string, params: unknown) => sent.push([name, params]));
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+      const record = (window as unknown as { __sent: (name: string, params: unknown) => void }).__sent;
+      window.gtag = (command: unknown, name: unknown, params: unknown) => {
+        if (command === 'event' && name !== 'page_view') record(name as string, params);
+      };
+    });
+    const dialog = await openSheet(page);
+    // 一番上が静止画。その下に「動く壁紙にする」の見出しと、今までの節（Windows の端末なので Windows が先）
+    expect(await dialog.locator('section').evaluateAll((list) => list.map((s) => s.getAttribute('data-wallpaper')))).toEqual(['still', 'windows', 'mac', 'other']);
+    expect(await dialog.getByRole('heading', { level: 3 }).allTextContents()).toEqual([wallText.still, wallText.live]);
+    const still = dialog.locator('section[data-wallpaper="still"]');
+    // Windows の端末では Windows の1行だけ
+    await expect(still.getByText(wallText.stillWindows, { exact: true })).toBeVisible();
+    await expect(still.getByText(wallText.stillMac, { exact: true })).toHaveCount(0);
+    // 初めの大きさは、画面（1440px、密度1）に一番近い 1920×1080
+    await expect(still.getByRole('radio', { name: wallText.stillSizeName(1920, 1080) })).toBeChecked();
+
+    for (const size of STILLS) {
+      const label = wallText.stillSizeName(size.width, size.height);
+      await still.getByText(label, { exact: true }).click();
+      await expect(still.getByRole('radio', { name: label })).toBeChecked();
+      sent.length = 0;
+      const [download] = await Promise.all([page.waitForEvent('download'), still.getByRole('link', { name: wallText.stillDownload }).click()]);
+      expect(download.suggestedFilename()).toBe(`fx-wallpaper-${size.width}x${size.height}.png`);
+      expect(pngSize(readFileSync((await download.path())!))).toEqual(size);
+      await expect.poll(() => sent).toEqual([['wallpaper_open', { work_id: 'fx-wallpaper', method: 'still' }]]);
+    }
+  });
+
+  test('画素の密度が2の画面（1440px → 2880px）では 2560×1440 が初め。Mac の端末では Mac の1行', async ({ browser }) => {
+    const context = await browser.newContext({ baseURL: test.info().project.use.baseURL, viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
+    const page = await context.newPage();
+    await page.addInitScript(() => Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' }));
+    const dialog = await openSheet(page);
+    const still = dialog.locator('section[data-wallpaper="still"]');
+    await expect(still.getByRole('radio', { name: wallText.stillSizeName(2560, 1440) })).toBeChecked();
+    await expect(still.getByText(wallText.stillMac, { exact: true })).toBeVisible();
+    await expect(still.getByText(wallText.stillWindows, { exact: true })).toHaveCount(0);
+    await context.close();
+  });
 });

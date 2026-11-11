@@ -47,7 +47,15 @@ export function uploadTarget(env: UploadEnv, processEnv: NodeJS.ProcessEnv = pro
 }
 
 /** 送るファイル。作品のフォルダと、作者のフォルダから集める。 */
-export function collectFiles(location: WorkLocation, creator: string): { name: string; path: string }[] {
+export interface UploadFile {
+  name: string;
+  /** ファイルから読むときの場所 */
+  path?: string;
+  /** その場で作った中身（壁紙の静止画。stills.ts） */
+  bytes?: Buffer;
+}
+
+export function collectFiles(location: WorkLocation, creator: string): UploadFile[] {
   const names = ['meta.json', 'part.html', 'part.css', 'part.js', 'thumb.webp', 'og.png'];
   const files = names.map((name) => ({ name, path: join(location.dir, name) })).filter((f) => existsSync(f.path));
   const dir = creatorDir(location.library, creator);
@@ -60,9 +68,9 @@ export interface UploadResult {
   body: Record<string, unknown>;
 }
 
-export async function sendWork(target: UploadTarget, files: { name: string; path: string }[], publish: boolean): Promise<UploadResult> {
+export async function sendWork(target: UploadTarget, files: UploadFile[], publish: boolean): Promise<UploadResult> {
   const form = new FormData();
-  for (const file of files) form.append(file.name, new Blob([readFileSync(file.path)]), file.name);
+  for (const file of files) form.append(file.name, new Blob([file.bytes ? new Uint8Array(file.bytes) : readFileSync(file.path!)]), file.name);
   if (publish) form.append('publish', 'true');
   const response = await fetch(`${target.url}/api/admin/works`, {
     method: 'POST',

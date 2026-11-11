@@ -10,6 +10,7 @@ import { launch } from './browser.ts';
 import { ITEM_LABELS, checkWork, formatCheck, type CheckResult } from './check.ts';
 import { MAX_THUMB_BYTES, imageSize, makeAvatar, makeMonogramAvatar, makeOg, makeThumb } from './images.ts';
 import { startPreview } from './preview.ts';
+import { isWallpaperWork, launchForStills, makeStills, stillTime, type StillsBrowser } from './stills.ts';
 import { CREATOR_KINDS, HANDLE_PATTERN, ID_PATTERN, MADE_WITH } from '@ludion/rules';
 import { newCss, newHtml, newMeta, today } from './templates.ts';
 import { collectFiles, describeResult, sendWork, uploadTarget, type UploadEnv } from './upload.ts';
@@ -35,7 +36,7 @@ const USAGE = `使い方（リポジトリの根で）：
   npx ld preview <id> [--port 4300] [--no-open]
   npx ld check <id> [<id> …] | --all [--fixtures]
   npx ld add <id> [<id> …]
-  npx ld upload <id> [<id> …] [--publish] [--env dev|prod]
+  npx ld upload <id> [<id> …] [--publish] [--env dev|prod] [--still-time HH:MM]
   npx ld list [--fixtures]
   npx ld creator add <handle> --name <名前> [--x <URL>] [--site <URL>] --avatar <画像> [--fixtures]
   npx ld creator add <handle> --name <名前> --label [--x <URL>] [--avatar <画像>]   （運営のレーベル）`;
@@ -208,9 +209,11 @@ async function cmdUpload(args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
-    options: { publish: { type: 'boolean', default: false }, env: { type: 'string', default: 'dev' } },
+    options: { publish: { type: 'boolean', default: false }, env: { type: 'string', default: 'dev' }, 'still-time': { type: 'string' } },
   });
   if (positionals.length === 0) fail('id がない。例：npx ld upload toggle-aurora --publish --env dev');
+  const stillAt = values['still-time'];
+  if (stillAt !== undefined && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(stillAt)) fail('--still-time は HH:MM（例：21:00）');
   const env = values.env as UploadEnv;
   if (env !== 'dev' && env !== 'prod') fail('--env は dev か prod');
   let target;
@@ -222,6 +225,8 @@ async function cmdUpload(args: string[]): Promise<number> {
   const locations = positionals.map(locate);
   console.log(`送り先：${target.url}（${env}）。${values.publish ? '--publish：approved で置く' : '--publish なし：新しい作品は draft、今ある作品は状態を変えずに版を差し替える'}`);
   const browser = await launch();
+  // 壁紙の静止画を撮るブラウザ（本物の GPU を試す）。壁紙の作品があるときだけ開く
+  let stillsBrowser: StillsBrowser | null = null;
   let failed = 0;
   try {
     for (const location of locations) {
@@ -241,9 +246,29 @@ async function cmdUpload(args: string[]): Promise<number> {
         writeFileSync(join(location.dir, 'og.png'), og);
         console.log(`  thumb.webp と og.png がなかったので作った（${shown(location.dir)}/。コミットは自分で）`);
       }
+      const files = collectFiles(location, work.meta.creator);
+      // 壁紙の作品は、静止画を3つの大きさで作って一緒に送る（WALL002）。ファイルには残さない
+      if (isWallpaperWork(work)) {
+        if (!stillsBrowser) {
+          stillsBrowser = await launchForStills();
+          if (stillsBrowser.software) console.log(`  ！ 静止画の描き手が GPU ではない（${stillsBrowser.renderer}）。WebGL の作品は、作品が細かさを落とすことがある`);
+        }
+        let stills;
+        try {
+          stills = await makeStills(stillsBrowser.browser, work, { time: stillAt });
+        } catch (error) {
+          console.log(`  ✗ ${location.id}：静止画を作れなかった（${(error as Error).message}）。送らない`);
+          failed += 1;
+          continue;
+        }
+        files.push(...stills.map((still) => ({ name: still.name, bytes: still.png })));
+        const at = stillTime(work, stillAt);
+        const sizes = stills.map((still) => `${still.size.width}×${still.size.height} ${(still.png.length / 1024 / 1024).toFixed(1)}MB`).join('、');
+        console.log(`  静止画：${sizes}（${at.toTimeString().slice(0, 5)} の絵。描き手 ${stillsBrowser.renderer}）`);
+      }
       let sent;
       try {
-        sent = await sendWork(target, collectFiles(location, work.meta.creator), values.publish);
+        sent = await sendWork(target, files, values.publish);
       } catch (error) {
         const cause = (error as { cause?: { code?: string } }).cause?.code ?? (error as Error).message;
         console.log(`  ✗ ${location.id}：${target.url} に繋がらない（${cause}）。${env === 'dev' ? 'npm run dev を動かしているか確かめる' : ''}`);
@@ -254,6 +279,7 @@ async function cmdUpload(args: string[]): Promise<number> {
       if (sent.status !== 201) failed += 1;
     }
   } finally {
+    await stillsBrowser?.close();
     await browser.close();
   }
   if (locations.length > 1) console.log(`\n${locations.length - failed}/${locations.length} を送った`);

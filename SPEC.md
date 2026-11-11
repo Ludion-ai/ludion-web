@@ -266,7 +266,7 @@ CREATE TABLE invites (token_hash TEXT PRIMARY KEY, creator_id TEXT, expires_at I
 
 `works` は公開の値を持つ（一覧と作品のページが読む）。投稿の版を承認すると、その版の値で `works` を差し替える。直した版の審査中は、前の版の値のまま。`works.status` の `rejected` は取り下げも含む（`reject_reason` が `owner_revoked` など）。`works.status` の `private` は自分だけの作品で、`works` の値は本人に見せる今の版（自分だけで置いた版か、前に公開していた版）。一覧と公開の道は `approved` だけを読むので、`private` はどこにも出ない（docs/tasks/T036.md）。
 
-R2（`ludion-parts`）：版の `r2_prefix` の下に `part.html`、`part.css`、`part.js`、`meta.json`、`thumb.webp`、`og.png`。サムネイルは Worker が `Cache-Control: public, max-age=3600, s-maxage=31536000` で返す（パスに version が入るので、変わったら別の URL になる。ブラウザに長く残すと取り下げが届かないので、ブラウザには1時間。SEC001 A07）。
+R2（`ludion-parts`）：版の `r2_prefix` の下に `part.html`、`part.css`、`part.js`、`meta.json`、`thumb.webp`、`og.png`。オーナーの壁紙の作品は、ほかに静止画 `wall-3840x2160.png`、`wall-2560x1440.png`、`wall-1920x1080.png`（WALL002）。サムネイルは Worker が `Cache-Control: public, max-age=3600, s-maxage=31536000` で返す（パスに version が入るので、変わったら別の URL になる。ブラウザに長く残すと取り下げが届かないので、ブラウザには1時間。SEC001 A07）。
 
 ## 8. API
 
@@ -473,11 +473,15 @@ Worker で描く。ヘッダー、サイドバー、下のタブはホームと�
   - 入力は form に入れず、どこへも送らず、保存もしない（CLAUDE.md 原則6）。指示文の型は `copy.ts` と `copy.en.ts` の `work.remix.prompt`、`promptUrl`、`promptFull`。英語のページでは指示文も英語。
 - コードを文字で返す口 `GET /p/<id>/code`（`worker/pages.ts` の `renderWorkCode`）：承認済みの作品の今の版の「コピーされるコード」を、「Copy code」と1文字も違わない形で返す（リミックスは2行目に元の作品のクレジット行。CLAUDE.md「コピーされるコード」）。`Content-Type: text/plain; charset=utf-8`、`X-Content-Type-Options: nosniff`。ない作品と承認されていない作品は 404（文字で返す）。人で変えない。キャッシュは作品のページと同じ（「10」）。回数の制限は束縛 `LIMIT_COUNT`（キャッシュに当たった分は数えない）。`robots.txt` で止める（`Disallow: /p/*/code`）。開いてもコピー数は数えない。英語の道（`/en/p/<id>/code`）は作らない。
 - 壁紙にする（WALL001。`components/WallpaperSheet.tsx`、`lib/wallpaper.ts`）：種類が壁紙の作品（`subtype` が `Wallpaper`）にだけ、「リミックス」の横に同じ形のボタンを置く（2つで幅を分ける）。ほかの作品では「リミックス」だけで、今までどおり。
-  - 押すと、リミックスと同じ形のシート（閉じ方、置き方、幅）。中身は上から：見出し、Mac（「Plash に入れる」〈`plash:add?url=<全画面の住所>&title=<題>`。値は URL の形に符号化〉、Plash の入れ方〈App Store のリンク〉、住所の欄と「住所をコピー」）、Windows（「Windows アプリで設定」〈`ludion://wall/<id>`。APP001〉と「Ludion の Windows アプリ（無料）を使います。アプリを入れる」、その下に「Lively Wallpaper で使う」：Lively Wallpaper の入れ方〈Microsoft Store のリンク〉、手順2行〈Lively を開き「＋」（壁紙を追加）を押す → 「URL を入力」に住所を貼る〉、住所の欄と「住所をコピー」）、ほかのアプリ（「HTML を保存」：コピーされるコードと1文字も違わない中身を `<id>.html` で保存）、最後に「動きと音のある壁紙は、電池と GPU を使います。」。
+  - 押すと、リミックスと同じ形のシート（閉じ方、置き方、幅）。中身は上から：見出し、「静止画で使う（アプリ不要）」（下の「静止画」。静止画のある作品だけ）、「動く壁紙にする（無料のアプリを1回入れる）」の見出しの下に Mac（「Plash に入れる」〈`plash:add?url=<全画面の住所>&title=<題>`。値は URL の形に符号化〉、Plash の入れ方〈App Store のリンク〉、住所の欄と「住所をコピー」）、Windows（「Windows アプリで設定」〈`ludion://wall/<id>`。APP001〉と「Ludion の Windows アプリ（無料）を使います。アプリを入れる」、その下に「Lively Wallpaper で使う」：Lively Wallpaper の入れ方〈Microsoft Store のリンク〉、手順2行〈Lively を開き「＋」（壁紙を追加）を押す → 「URL を入力」に住所を貼る〉、住所の欄と「住所をコピー」）、ほかのアプリ（「HTML を保存」：コピーされるコードと1文字も違わない中身を `<id>.html` で保存）、最後に「動きと音のある壁紙は、電池と GPU を使います。」。
   - 全画面の住所はいつも本番の `https://ludion.ai/p/<id>/wall`。
   - 開いている端末が Windows なら Windows を先に、ほかは Mac を先に。スマホとタブレットでは「PC で開いてください。」と住所の欄と「住所をコピー」だけ。端末の種類は並びを変えるだけで、送らず、保存しない（CLAUDE.md 原則6）。
   - 押した数は GA4 の `wallpaper_open`（「15」）。閲覧数とコピー数は数えない。
   - アプリの名前、配布の場所、画面の文字（Lively の「壁紙を追加」「URL を入力」）は、11/11 に各アプリの公式のページと、アプリの画面の文字の表で確かめた。
+  - 静止画（WALL002。アプリを入れない人のため）：大きさを 4K（3840×2160）、2560×1440、1920×1080 から選び（初めは、開いている画面の画素の幅〈幅 × 画素の密度〉に一番近いもの。同じ近さなら大きい方）、「PNG を保存」で `GET /w/<id>/<version>/wall-<幅>x<高さ>.png` を `<id>-<幅>x<高さ>.png` として落とす。その下に1行、開いている端末の手順（Windows は「落とした画像を右クリック →『デスクトップの背景として設定』」、Mac は「画像を右クリック →『デスクトップピクチャを設定』」。どちらでもなければ両方）。
+    - 静止画は `ld upload` が、置く人のブラウザで作る（`packages/ld/src/stills.ts`）。全画面の住所と同じ枠（`placement: 'fill'`）をその大きさで開き、ページの時計を作品の公開の日の 21:00（その場所の時計。`--still-time HH:MM` で変えられる）に止め、8秒（`capture.delay_ms` が長ければそれ）進めて写す。WebGL のために本物の GPU を先に試す。サーバーでは作品を描画しない。
+    - 管理 API が、壁紙の作品の版と一緒に R2 の `works/<id>/<version>/` に置く。3つ全部で、1枚 12MB まで、PNG で大きさがちょうど合うこと。壁紙でない作品が送ると「形」で落ちる。
+    - 道は、承認済みの版だけを返す（`Content-Disposition: attachment`）。キャッシュしない（`og.png` と同じ）。作品のページは、R2 にあるかを見て、ある大きさだけをページのデータ（`stills`）に入れる。投稿の壁紙と自分だけの作品にはないので、節を出さない。
   - 「Windows アプリで設定」（APP001。`apps/windows`）：リンクの移動でアプリを開く。1.5秒の間にページの注意が外れなければ（ブラウザの「開きますか」もアプリも出なかった＝入っていない）、シートの中身を「Windows アプリを入れる」の案内に替える。一度でも外れたブラウザでは、自分からは案内を出さない（印は `localStorage` の `ld-windows-app` だけ。送らない）。「アプリを入れる」からも案内を開ける。
   - 「Windows アプリを入れる」（段階 A：署名のない .exe）：戻るボタン、説明1行、手順3つ（ダウンロード → ブラウザの右上のファイルを開く〈「一般的にダウンロードされていない」なら「保存」〉、「Windows によって PC が保護されました」なら「詳細情報」→「実行」、入ると一覧が開く）、署名がまだないことの1行、「ダウンロード」（`/download/windows`）と大きさ、「もう入っている」（印を残して元の中身へ）、アプリが読むのは ludion.ai だけで数や記録を送らないことの1行。
 - Windows アプリのダウンロード `GET /download/windows`（APP001。`worker/download.ts`）：今の配り先へ 302（段階 A は公開のリポジトリの Releases の最新の `LudionSetup.exe`。Store の Web インストーラーに替えるときも、この住所のまま）。数えない。キャッシュしない。
@@ -527,7 +531,7 @@ Worker で描く。ヘッダー、サイドバー、下のタブはホームと�
 | `select_work` | `from_work_id`、`to_work_id` | 作品のページの並びのカードを押したとき |
 | `remix_open` | `work_id` | 「リミックス」のシートを開いたとき |
 | `remix_prompt_copy` | `work_id`、`has_brief`（入力があったか）、`mode`（指示文の形。`url` か `full`） | 指示文をコピーできたとき。入力の中身は送らない |
-| `wallpaper_open` | `work_id`、`method`（`plash`、`copy`、`download`、`app`、`app_download`） | 「壁紙にする」のシートで「Plash に入れる」「住所をコピー」（コピーできたとき）「HTML を保存」（WALL001）、「Windows アプリで設定」、案内の「ダウンロード」（APP001）を押したとき |
+| `wallpaper_open` | `work_id`、`method`（`plash`、`copy`、`download`、`still`、`app`、`app_download`） | 「壁紙にする」のシートで「Plash に入れる」「住所をコピー」（コピーできたとき）「HTML を保存」（WALL001）、「PNG を保存」（WALL002）、「Windows アプリで設定」、案内の「ダウンロード」（APP001）を押したとき |
 
 - GA4 の管理画面の拡張計測機能で「サイト内検索」と「ブラウザの履歴イベントに基づくページの変更」を切る。切らないと、GA4 が URL の検索語をそのまま送り、ページビューも二重になる。
 
