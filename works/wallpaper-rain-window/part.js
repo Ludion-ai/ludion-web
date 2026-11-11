@@ -2912,16 +2912,18 @@ function createScene() {
   };
 
   // 1コマ進めて、絵を作る。calm なら、人は歩かない（GPU のない機械）
-  const tick = (dt, calm) => {
+  // draw が false なら、絵は作らずに、状態（人、輪、客、ランタン、花びら、乱数の進み）だけを進める。
+  // 起動のときに、何コマも先へ進めるため。乱数は描くときと同じ順で同じ数だけ使うので、続けて描いたコマは、毎回描いたときと同じ絵になる
+  const tick = (dt, calm, draw = true) => {
     time += dt;
     tickNo += 1;
     buf = cityNow;
     kinds = null;
-    cityNow.set(cityBase);
+    if (draw) cityNow.set(cityBase);
     // ネオンのちらつき
     for (const s of signs) {
       s.off = s.flick > 0 && (time + s.phase) % s.flick < 0.45 && ((tickNo >> 1) & 1) === 1;
-      if (s.off) for (const i of s.cells) cityNow[i] = s.dim;
+      if (draw && s.off) for (const i of s.cells) cityNow[i] = s.dim;
     }
     // 店の中の客：座っている人の影（頭と肩）。ときどき、体を動かす。窓の桟の向こうにいる
     const seat = (x, y, w, c) => {
@@ -2933,7 +2935,8 @@ function createScene() {
           g.next = time + between(1.5, 8);
           g.lean = Math.floor(rand() * 3) - 1;
         }
-        const gx = clamp(g.x + g.lean, s.wx + Z(3), s.wx + s.ww - Z(3));
+        if (!draw) continue;
+        const gx =clamp(g.x + g.lean, s.wx + Z(3), s.wx + s.ww - Z(3));
         const sh = Z(2.4);
         const hr = Math.max(1, Z(1.25));
         const round = Math.max(1, Z(1.6));
@@ -2950,101 +2953,104 @@ function createScene() {
         }
       }
     }
-    // 窓辺の猫：外を見ている。しっぽの先を、ときどき振る。ガラスが割れると隠れて、しばらくすると、そっと顔を出す
-    const back = time - catAway;
-    if (at.cat && back > 3.5) {
-      const q = Math.max(1, Math.round(kc * 0.55));
-      const [cx, sill] = at.cat;
-      const cy = sill - (back < 5.5 ? 4 * q : 0);
-      const fur = (x, y, w) => {
-        if (y >= sill) seat(x, y, w, ink(DARK, 1));
-      };
-      const hr = Math.round(q * 1.5);
-      const hy = cy + 6 * q;
-      // 座った体、丸い頭、とがった耳。しっぽは、体のわきで、上へ曲がる
-      for (let j = 0; j < 5 * q; j++) {
-        const half = Math.round(2 * q * Math.sqrt(Math.max(0, 1 - ((j - 2 * q) / (3 * q)) * ((j - 2 * q) / (3 * q)))));
-        fur(cx - half, cy + j, 2 * half + 1);
-      }
-      for (let j = -hr; j <= hr; j++) {
-        const half = Math.round(hr * Math.sqrt(1 - (j * j) / (hr * hr + 0.5)));
-        fur(cx - half, hy + j, 2 * half + 1);
-      }
-      for (let j = 0; j <= q; j++) {
-        fur(cx - hr, hy + hr + j, q);
-        fur(cx + hr - q + 1, hy + hr + j, q);
-      }
-      for (let j = 0; j < q; j++) fur(cx + 2 * q, cy + j, 2 * q);
-      for (let j = q; j < (time % 4.2 < 0.6 && tickNo & 2 ? 4 : 3) * q; j++) fur(cx + 3 * q, cy + j, q);
-      // 目：明かりを受けて、小さく光る。ときどき、まばたきをする
-      if (hy >= sill && time % 5.3 > 0.25) for (const e of [-1, 1]) cityNow[hy * cw + cx + e * Math.max(1, q - 1)] = ink(TEAL, 5);
-    }
-    // 遠くの塔の明かり：ゆっくり点滅する
-    if (beacon) {
-      const on = time % 2.6 < 1.3;
-      put(beacon[0], beacon[1], ink(NEON, on ? 5 : 2));
-      if (on) for (const [i, j] of [[-1, 0], [1, 0], [0, 1], [0, -1]]) put(beacon[0] + i, beacon[1] + j, ink(NEON, 3));
-    }
-    // 煙突の煙：ゆらぎながら上って、風下へ流れ、うすくなる
-    for (const [sx, sy] of stacks) {
-      for (let n = 0; n < 9; n++) {
-        const f = (time * 0.16 + n / 9) % 1;
-        const px = sx + Math.round(f * f * Z(12) + Math.sin(f * 6 + n * 2.4) * Z(1.5));
-        const py = sy + Math.round(f * Z(22));
-        const r = Z(1.2) + Math.round(f * Z(2.6));
-        // 煙のかたまり：まん中が濃く、縁はまばら。上へ行くほど、広がって、うすい
-        for (let j = -r; j <= r; j++) {
-          for (let i = -r; i <= r; i++) {
-            const d = (i * i + j * j) / (r * r + 0.5);
-            if (d <= 1 && (1 - f * 0.8) * (1.15 - d) * 16 > BAYER[((py + j) & 3) * 4 + ((px + i) & 3)] + 2) put(px + i, py + j, f < 0.3 ? ink(COOL, 2) : SKY + 3);
-          }
-        }
-      }
-    }
-    // 日よけの縁から、しずくが落ちる
-    for (const s of shops) {
-      for (let n = 0; n < 4; n++) {
-        const fall = (tickNo + n * 4 + s.wx) % 13;
-        if (fall < 8) put(s.ax + ((n * 37 + 11) % s.aw), s.ay - 1 - fall * 2, ink(COOL, 4));
-      }
-    }
-    // ぬれた路面：上の景色が、縦に長く映る。明るいものほど、はっきり映る。さざ波で、横にずれて、とぎれる
+    // 路面の範囲（映り込みと、雨の輪で使う）
     const roadH = Math.max(1, curb - at.gy0);
     const wave = Math.floor(time * 3);
     const roadY0 = Math.max(0, at.gy0 - 4);
     const roadX0 = Math.max(0, at.gx0 - 5);
     const roadX1 = Math.min(cw, at.gx1 + 5);
-    for (let y = roadY0; y < curb - 1; y++) {
-      const deep = curb - y;
-      const f = deep / roadH;
-      const from = base + Math.round(deep * 0.62) + 1;
-      if (from >= ch || (y * 3 + wave) % 7 === 0) continue;
-      const shift = Math.round(Math.sin(y * 1.9 + time * 2.2) * (0.6 + f));
-      for (let x = roadX0; x < roadX1; x++) {
-        const src = cityNow[from * cw + clamp(x + shift, 0, cw - 1)];
-        const l = level(src);
-        if (l < 3) continue;
-        const b = BAYER[(y & 3) * 4 + (x & 3)];
-        if (l >= 4) {
-          if ((1.15 - f) * 16 > b) cityNow[y * cw + x] = src - (f > 0.5 || b > 11 ? 2 : 1);
-        } else if (b < 5 && f < 0.6) cityNow[y * cw + x] = src - 2;
+    if (draw) {
+      // 窓辺の猫：外を見ている。しっぽの先を、ときどき振る。ガラスが割れると隠れて、しばらくすると、そっと顔を出す
+      const back = time - catAway;
+      if (at.cat && back > 3.5) {
+        const q = Math.max(1, Math.round(kc * 0.55));
+        const [cx, sill] = at.cat;
+        const cy = sill - (back < 5.5 ? 4 * q : 0);
+        const fur = (x, y, w) => {
+          if (y >= sill) seat(x, y, w, ink(DARK, 1));
+        };
+        const hr = Math.round(q * 1.5);
+        const hy = cy + 6 * q;
+        // 座った体、丸い頭、とがった耳。しっぽは、体のわきで、上へ曲がる
+        for (let j = 0; j < 5 * q; j++) {
+          const half = Math.round(2 * q * Math.sqrt(Math.max(0, 1 - ((j - 2 * q) / (3 * q)) * ((j - 2 * q) / (3 * q)))));
+          fur(cx - half, cy + j, 2 * half + 1);
+        }
+        for (let j = -hr; j <= hr; j++) {
+          const half = Math.round(hr * Math.sqrt(1 - (j * j) / (hr * hr + 0.5)));
+          fur(cx - half, hy + j, 2 * half + 1);
+        }
+        for (let j = 0; j <= q; j++) {
+          fur(cx - hr, hy + hr + j, q);
+          fur(cx + hr - q + 1, hy + hr + j, q);
+        }
+        for (let j = 0; j < q; j++) fur(cx + 2 * q, cy + j, 2 * q);
+        for (let j = q; j < (time % 4.2 < 0.6 && tickNo & 2 ? 4 : 3) * q; j++) fur(cx + 3 * q, cy + j, q);
+        // 目：明かりを受けて、小さく光る。ときどき、まばたきをする
+        if (hy >= sill && time % 5.3 > 0.25) for (const e of [-1, 1]) cityNow[hy * cw + cx + e * Math.max(1, q - 1)] = ink(TEAL, 5);
       }
-    }
-    // 街灯とネオンは、細く、長く映る。手前へ行くほど、広がって、うすくなる
-    for (const g of glints) {
-      if (g.sign && g.sign.off) continue;
-      const top = ink(g.family, 5);
-      for (let y = curb - 2; y >= roadY0; y--) {
-        const f = (curb - y) / roadH;
-        if ((y * 3 + wave + g.x) % 5 === 0) continue;
-        const shift = Math.round(Math.sin(y * 1.7 + time * 2.4 + g.x) * (0.5 + 1.5 * f));
-        const half = g.thin + (f > 0.4 ? 1 : 0);
-        for (let i = -half; i <= half; i++) {
-          const x = g.x + i + shift;
-          if (x < roadX0 || x >= roadX1) continue;
-          if ((1.3 - f) * 16 <= BAYER[(y & 3) * 4 + (x & 3)]) continue;
-          const edge = half > 0 && Math.abs(i) === half;
-          cityNow[y * cw + x] = top - (g.lamp && f < 0.14 && !edge ? 0 : (edge ? 2 : 1) + (f > 0.55 ? 1 : 0));
+      // 遠くの塔の明かり：ゆっくり点滅する
+      if (beacon) {
+        const on = time % 2.6 < 1.3;
+        put(beacon[0], beacon[1], ink(NEON, on ? 5 : 2));
+        if (on) for (const [i, j] of [[-1, 0], [1, 0], [0, 1], [0, -1]]) put(beacon[0] + i, beacon[1] + j, ink(NEON, 3));
+      }
+      // 煙突の煙：ゆらぎながら上って、風下へ流れ、うすくなる
+      for (const [sx, sy] of stacks) {
+        for (let n = 0; n < 9; n++) {
+          const f = (time * 0.16 + n / 9) % 1;
+          const px = sx + Math.round(f * f * Z(12) + Math.sin(f * 6 + n * 2.4) * Z(1.5));
+          const py = sy + Math.round(f * Z(22));
+          const r = Z(1.2) + Math.round(f * Z(2.6));
+          // 煙のかたまり：まん中が濃く、縁はまばら。上へ行くほど、広がって、うすい
+          for (let j = -r; j <= r; j++) {
+            for (let i = -r; i <= r; i++) {
+              const d = (i * i + j * j) / (r * r + 0.5);
+              if (d <= 1 && (1 - f * 0.8) * (1.15 - d) * 16 > BAYER[((py + j) & 3) * 4 + ((px + i) & 3)] + 2) put(px + i, py + j, f < 0.3 ? ink(COOL, 2) : SKY + 3);
+            }
+          }
+        }
+      }
+      // 日よけの縁から、しずくが落ちる
+      for (const s of shops) {
+        for (let n = 0; n < 4; n++) {
+          const fall = (tickNo + n * 4 + s.wx) % 13;
+          if (fall < 8) put(s.ax + ((n * 37 + 11) % s.aw), s.ay - 1 - fall * 2, ink(COOL, 4));
+        }
+      }
+      // ぬれた路面：上の景色が、縦に長く映る。明るいものほど、はっきり映る。さざ波で、横にずれて、とぎれる
+      for (let y = roadY0; y < curb - 1; y++) {
+        const deep = curb - y;
+        const f = deep / roadH;
+        const from = base + Math.round(deep * 0.62) + 1;
+        if (from >= ch || (y * 3 + wave) % 7 === 0) continue;
+        const shift = Math.round(Math.sin(y * 1.9 + time * 2.2) * (0.6 + f));
+        for (let x = roadX0; x < roadX1; x++) {
+          const src = cityNow[from * cw + clamp(x + shift, 0, cw - 1)];
+          const l = level(src);
+          if (l < 3) continue;
+          const b = BAYER[(y & 3) * 4 + (x & 3)];
+          if (l >= 4) {
+            if ((1.15 - f) * 16 > b) cityNow[y * cw + x] = src - (f > 0.5 || b > 11 ? 2 : 1);
+          } else if (b < 5 && f < 0.6) cityNow[y * cw + x] = src - 2;
+        }
+      }
+      // 街灯とネオンは、細く、長く映る。手前へ行くほど、広がって、うすくなる
+      for (const g of glints) {
+        if (g.sign && g.sign.off) continue;
+        const top = ink(g.family, 5);
+        for (let y = curb - 2; y >= roadY0; y--) {
+          const f = (curb - y) / roadH;
+          if ((y * 3 + wave + g.x) % 5 === 0) continue;
+          const shift = Math.round(Math.sin(y * 1.7 + time * 2.4 + g.x) * (0.5 + 1.5 * f));
+          const half = g.thin + (f > 0.4 ? 1 : 0);
+          for (let i = -half; i <= half; i++) {
+            const x = g.x + i + shift;
+            if (x < roadX0 || x >= roadX1) continue;
+            if ((1.3 - f) * 16 <= BAYER[(y & 3) * 4 + (x & 3)]) continue;
+            const edge = half > 0 && Math.abs(i) === half;
+            cityNow[y * cw + x] = top - (g.lamp && f < 0.14 && !edge ? 0 : (edge ? 2 : 1) + (f > 0.55 ? 1 : 0));
+          }
         }
       }
     }
@@ -3056,15 +3062,17 @@ function createScene() {
     }
     for (let i = ripples.length - 1; i >= 0; i--) {
       const r = ripples[i];
-      if (r.age === 0) put(r.x, r.y, ink(COOL, 5));
-      else {
-        const tone = ink(COOL, r.age < 2 ? 4 : 3);
-        const rx = r.age + 1;
-        put(r.x - rx, r.y, tone);
-        put(r.x + rx, r.y, tone);
-        for (let k2 = -rx + 1; k2 < rx; k2++) {
-          if (r.age < 3 || k2 & 1) put(r.x + k2, r.y - 1, tone);
-          if (r.age < 2) put(r.x + k2, r.y + 1, tone);
+      if (draw) {
+        if (r.age === 0) put(r.x, r.y, ink(COOL, 5));
+        else {
+          const tone = ink(COOL, r.age < 2 ? 4 : 3);
+          const rx = r.age + 1;
+          put(r.x - rx, r.y, tone);
+          put(r.x + rx, r.y, tone);
+          for (let k2 = -rx + 1; k2 < rx; k2++) {
+            if (r.age < 3 || k2 & 1) put(r.x + k2, r.y - 1, tone);
+            if (r.age < 2) put(r.x + k2, r.y + 1, tone);
+          }
         }
       }
       if (dt > 0 && (r.age += 1) > 3) ripples.splice(i, 1);
@@ -3104,8 +3112,10 @@ function createScene() {
         if (p.x < at.gx0 - Z(20) || p.x > at.gx1 + Z(20)) walkers.splice(i, 1);
       }
     }
-    for (const p of walkers) walker(p, true);
-    for (const p of walkers) walker(p, false);
+    if (draw) {
+      for (const p of walkers) walker(p, true);
+      for (const p of walkers) walker(p, false);
+    }
     // 車：歩道の手前を、ゆっくり横切る。音がいちばん大きいときに、窓のまん中を通る
     if (auto) {
       auto.t += dt;
@@ -3118,26 +3128,35 @@ function createScene() {
       }
     }
     // 雨：細い筋。明るい窓の前では見えない。街灯の下では、明かりを受けて光る
-    const drip = (x, y, tone) => {
-      if (x < 0 || x >= cw || y < 0 || y >= ch) return;
-      if (level(cityNow[y * cw + x]) < 4) cityNow[y * cw + x] = tone;
-    };
-    for (let n = Math.round((C.rain * (at.gx1 - at.gx0) * (at.gy1 - at.gy0)) / 380); n > 0; n--) {
-      const x = at.gx0 - 4 + Math.floor(rand() * (at.gx1 - at.gx0 + 8));
-      const y = at.gy0 + Math.floor(rand() * (at.gy1 - at.gy0));
-      let tone = rand() < 0.22 ? ink(COOL, 3) : ink(COOL, 2);
-      for (const l of lamps) if (Math.abs(x - l.x) < Z(10) && y < l.y && y > curb && Math.abs(x - l.x) < (l.y - y) * 0.5 + Z(3)) tone = ink(WARM, 4);
-      const long = 3 + Math.floor(rand() * 4);
-      for (let j = 0; j < long; j++) drip(x - (j >> 2), y - j, tone);
+    const drips = Math.round((C.rain * (at.gx1 - at.gx0) * (at.gy1 - at.gy0)) / 380);
+    const specks = Math.round((C.rain * (at.gx1 - at.gx0)) / 9);
+    if (draw) {
+      const drip = (x, y, tone) => {
+        if (x < 0 || x >= cw || y < 0 || y >= ch) return;
+        if (level(cityNow[y * cw + x]) < 4) cityNow[y * cw + x] = tone;
+      };
+      for (let n = drips; n > 0; n--) {
+        const x = at.gx0 - 4 + Math.floor(rand() * (at.gx1 - at.gx0 + 8));
+        const y = at.gy0 + Math.floor(rand() * (at.gy1 - at.gy0));
+        let tone = rand() < 0.22 ? ink(COOL, 3) : ink(COOL, 2);
+        for (const l of lamps) if (Math.abs(x - l.x) < Z(10) && y < l.y && y > curb && Math.abs(x - l.x) < (l.y - y) * 0.5 + Z(3)) tone = ink(WARM, 4);
+        const long = 3 + Math.floor(rand() * 4);
+        for (let j = 0; j < long; j++) drip(x - (j >> 2), y - j, tone);
+      }
+      for (let n = specks; n > 0; n--) put(at.gx0 + Math.floor(rand() * (at.gx1 - at.gx0)), Math.floor(rand() * base), ink(COOL, 4));
+      for (let i = 0; i < cityNow.length; i++) city32[i] = lut32[cityNow[i]];
+    } else {
+      // 描かないときも、乱数は同じ数だけ進める（筋は1本に4つ、点は1つに2つ）
+      for (let n = drips * 4 + specks * 2; n > 0; n--) rand();
     }
-    for (let n = Math.round((C.rain * (at.gx1 - at.gx0)) / 9); n > 0; n--) put(at.gx0 + Math.floor(rand() * (at.gx1 - at.gx0)), Math.floor(rand() * base), ink(COOL, 4));
-    for (let i = 0; i < cityNow.length; i++) city32[i] = lut32[cityNow[i]];
 
     // 店内：ランタン、炎、つるの葉、鉢の葉、花びんの花、時計の針、蛾、湯気、本のページ
     buf = roomNow;
     kinds = kindNow;
-    roomNow.set(roomBase);
-    kindNow.set(roomKind);
+    if (draw) {
+      roomNow.set(roomBase);
+      kindNow.set(roomKind);
+    }
     // 穴から入る風。強さは、ゆっくり波打つ
     wind += (windGoal - wind) * Math.min(1, dt * 1.5);
     const gust = wind * (0.55 + 0.45 * Math.sin(time * 0.9) * Math.sin(time * 0.37 + 1));
@@ -3148,27 +3167,29 @@ function createScene() {
       lampPos += lampVel * h;
     }
     // 本体は形を変えずに横へ動き、鎖だけが斜めになる
-    kind = 1;
     const swing = Math.round(lampPos * k);
-    const [bx0, by0, bx1, by1] = at.lamp;
-    const ring = at.touch.lamp[3];
-    for (let y = by0; y <= by1; y++) {
-      const off = y <= ring ? swing : Math.round((lampPos * k * (ch - y)) / Math.max(1, ch - ring));
-      for (let x = bx0; x <= bx1; x++) {
-        const c = lampLayer[y * cw + x];
-        if (c !== 255) put(x + off, y, c);
-      }
-    }
-    // 炎：芯は白く、先がゆらぐ
     const fx = at.lampX + swing;
-    const flare = (tickNo * 7 + Math.floor(time * 3)) % 5;
-    oval(fx, at.flameY, Math.max(1, S(2)), Math.max(2, S(3)), SPARK);
-    box(fx - (flare === 1 ? 1 : 0), at.flameY + S(3), 1, S(2) + (flare === 0 ? 1 : 0), SPARK);
     const leafAge = time - leafJolt.at;
     const shake = leafJolt.amp * Math.exp(-leafAge * 2.4);
-    vine((Math.sin(time * 0.7) * (0.6 + 2.2 * gust) + shake * 0.6 * Math.sin(leafAge * 10)) * k);
-    plant(gust, shake, leafAge);
-    bouquet(gust, shake, leafAge);
+    if (draw) {
+      kind = 1;
+      const [bx0, by0, bx1, by1] = at.lamp;
+      const ring = at.touch.lamp[3];
+      for (let y = by0; y <= by1; y++) {
+        const off = y <= ring ? swing : Math.round((lampPos * k * (ch - y)) / Math.max(1, ch - ring));
+        for (let x = bx0; x <= bx1; x++) {
+          const c = lampLayer[y * cw + x];
+          if (c !== 255) put(x + off, y, c);
+        }
+      }
+      // 炎：芯は白く、先がゆらぐ
+      const flare = (tickNo * 7 + Math.floor(time * 3)) % 5;
+      oval(fx, at.flameY, Math.max(1, S(2)), Math.max(2, S(3)), SPARK);
+      box(fx - (flare === 1 ? 1 : 0), at.flameY + S(3), 1, S(2) + (flare === 0 ? 1 : 0), SPARK);
+      vine((Math.sin(time * 0.7) * (0.6 + 2.2 * gust) + shake * 0.6 * Math.sin(leafAge * 10)) * k);
+      plant(gust, shake, leafAge);
+      bouquet(gust, shake, leafAge);
+    }
     // 散った花びら：ひらひら落ちて、テーブルに残る。風が強いと、ひとりでに散る
     if (gust > 0.45 && rand() < dt * 0.1) shed(1);
     for (const p of petals) {
@@ -3177,12 +3198,13 @@ function createScene() {
         p.y = Math.max(p.land, p.y - S(16) * dt);
         p.x += (Math.sin(time * 6 + p.seed) * S(7) - gust * S(10)) * dt;
       }
+      if (!draw) continue;
       const turn = falling && tickNo & 1;
       put(Math.round(p.x), Math.round(p.y), p.tone);
       put(Math.round(p.x) + (turn ? 0 : 1), Math.round(p.y) + (turn ? 1 : 0), p.shade);
     }
     // 置き時計の針：端末の時刻を指す。秒針は、1秒ごとに進む（止まった絵では、描かない）。触ると、ベルが鳴って、震える
-    if (at.clock) {
+    if (draw && at.clock) {
       const [cx, cy, rf] = at.clock;
       const now = new Date();
       const sec = now.getSeconds();
@@ -3200,30 +3222,32 @@ function createScene() {
       if (time - bellAt < 0.7) for (const e of [-1, 1]) for (let n = 0; n < 3; n++) put(cx + e * (rf + S(5)) + (tickNo & 1 ? e : 0), cy + rf + S(1) + n * 2 + (tickNo & 1), SPARK);
     }
     // 蛾：ランタンの明かりのまわりを、小さく飛び回る
-    if (!calm) {
-      const mx = fx + Math.round(Math.sin(time * 1.7) * S(13) + Math.sin(time * 4.9) * S(4));
+    if (draw && !calm) {
+      const mx = fx +Math.round(Math.sin(time * 1.7) * S(13) + Math.sin(time * 4.9) * S(4));
       const my = at.flameY + Math.round(Math.sin(time * 2.2 + 1) * S(9) + Math.cos(time * 6.3) * S(3));
       put(mx, my, tickNo & 1 ? SPARK : CREAM);
       put(mx + (tickNo & 1 ? 1 : -1), my + 1, TAN);
     }
     // 湯気：ゆらぎながら上って、うすくなる。風があると、流される。カップに触ると、ふわっと増える
-    kind = 2;
-    const puff = clamp(1 - (time - puffAt) / 1.4);
-    const tall = S(22 + 9 * puff);
-    for (let strand = 0; strand < (puff > 0 ? 3 : 2); strand++) {
-      for (let rise = 1; rise < tall; rise++) {
-        const r = rise / k; // 高さ（店内の物の大きさを 1 として）
-        const f = rise / tall;
-        if ((r + time * 7 + strand * 2.5) % 7 > 4.4 || (1 - f) * 20 < BAYER[(rise & 3) * 4 + ((strand * 2 + tickNo) & 3)]) continue; // 筋は、とぎれながら上る。上ほど、うすい
-        const sx = at.steamX + Math.round((Math.sin(r * 0.4 + time * 1.5 + strand * 2.4) * (0.5 + r * 0.13) + (strand - 0.5) * 1.6 - gust * r * 0.35) * k);
-        put(sx, at.steamY + rise, f < 0.3 ? SPARK : f < 0.65 ? CREAM : TAN);
+    if (draw) {
+      kind = 2;
+      const puff = clamp(1 - (time - puffAt) / 1.4);
+      const tall = S(22 + 9 * puff);
+      for (let strand = 0; strand < (puff > 0 ? 3 : 2); strand++) {
+        for (let rise = 1; rise < tall; rise++) {
+          const r = rise / k; // 高さ（店内の物の大きさを 1 として）
+          const f = rise / tall;
+          if ((r + time * 7 + strand * 2.5) % 7 > 4.4 || (1 - f) * 20 < BAYER[(rise & 3) * 4 + ((strand * 2 + tickNo) & 3)]) continue; // 筋は、とぎれながら上る。上ほど、うすい
+          const sx = at.steamX + Math.round((Math.sin(r * 0.4 + time * 1.5 + strand * 2.4) * (0.5 + r * 0.13) + (strand - 0.5) * 1.6 - gust * r * 0.35) * k);
+          put(sx, at.steamY + rise, f < 0.3 ? SPARK : f < 0.65 ? CREAM : TAN);
+        }
       }
     }
     // 本のページ：風で（または、触ると）1枚めくれる。のどを軸に、右から左へ。紙は、しなる
     if (pageAt >= 0 && book.W) {
       const t = (time - pageAt) / 1.15;
       if (t >= 1) pageAt = -1;
-      else {
+      else if (draw) {
         const e = t * t * (3 - 2 * t);
         const theta = Math.PI * e;
         const lag = 0.8 * Math.sin(Math.PI * e);
@@ -3250,7 +3274,7 @@ function createScene() {
       }
     }
     // a は、0：窓のガラスの所、0.5：手前の物、1：壁・枠・テーブル
-    for (let i = 0; i < roomNow.length; i++) room32[i] = ((lut32[roomNow[i]] & 0x00ffffff) | (kindNow[i] === 0 ? 0 : kindNow[i] === 2 ? 0x80000000 : 0xff000000)) >>> 0;
+    if (draw) for (let i = 0; i < roomNow.length; i++) room32[i] = ((lut32[roomNow[i]] & 0x00ffffff) | (kindNow[i] === 0 ? 0 : kindNow[i] === 2 ? 0x80000000 : 0xff000000)) >>> 0;
     return { city: cityOut, room: roomOut };
   };
 
@@ -3759,24 +3783,81 @@ export function mount(root) {
   const dropData = new Float32Array(D.max * 4);
   const bitData = new Float32Array((R.debris + R.spots + 80) * 8);
 
-  const makeProgram = (vertex, fragment) => {
+  // シェーダーの組み立ては、頼む（send）と受け取る（take）の2つに分ける。先に全部を頼んでから受け取ると、
+  // 並べて組み立てられる端末（KHR_parallel_shader_compile）では、待つ時間が重なる
+  const sendProgram = (vertex, fragment) => {
     const id = gl.createProgram();
+    const shaders = [];
     for (const [kind, text] of [[gl.VERTEX_SHADER, vertex], [gl.FRAGMENT_SHADER, fragment]]) {
       const shader = gl.createShader(kind);
       gl.shaderSource(shader, text);
       gl.compileShader(shader);
-      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader) || 'shader');
       gl.attachShader(id, shader);
-      gl.deleteShader(shader);
+      shaders.push(shader);
     }
     gl.linkProgram(id);
-    if (!gl.getProgramParameter(id, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(id) || 'link');
+    return { id, shaders };
+  };
+  const takeProgram = ({ id, shaders }) => {
+    if (!gl.getProgramParameter(id, gl.LINK_STATUS)) {
+      const log = shaders.map((s) => (gl.getShaderParameter(s, gl.COMPILE_STATUS) ? '' : gl.getShaderInfoLog(s))).join(' ').trim();
+      throw new Error(log || gl.getProgramInfoLog(id) || 'link');
+    }
+    for (const shader of shaders) gl.deleteShader(shader);
     const at = {};
     for (let i = gl.getProgramParameter(id, gl.ACTIVE_UNIFORMS) - 1; i >= 0; i--) {
       const name = gl.getActiveUniform(id, i).name;
       at[name.replace('[0]', '')] = gl.getUniformLocation(id, name);
     }
     return { id, at };
+  };
+  // 最初の絵に要るシェーダーと、割れてから使うシェーダー。後の4つは、最初のコマを出した後に組み立てる
+  const FIRST = { mist: [FILL, MIST_FRAG], fade: [FILL, FADE_FRAG], stamp: [STAMP_VERT, STAMP_FRAG], drop: [DROP_VERT, DROP_FRAG], window: [FILL, WINDOW_FRAG] };
+  const LATER = { crack: [CRACK_VERT, CRACK_FRAG], cell: [CELL_VERT, CELL_FRAG], shard: [SHARD_VERT, SHARD_FRAG], bit: [BIT_VERT, BIT_FRAG] };
+  let sent = {}; // 頼んだが、まだ受け取っていない後のシェーダー
+  let laterRaf = 0;
+  let laterTimer = 0;
+  let laterTries = 0;
+  let parallel = null;
+  // 後のシェーダーを使う。まだなら、その場で受け取る（または組み立てる）。できなければ、止まった絵にして null
+  const need = (name) => {
+    if (prog[name]) return prog[name];
+    try {
+      prog[name] = takeProgram(sent[name] || sendProgram(...LATER[name]));
+      delete sent[name];
+      return prog[name];
+    } catch (error) {
+      console.warn('wallpaper-rain-window: WebGL の用意ができないので、止まった絵にする', error);
+      ready = false;
+      halt();
+      root.setAttribute('data-gl', 'off');
+      return null;
+    }
+  };
+  // 最初のコマが画面に出てから、後のシェーダーを頼み、組み上がったものから受け取る
+  const buildLater = () => {
+    laterRaf = 0;
+    laterTimer = 0;
+    if (!ready) return;
+    for (const name of Object.keys(LATER)) if (!prog[name] && !sent[name]) sent[name] = sendProgram(...LATER[name]);
+    const waiting = Object.keys(sent).filter((name) => parallel && laterTries < 40 && !gl.getProgramParameter(sent[name].id, parallel.COMPLETION_STATUS_KHR));
+    laterTries += 1;
+    for (const name of Object.keys(sent)) if (!waiting.includes(name) && !need(name)) return;
+    if (waiting.length) laterTimer = setTimeout(buildLater, 50);
+  };
+  const scheduleLater = () => {
+    if (laterRaf || laterTimer) return;
+    laterTries = 0;
+    laterRaf = requestAnimationFrame(() => {
+      laterRaf = 0;
+      laterTimer = setTimeout(buildLater, 0);
+    });
+  };
+  const stopLater = () => {
+    if (laterRaf) cancelAnimationFrame(laterRaf);
+    clearTimeout(laterTimer);
+    laterRaf = 0;
+    laterTimer = 0;
   };
   const smooth = (tex, min) => {
     gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -3835,15 +3916,12 @@ export function mount(root) {
     try {
       const info = gl.getExtension('WEBGL_debug_renderer_info');
       softwareGl = /swiftshader|llvmpipe|software/i.test(info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '');
-      prog.mist = makeProgram(FILL, MIST_FRAG);
-      prog.fade = makeProgram(FILL, FADE_FRAG);
-      prog.stamp = makeProgram(STAMP_VERT, STAMP_FRAG);
-      prog.drop = makeProgram(DROP_VERT, DROP_FRAG);
-      prog.crack = makeProgram(CRACK_VERT, CRACK_FRAG);
-      prog.cell = makeProgram(CELL_VERT, CELL_FRAG);
-      prog.window = makeProgram(FILL, WINDOW_FRAG);
-      prog.shard = makeProgram(SHARD_VERT, SHARD_FRAG);
-      prog.bit = makeProgram(BIT_VERT, BIT_FRAG);
+      parallel = gl.getExtension('KHR_parallel_shader_compile');
+      // 前の文脈のものは使えない（文脈を失って戻ったとき）
+      for (const name of Object.keys(prog)) delete prog[name];
+      sent = {};
+      const first = Object.entries(FIRST).map(([name, [vertex, fragment]]) => [name, sendProgram(vertex, fragment)]);
+      for (const [name, asked] of first) prog[name] = takeProgram(asked);
       fillVao = gl.createVertexArray();
       strip = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, strip);
@@ -3943,10 +4021,9 @@ export function mount(root) {
     pane.uw = pane.w / view.w;
     pane.vh = pane.h / view.h;
     pane.aspect = pane.w / pane.h;
-    // 人が、もう通りにいる状態から始める
-    let frame = null;
-    for (let i = 0; i < 90; i++) frame = scene.tick(1 / TUNE.city.hz, false);
-    sendScene(frame);
+    // 人が、もう通りにいる状態から始める。89 コマは状態だけ進め、絵は最後の1コマだけ作る（毎回描いたときと同じ絵になる）
+    for (let i = 0; i < 89; i++) scene.tick(1 / TUNE.city.hz, false, false);
+    sendScene(scene.tick(1 / TUNE.city.hz, false));
     cityDue = 0;
     // くもりの元の形
     mist = makeTarget(Math.max(2, pane.w >> 1), Math.max(2, pane.h >> 1));
@@ -4122,6 +4199,8 @@ export function mount(root) {
   };
 
   const drawCells = () => {
+    const cell = need('cell');
+    if (!cell) return;
     const data = glass.cellData(view.aspect);
     gl.bindVertexArray(cellVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, cellBuffer);
@@ -4130,7 +4209,7 @@ export function mount(root) {
     gl.viewport(0, 0, pane.w, pane.h);
     gl.clearColor(0.5, 0.5, 0, 0.5);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.useProgram(prog.cell.id);
+    gl.useProgram(cell.id);
     gl.drawArrays(gl.TRIANGLES, 0, data.length / 6);
     if (cellT.many) {
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER, cellT.many);
@@ -4144,7 +4223,9 @@ export function mount(root) {
 
   const drawCracks = () => {
     const C = TUNE.crack;
-    const { id, at } = prog.crack;
+    const crack = need('crack');
+    if (!crack) return;
+    const { id, at } = crack;
     gl.bindVertexArray(crackSet.vao);
     if (cracksDirty) {
       const data = glass.crackData();
@@ -4238,7 +4319,9 @@ export function mount(root) {
 
   const drawShards = () => {
     const S = TUNE.shard;
-    const { id, at } = prog.shard;
+    const shard = need('shard');
+    if (!shard) return;
+    const { id, at } = shard;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, view.w, view.h);
     gl.enable(gl.DEPTH_TEST);
@@ -4280,7 +4363,9 @@ export function mount(root) {
     }
     for (const s of streaks) add(s.x, s.y, 24, 0, 2, 0, 1, 1);
     if (n === 0) return;
-    const { id, at } = prog.bit;
+    const bit = need('bit');
+    if (!bit) return;
+    const { id, at } = bit;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, view.w, view.h);
     gl.useProgram(id);
@@ -4829,7 +4914,10 @@ export function mount(root) {
 
   const releaseGl = () => {
     if (!gl) return;
+    stopLater();
     for (const name of Object.keys(prog)) gl.deleteProgram(prog[name].id);
+    for (const name of Object.keys(sent)) gl.deleteProgram(sent[name].id);
+    sent = {};
     for (const t of [mist, mapNow, mapNext, dropT, crackT, cellT]) freeTarget(t);
     if (cityTex) gl.deleteTexture(cityTex);
     if (roomTex) gl.deleteTexture(roomTex);
@@ -4849,6 +4937,7 @@ export function mount(root) {
     event.preventDefault();
     ready = false;
     halt();
+    stopLater();
   });
   listen(canvas, 'webglcontextrestored', () => {
     shards.length = 0;
@@ -4860,6 +4949,7 @@ export function mount(root) {
     if (ready) {
       root.removeAttribute('data-gl');
       resume();
+      scheduleLater();
     } else root.setAttribute('data-gl', 'off');
   });
 
@@ -4884,12 +4974,14 @@ export function mount(root) {
     render(0);
     reveal();
     resume();
+    scheduleLater();
   } else {
     root.setAttribute('data-gl', 'off');
   }
 
   return () => {
     halt();
+    stopLater();
     if (stillRaf) cancelAnimationFrame(stillRaf);
     clearTimeout(resizeTimer);
     clearTimeout(stillHeal);
