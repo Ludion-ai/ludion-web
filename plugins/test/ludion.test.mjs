@@ -2,11 +2,11 @@
 //   node --test plugins/test/ludion.test.mjs
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { OTHER_KEY, TEST_KEY, startFakeServer } from './fake-server.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -257,5 +257,60 @@ describe('ludion skill', () => {
     const empty = await run(['check', 'empty.html'], { cwd: dir, env: e });
     assert.equal(empty.json.render.rendered, false);
     assert.equal(empty.json.ok, false);
+  });
+});
+
+// .ludion.json is shared by the plugin, ld and other sessions in the same folder (LD002): every write reads the file again just before
+// writing, and goes through a temporary file that is renamed into place, so a reader never sees a half-written file.
+describe('.ludion.json writes', () => {
+  test('a write keeps what another program wrote after this one read the file', async () => {
+    const { loadState, updateState } = await import(pathToFileURL(CLI).href);
+    const dir = project({ '.ludion.json': '{ "works": { "a.html": { "id": "w-a", "version": 1 } } }\n' });
+    const stale = loadState(dir);
+    // another program writes meanwhile
+    writeFileSync(stale.file, '{ "auto": false, "works": { "a.html": { "id": "w-a", "version": 1 }, "works/b/": { "id": "w-b", "version": 4 } } }\n');
+    updateState(stale.file, (state) => {
+      state.works['works/c/'] = { id: 'w-c', version: 1 };
+    });
+    const saved = JSON.parse(readFileSync(stale.file, 'utf8'));
+    assert.equal(saved.auto, false);
+    assert.deepEqual(Object.keys(saved.works).sort(), ['a.html', 'works/b/', 'works/c/']);
+    assert.equal(saved.works['works/b/'].version, 4);
+    assert.deepEqual(readdirSync(dir), ['.ludion.json']);
+  });
+
+  test('stateIn uses exactly that folder, not a .ludion.json above it', async () => {
+    const { loadState, stateIn } = await import(pathToFileURL(CLI).href);
+    const dir = project({ '.ludion.json': '{ "works": { "x.html": { "id": "w-x", "version": 1 } } }\n' });
+    const inner = path.join(dir, 'inner');
+    mkdirSync(inner);
+    assert.equal(loadState(inner).file, path.join(dir, '.ludion.json'));
+    const exact = stateIn(inner);
+    assert.equal(exact.file, path.join(inner, '.ludion.json'));
+    assert.deepEqual(exact.state.works, {});
+  });
+
+  test('many programs writing at once: the file always reads as whole JSON, and no temporary file is left', async () => {
+    const dir = project({ '.ludion.json': '{ "works": {} }\n' });
+    const file = path.join(dir, '.ludion.json');
+    const writer = `const { updateState } = await import(${JSON.stringify(pathToFileURL(CLI).href)});
+for (let i = 0; i < 40; i += 1) updateState(${JSON.stringify(file)}, (s) => { s.works['works/p' + process.argv[1] + '/'] = { id: 'w', version: i + 1, pad: 'x'.repeat(4000) }; });`;
+    const writers = Array.from({ length: 6 }, (_, n) => new Promise((resolve, reject) => {
+      execFile(process.execPath, ['--input-type=module', '-e', writer, String(n)], (err, _out, stderr) => (err ? reject(new Error(stderr || String(err))) : resolve()));
+    }));
+    let reads = 0;
+    let done = false;
+    const all = Promise.all(writers).finally(() => (done = true));
+    while (!done) {
+      const text = readFileSync(file, 'utf8');
+      assert.doesNotThrow(() => JSON.parse(text), `half-written .ludion.json: ${text.slice(-80)}`);
+      reads += 1;
+      await new Promise((r) => setImmediate(r));
+    }
+    await all;
+    assert.ok(reads > 0);
+    const saved = JSON.parse(readFileSync(file, 'utf8'));
+    assert.equal(typeof saved.works, 'object');
+    assert.deepEqual(readdirSync(dir), ['.ludion.json']);
   });
 });

@@ -19,3 +19,6 @@ promo/out/
 *.vars.json
 .env
 .env.*
+# プラグイン、ld、デスクトップアプリが覚える「どのファイルやフォルダがどの作品か」（LD002）。人ごとに違うのでコミットしない
+.ludion.json
+.ludion.json.*.tmp
