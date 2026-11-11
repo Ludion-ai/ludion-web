@@ -85,13 +85,17 @@ export default defineConfig({
     trace: process.env.CI ? 'retain-on-failure' : 'off',
   },
   projects: [
-    { name: 'home', testIgnore: /(upload|pages|accounts|account-page|api-v1|mcp|google|login-flow|post|private|passkey|shots-t020|migration|frame-escape|motion|remix-scroll|wall-size|preview-dpr|frame-storage|frame-document)\.spec\.ts/, use: { baseURL: BASE_URL } },
+    { name: 'home', testIgnore: /(upload|pages|accounts|account-page|api-v1|mcp|google|login-flow|post|private|passkey|shots-t020|migration|frame-escape|motion|remix-scroll|wall-size|preview-dpr|frame-storage|frame-document|thumb-capture)\.spec\.ts/, use: { baseURL: BASE_URL } },
     { name: 'upload', testMatch: /upload\.spec\.ts/, use: { baseURL: UPLOAD_URL } },
     { name: 'pages', testMatch: /pages\.spec\.ts/, use: { baseURL: PAGES_URL } },
     // 枠の移動を止めるのはブラウザなので、全部のブラウザで確かめる（docs/tasks/T022.md「1」）
     { name: 'escape-chromium', testMatch: /frame-escape\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
     { name: 'escape-webkit', testMatch: /frame-escape\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     { name: 'escape-firefox', testMatch: /frame-escape\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
+    // 文書の作品の「画像を付ける」（DOC002）。枠から撮る、画像だけを足す口、公開に回す。人と作品は HTTP だけで作るので pages で流す
+    { name: 'thumb-capture-chromium', testMatch: /thumb-capture\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
+    { name: 'thumb-capture-firefox', testMatch: /thumb-capture\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
+    { name: 'thumb-capture-webkit', testMatch: /thumb-capture\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     // 文書の作品の枠（DOC001）。守りが今の枠と同じであることを、SEC001 の形で全部のブラウザで確かめる。
     // WebKit を theme-press-webkit のすぐ前に置く。時間を測る試験が、shard の中で最初に WebKit を起こす試験にならないように
     { name: 'document-chromium', testMatch: /frame-document\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
