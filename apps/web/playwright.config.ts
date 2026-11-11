@@ -111,16 +111,17 @@ export default defineConfig({
     { name: 'frame-storage-chromium', testMatch: /frame-storage\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
     { name: 'frame-storage-webkit', testMatch: /frame-storage\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     { name: 'frame-storage-firefox', testMatch: /frame-storage\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
-    // 埋め込みの住所（EMBED001）。外のサイトの枠の中で動くか、外へ出られないかを決めるのはブラウザなので、全部のブラウザで確かめる
-    { name: 'embed-chromium', testMatch: /embed\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
-    { name: 'embed-webkit', testMatch: /embed\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
-    { name: 'embed-firefox', testMatch: /embed\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
     // 順に走らせる。テストが wrangler d1 execute で同じ D1 のファイルを開くので、並行にサーバーへ要求を出すと、
     // 手元の D1 が「Failed to get session commit token」で 500 を返すことがある
     // workers: 1 は、ファイルをまたいでも同時に走らせないため（1つの D1 を3つのファイルで使う）
     { name: 'accounts', testMatch: /(accounts|account-page|api-v1|mcp|google|login-flow|post|private|embed-limit)\.spec\.ts/, fullyParallel: false, workers: 1, use: { baseURL: ACCOUNTS_URL } },
     { name: 'migration', testMatch: /migration\.spec\.ts/, fullyParallel: false, workers: 1, use: { baseURL: MIGRATION_URL } },
     { name: 'passkey', testMatch: /(passkey|shots-t020)\.spec\.ts/, fullyParallel: false, workers: 1, use: { baseURL: PASSKEY_URL, browserName: 'chromium' } },
+    // 埋め込みの住所（EMBED001）。外のサイトの枠の中で動くか、外へ出られないかを決めるのはブラウザなので、全部のブラウザで確かめる。
+    // 並びの最後に置く。shard で分けたとき、時間を測る試験（theme-press-webkit など）と同じ機械で同時に走らせないため
+    { name: 'embed-chromium', testMatch: /embed\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
+    { name: 'embed-webkit', testMatch: /embed\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
+    { name: 'embed-firefox', testMatch: /embed\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
   ],
   webServer: {
     command: 'npm run build && node scripts/test-server.mjs',
