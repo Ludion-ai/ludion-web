@@ -14,7 +14,7 @@ import { Hono, type Context } from 'hono';
 import { EMBED_PAUSED_MESSAGE } from './embed';
 import type { Env } from './env';
 import { takeEmbedView } from './quota';
-import { countEmbedView } from './count';
+import { countEmbedView, embedHost } from './count';
 import { approvedPrefix, loadRevisionFiles, readableRevision } from './revisions';
 import { getSessionUser } from './session';
 
@@ -78,7 +78,7 @@ frames.get('/frame/:id/:version{[0-9][0-9.]*}/embed.html', async (c) => {
   const headers = { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': EMBED_FRAME_RESPONSE_CSP, Vary: EMBED_VARY };
   if (!(await takeEmbedView(c.env.DB))) return new Response(EMBED_PAUSED_FRAME, { status: 429, headers });
   // 埋め込みの表示回数（日ごと。EMBED001「6」）。閲覧数とは別の数。Cookie は読まないので、持ち主の表示も数える
-  await countEmbedView(c.env.DB, id);
+  await countEmbedView(c.env.DB, id, embedHost(c.req.query('from')));
   const work = await loadRevisionFiles(c.env.PARTS, prefix);
   if (!work) return c.json({ error: 'not_found' }, 404);
   return new Response(buildFrameHtml(work, { palette: 'author' }), { headers });

@@ -2,6 +2,8 @@
 // 数は D1 の quotas の1行（鍵 embed-view:*、UTC の日）なので、accounts のサーバー（D1 を順に使う）で、その行を書いて確かめる。
 import { expect, test } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { EMBED_LIMITS } from '../worker/quotaLimits';
 
@@ -113,5 +115,43 @@ test.describe('埋め込みの数', () => {
     const response = await request.post('/api/count', { data: { work_id: 'seed-embed-draft', type: 'embed_copy' }, headers: { Origin: new URL(test.info().project.use.baseURL!).origin } });
     expect(response.status()).toBe(400);
     expect(counted('seed-embed-draft').embed_copies).toBe(0);
+  });
+});
+
+// EMBED001「6」の [CEO]：埋め込み先のホスト名。作品ごと、日ごと、ホスト名ごとの数だけ。道筋、URL の値、IP は持たない
+test.describe('埋め込み先のホスト名', () => {
+  const hosts = (id: string) => d1<{ host: string; n: number }>(`SELECT host, n FROM embed_hosts WHERE work_id = '${id}' ORDER BY host`);
+  test.afterEach(() => {
+    d1(`DELETE FROM embed_hosts`);
+  });
+
+  test('枠の ?from= のホスト名だけを数える。形の違うもの（道筋、空白、記号）は数えない。表示の数は数える', async ({ request }) => {
+    for (const from of ['Blog.Example.', 'blog.example', 'blog.example/path?q=1', 'a b.example', '', 'x'.repeat(300)]) {
+      expect((await request.get(`${FRAME}?from=${encodeURIComponent(from)}`, { headers: FROM_EMBED })).status(), from).toBe(200);
+    }
+    expect(hosts('fx-toggle')).toEqual([{ host: 'blog.example', n: 2 }]);
+    expect(JSON.stringify(d1('SELECT * FROM embed_hosts'))).not.toMatch(/path|q=1/);
+  });
+
+  test('外のサイトに埋め込むと、そのサイトのホスト名が数えられる（参照元のホスト名だけ）', async ({ page, baseURL }) => {
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { 'Content-Type': 'text/html' });
+      response.end(`<!doctype html><iframe id="embed" src="${new URL(baseURL!).origin}/e/fx-toggle"></iframe>`);
+    });
+    await new Promise<void>((resolve) => server.listen(0, '::', resolve));
+    try {
+      await page.goto(`http://localhost:${(server.address() as AddressInfo).port}/a/secret-path?x=1`);
+      await page.frameLocator('#embed').frameLocator('iframe[data-ld-frame]').locator('#ld-host').waitFor({ state: 'attached' });
+      await expect.poll(() => hosts('fx-toggle')).toEqual([{ host: 'localhost', n: 1 }]);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  test('自分のサイトの中で開いた /e/ は、ホスト名を付けない', async ({ page }) => {
+    await page.goto('/e/fx-toggle');
+    await page.frameLocator('iframe[data-ld-frame]').locator('#ld-host').waitFor({ state: 'attached' });
+    await page.waitForTimeout(500);
+    expect(hosts('fx-toggle')).toEqual([]);
   });
 });

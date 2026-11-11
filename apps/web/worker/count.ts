@@ -39,14 +39,39 @@ count.post('/', async (c) => {
   return c.body(null, 204);
 });
 
-/** 埋め込みの表示を1つ数える（worker/frames.ts の埋め込みの枠）。承認済みの作品のときだけ行ができる。 */
-export async function countEmbedView(db: D1Database, workId: string, now = Date.now()): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO counters (work_id, day, embed_views)
-       SELECT id, ?2, 1 FROM works WHERE id = ?1 AND status = 'approved'
-       ON CONFLICT (work_id, day) DO UPDATE SET embed_views = embed_views + 1`,
-    )
-    .bind(workId, utcDay(now))
-    .run();
+/** ホスト名の形（小文字、英数字とハイフンの区切りを点でつないだもの、253文字まで）。形が違えば数えない。 */
+const HOST = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
+
+/** 埋め込みの枠の ?from=（埋め込んだページのホスト名。embed.ts）を読む。ホスト名の形でなければ null。道筋や IP は来ても持たない。 */
+export function embedHost(from: string | undefined): string | null {
+  const host = from?.trim().toLowerCase().replace(/\.$/, '') ?? '';
+  return HOST.test(host) ? host : null;
+}
+
+/**
+ * 埋め込みの表示を1つ数える（worker/frames.ts の埋め込みの枠）。承認済みの作品のときだけ行ができる。
+ * host があれば、埋め込み先のホスト名ごとの数も1つ増やす（日ごと。EMBED001「6」の [CEO]）。
+ */
+export async function countEmbedView(db: D1Database, workId: string, host: string | null = null, now = Date.now()): Promise<void> {
+  const day = utcDay(now);
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO counters (work_id, day, embed_views)
+         SELECT id, ?2, 1 FROM works WHERE id = ?1 AND status = 'approved'
+         ON CONFLICT (work_id, day) DO UPDATE SET embed_views = embed_views + 1`,
+      )
+      .bind(workId, day),
+    ...(host
+      ? [
+          db
+            .prepare(
+              `INSERT INTO embed_hosts (work_id, day, host, n)
+               SELECT id, ?2, ?3, 1 FROM works WHERE id = ?1 AND status = 'approved'
+               ON CONFLICT (work_id, day, host) DO UPDATE SET n = n + 1`,
+            )
+            .bind(workId, day, host),
+        ]
+      : []),
+  ]);
 }

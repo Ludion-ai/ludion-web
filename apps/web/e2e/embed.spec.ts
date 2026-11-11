@@ -234,7 +234,7 @@ test.describe('出せるもの、出せないもの', () => {
     expect(headers['set-cookie']).toBeUndefined();
     const html = await response.text();
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('src="/frame/fx-toggle/1/embed.html"');
+    expect(html).toContain('data-src="/frame/fx-toggle/1/embed.html"');
     expect(html).not.toMatch(/<script[^>]+src=|\/assets\/|googletagmanager|gtag|id="root"/);
   });
 

@@ -63,6 +63,17 @@ function pausedMarkup(work: { id: string; version: string; title: string }): str
  * 枠が「今日は止めた」と知らせたら、枠を止めた絵に替える。上限に達した直後の、キャッシュに残った /e/<id> のため。
  * 受け取るのは、今の枠の文書（sandbox のオリジンは null）から、決まった言葉だけ（CLAUDE.md「描画」）。
  */
+/**
+ * 枠の URL に、埋め込んだページのホスト名を付けて読み始める（EMBED001「6」の [CEO]）。ホスト名だけで、道筋と URL の値は付けない。
+ * このページはキャッシュに乗り、誰にも同じなので、ホスト名は見る人のブラウザの参照元（document.referrer）から読む。
+ * 参照元がない（埋め込んだページが no-referrer にした）、または自分のサイトのときは付けない。
+ * 枠は src なしで描き、ここで src を入れる（見張りは src のない枠の load を数えない。frameGuard.ts）。
+ */
+const START_SCRIPT =
+  `(()=>{const f=document.currentScript.previousElementSibling;if(!f||!f.dataset.src)return;let h='';` +
+  `try{h=new URL(document.referrer).hostname}catch{}` +
+  `f.src=f.dataset.src+(h&&h!==location.hostname?'?from='+encodeURIComponent(h):'')})();`;
+
 const PAUSE_SCRIPT =
   `addEventListener('message',(e)=>{const f=document.querySelector('iframe[data-ld-frame]');` +
   `if(!f||e.source!==f.contentWindow||e.origin!=='null'||e.data!=='${EMBED_PAUSED_MESSAGE}')return;` +
@@ -107,7 +118,8 @@ export async function renderEmbedPage(c: EmbedContext): Promise<Response> {
   const paused = pausedMarkup(work);
   const main = (await embedPaused(c.env.DB))
     ? paused
-    : `<iframe data-ld-frame="" title="${escapeHtml(work.title)}" sandbox="${FRAME_SANDBOX}" src="${escapeHtml(embedFrameUrl(work))}"></iframe>` +
+    : `<iframe data-ld-frame="" title="${escapeHtml(work.title)}" sandbox="${FRAME_SANDBOX}" data-src="${escapeHtml(embedFrameUrl(work))}"></iframe>` +
+      `<script>${START_SCRIPT}</script>` +
       `<template id="ld-paused">${paused}</template>`;
   return new Response(embedDocument(main + badge, `${work.title} · Ludion`, background), { headers: HEADERS });
 }
