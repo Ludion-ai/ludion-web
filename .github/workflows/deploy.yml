@@ -1,0 +1,95 @@
+# 本番に出す（CI001「3」）。npm run deploy と同じ中身（確かめ → ビルド → D1 の migration → Worker）を流す。
+# 承認の形は、リポジトリの変数 DEPLOY_MODE で選ぶ（設定は CEO）。
+# 入っていなければ、この job は動かない。秘密の値が承認の設定より先に入っても、承認なしで本番に出ないようにするため。
+# 11/11 の CEO の決定：本番に出すのは、公開のリポジトリ Ludion-ai/ludion-web のこの workflow から（PUB002）。DEPLOY_MODE は approval にする。
+# - approval：main への push のテスト（test.yml）が通った後に動き、environment「production」の承認者（CEO）の承認を待つ。
+#   承認者を置けるのは、公開のリポジトリか GitHub Enterprise だけ。置いてから approval にする
+# - manual：CEO が Actions の画面の Run workflow で手で流したときだけ動く。流せるのは変数 DEPLOY_APPROVER の GitHub の名前の人だけ
+#   （セッションが CEO と別のアカウントで動いているときだけ、承認の意味がある）
+# - 同時に1本だけ。migration が同時に2つ走らない
+# - 出すのは ludion-web の main と同じコミットだけ（scripts/deploy-guard.mjs が、origin が ludion-web で、HEAD が origin/main と同じかを確かめる）
+# - 触るのは wrangler.jsonc の ludion-web と、その D1（ludion-app）と R2（ludion-parts）だけ。ludion で始まる古いリソースには触らない
+name: deploy
+
+on:
+  workflow_run:
+    workflows: [test]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: 本番に出す
+    if: >-
+      vars.DEPLOY_MODE == 'approval' &&
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' ||
+       github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      vars.DEPLOY_MODE == 'manual' && vars.DEPLOY_APPROVER != '' &&
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == vars.DEPLOY_APPROVER
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: https://ludion.ai/
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # テストが通ったコミット。手で流したときは main の先頭
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: origin/main を取ってくる（deploy-guard.mjs が比べる）
+        run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: 秘密の値があるか
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::environment production の Secrets に CLOUDFLARE_API_TOKEN がない"; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::environment production の Secrets に CLOUDFLARE_ACCOUNT_ID がない"; exit 1; }
+      - name: npm run deploy（確かめ → ビルド → D1 の migration → Worker）
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -o pipefail
+          npm run deploy 2>&1 | tee "$RUNNER_TEMP/deploy.log"
+      - name: 版の番号と中身のコミットを記録に残す
+        run: |
+          version=$(grep -oE 'Current Version ID: [0-9a-f-]+' "$RUNNER_TEMP/deploy.log" | awk '{print $4}' | tail -1)
+          {
+            echo "## 本番に出した"
+            echo ""
+            echo "| 項目 | 値 |"
+            echo "| --- | --- |"
+            echo "| Worker の版 | \`${version:-（ログに見つからない）}\` |"
+            echo "| 中身のコミット | \`$(git rev-parse HEAD)\` |"
+            echo "| main の先頭 | \`$(git rev-parse refs/remotes/origin/main)\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Worker の版 ${version}、コミット $(git rev-parse HEAD)"
+      - name: 本番の確かめ（/、作品のページ、ログインの画面）
+        run: |
+          set -e
+          check() {
+            for i in 1 2 3 4 5 6; do
+              code=$(curl -s -o "$RUNNER_TEMP/body" -w '%{http_code}' "$1" || true)
+              if [ "$code" = 200 ] && grep -q "$2" "$RUNNER_TEMP/body"; then echo "200 $1"; return 0; fi
+              sleep 5
+            done
+            echo "::error::$1 が 200 で「$2」を含まない（最後は $code）"; return 1
+          }
+          check https://ludion.ai/ 'data-masonry'
+          work=$(curl -s https://ludion.ai/api/works | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).works[0].id))')
+          check "https://ludion.ai/p/${work}" "${work}"
+          check https://ludion.ai/login '<title>ログイン'

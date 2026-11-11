@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>波紋ボタン</title>
+<style>
+  :root {
+    --bg: #f4f1ea;
+    --ink: #1f2a2e;
+    --btn: #1f5f6b;
+    --btn-hover: #227080;
+    --btn-ink: #ffffff;
+    --ripple: rgba(255, 255, 255, 0.55);
+    --shadow: 0 6px 18px rgba(31, 95, 107, 0.28);
+    --focus: #e0a43a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12181b;
+      --ink: #e6e9ea;
+      --btn: #4fb3c2;
+      --btn-hover: #63c3d1;
+      --btn-ink: #0d1a1d;
+      --ripple: rgba(255, 255, 255, 0.6);
+      --shadow: 0 6px 22px rgba(79, 179, 194, 0.25);
+      --focus: #f0bb5c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12181b;
+    --ink: #e6e9ea;
+    --btn: #4fb3c2;
+    --btn-hover: #63c3d1;
+    --btn-ink: #0d1a1d;
+    --ripple: rgba(255, 255, 255, 0.6);
+    --shadow: 0 6px 22px rgba(79, 179, 194, 0.25);
+    --focus: #f0bb5c;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", "Segoe UI", sans-serif;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+  }
+
+  .ripple-btn {
+    position: relative;
+    overflow: hidden;               /* 波紋をボタンの形に切り抜く */
+    border: 0;
+    border-radius: 14px;
+    padding: 18px 44px;
+    font: inherit;
+    font-size: 1.125rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--btn-ink);
+    background: var(--btn);
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: background-color 0.2s ease, transform 0.12s ease;
+  }
+  .ripple-btn:hover { background: var(--btn-hover); }
+  .ripple-btn:active { transform: scale(0.97); }
+  .ripple-btn:focus-visible {
+    outline: 3px solid var(--focus);
+    outline-offset: 3px;
+  }
+
+  .ripple {
+    position: absolute;
+    border-radius: 50%;
+    background: var(--ripple);
+    transform: scale(0);
+    pointer-events: none;
+    animation: ripple 650ms ease-out forwards;
+  }
+  @keyframes ripple {
+    to { transform: scale(1); opacity: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ripple { animation-duration: 1ms; }
+    .ripple-btn { transition: none; }
+  }
+</style>
+</head>
+<body>
+  <button class="ripple-btn" type="button">押してみて</button>
+
+<script>
+  const btn = document.querySelector('.ripple-btn');
+
+  function spawnRipple(x, y) {
+    const rect = btn.getBoundingClientRect();
+    // 押した点からボタンの一番遠い角まで届く半径
+    const dx = Math.max(x, rect.width - x);
+    const dy = Math.max(y, rect.height - y);
+    const radius = Math.hypot(dx, dy);
+
+    const ripple = document.createElement('span');
+    ripple.className = 'ripple';
+    ripple.style.width = ripple.style.height = radius * 2 + 'px';
+    ripple.style.left = x - radius + 'px';
+    ripple.style.top = y - radius + 'px';
+    btn.appendChild(ripple);
+    ripple.addEventListener('animationend', () => ripple.remove());
+  }
+
+  // マウス・タッチ・ペン：押した位置から広がる
+  btn.addEventListener('pointerdown', (e) => {
+    const rect = btn.getBoundingClientRect();
+    spawnRipple(e.clientX - rect.left, e.clientY - rect.top);
+  });
+
+  // キーボード（Enter / Space）：中央から広がる
+  btn.addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && !e.repeat) {
+      spawnRipple(btn.offsetWidth / 2, btn.offsetHeight / 2);
+    }
+  });
+</script>
+</body>
+</html>

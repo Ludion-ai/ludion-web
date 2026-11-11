@@ -1,0 +1,18 @@
+{
+  "id": "toggle-oasis",
+  "title": "砂漠のオアシス — 昼と夜のスイッチ",
+  "type": "component",
+  "platform": null,
+  "category": "Components",
+  "subtype": "Toggle",
+  "tags": [
+    "experimental",
+    "motion"
+  ],
+  "creator": "Lattice_Node",
+  "license": "MIT",
+  "made_with": "ai-assisted",
+  "version": "1",
+  "published_at": "2026-11-10",
+  "pin_order": null
+}

@@ -1,0 +1,220 @@
+[data-ld-part="toggle-audio"] {
+  /* 固定しないトークン：使い手の値を受け、なければ作者の値 */
+  --_bg: var(--ld-bg, #ece9e2);
+  --_surface: var(--ld-surface, #d9d5cc);
+  --_fg: var(--ld-fg, #24221f);
+  --_muted: var(--ld-muted, #57534c);
+  --_accent: var(--ld-accent, #ec5f0a);
+  --_radius: var(--ld-radius, 3px);
+  --_font: var(--ld-font, "Helvetica Neue", Helvetica, Arial, sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 1px 0 rgb(255 255 255 / .55) inset, 0 -1px 0 rgb(60 52 40 / .12) inset, 0 14px 32px rgb(48 42 34 / .2));
+  --_motion: var(--ld-motion, 160ms);
+
+  box-sizing: border-box;
+  width: min(100%, 520px);
+  padding: calc(var(--_space) * 3) calc(var(--_space) * 3.5) calc(var(--_space) * 1.5);
+  background: var(--_surface);
+  border: 1px solid color-mix(in oklab, var(--_surface) 80%, black);
+  border-radius: calc(var(--_radius) * 2);
+  box-shadow: var(--_shadow);
+  font-family: var(--_font);
+  color: var(--_fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+[data-ld-part="toggle-audio"] *,
+[data-ld-part="toggle-audio"] *::before,
+[data-ld-part="toggle-audio"] *::after {
+  box-sizing: border-box;
+}
+
+/* 見出し：前面板に刻んだ文字 */
+[data-ld-part="toggle-audio"] .head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(var(--_space) * 2);
+  padding-bottom: calc(var(--_space) * 1.75);
+  border-bottom: 1px solid color-mix(in oklab, var(--_muted) 45%, transparent);
+}
+
+[data-ld-part="toggle-audio"] .title,
+[data-ld-part="toggle-audio"] .code {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+}
+
+[data-ld-part="toggle-audio"] .code {
+  color: var(--_muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 行 */
+[data-ld-part="toggle-audio"] .row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--_space) * 2);
+  padding: calc(var(--_space) * 2.5) 0;
+}
+
+[data-ld-part="toggle-audio"] .row + .row {
+  border-top: 1px solid color-mix(in oklab, var(--_muted) 25%, transparent);
+}
+
+/* 表示灯：オフは消えた灰、オンだけ橙に光る */
+[data-ld-part="toggle-audio"] .lamp {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 35% 30%,
+    color-mix(in oklab, var(--_muted) 30%, var(--_surface)),
+    color-mix(in oklab, var(--_muted) 60%, var(--_surface))
+  );
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--_surface) 82%, black),
+    0 1px 0 2px color-mix(in oklab, var(--_surface) 40%, white),
+    0 1px 2px color-mix(in oklab, var(--_fg) 30%, transparent) inset;
+  transition: background var(--_motion) ease, box-shadow var(--_motion) ease;
+}
+
+[data-ld-part="toggle-audio"] .row:has(.switch[aria-checked="true"]) .lamp {
+  background: radial-gradient(
+    circle at 35% 30%,
+    color-mix(in oklab, var(--_accent) 55%, white),
+    var(--_accent) 55%,
+    color-mix(in oklab, var(--_accent) 80%, black)
+  );
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--_surface) 82%, black),
+    0 1px 0 2px color-mix(in oklab, var(--_surface) 40%, white),
+    0 0 10px 2px color-mix(in oklab, var(--_accent) 55%, transparent);
+}
+
+[data-ld-part="toggle-audio"] .text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: calc(var(--_space) * 0.5);
+}
+
+[data-ld-part="toggle-audio"] .label {
+  font-size: 14px;
+  line-height: 18px;
+  font-weight: 600;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+[data-ld-part="toggle-audio"] .hint {
+  font-size: 13px;
+  line-height: 17px;
+  color: var(--_muted);
+}
+
+/* スイッチ：0 ［溝］ 1 */
+[data-ld-part="toggle-audio"] .control {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: calc(var(--_space) * 1);
+}
+
+[data-ld-part="toggle-audio"] .mark {
+  width: 12px;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--_muted);
+  font-variant-numeric: tabular-nums;
+  transition: color var(--_motion) ease;
+}
+
+/* いま選ばれている側の数字を濃くする */
+[data-ld-part="toggle-audio"] .mark:has(+ .switch[aria-checked="false"]),
+[data-ld-part="toggle-audio"] .switch[aria-checked="true"] + .mark {
+  color: var(--_fg);
+}
+
+/* 横長のくぼんだ溝 */
+[data-ld-part="toggle-audio"] .switch {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 84px;
+  height: 36px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: calc(var(--_radius) * .75);
+  background: linear-gradient(
+    color-mix(in oklab, var(--_surface) 66%, black),
+    color-mix(in oklab, var(--_surface) 80%, black)
+  );
+  box-shadow: 0 3px 4px color-mix(in oklab, var(--_fg) 45%, transparent) inset,
+    0 -1px 0 color-mix(in oklab, var(--_surface) 60%, white) inset,
+    0 1px 0 color-mix(in oklab, var(--_surface) 35%, white);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 角ばったつまみ。上面に細い溝を3本 */
+[data-ld-part="toggle-audio"] .knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 40px;
+  height: 30px;
+  border-radius: calc(var(--_radius) * .5);
+  background:
+    repeating-linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--_fg) 32%, transparent) 0 1px,
+      color-mix(in oklab, var(--_bg) 60%, white) 1px 2px,
+      transparent 2px 5px
+    ) center / 12px 18px no-repeat,
+    linear-gradient(
+      color-mix(in oklab, var(--_bg) 55%, white),
+      color-mix(in oklab, var(--_surface) 94%, black)
+    );
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--_bg) 20%, white) inset,
+    1px 0 0 color-mix(in oklab, var(--_bg) 50%, white) inset,
+    -1px 0 0 color-mix(in oklab, var(--_fg) 12%, transparent) inset,
+    0 -2px 0 color-mix(in oklab, var(--_fg) 16%, transparent) inset,
+    0 1px 1px color-mix(in oklab, var(--_fg) 40%, transparent),
+    0 4px 6px color-mix(in oklab, var(--_fg) 26%, transparent);
+  transition: transform var(--_motion) cubic-bezier(.3, .7, .2, 1), box-shadow var(--_motion) ease;
+}
+
+[data-ld-part="toggle-audio"] .switch[aria-checked="true"] .knob {
+  transform: translateX(38px);
+}
+
+/* 押しこむ */
+[data-ld-part="toggle-audio"] .switch:active .knob {
+  transform: translateY(1px);
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--_bg) 20%, white) inset,
+    0 -1px 0 color-mix(in oklab, var(--_fg) 16%, transparent) inset,
+    0 1px 1px color-mix(in oklab, var(--_fg) 35%, transparent);
+}
+
+[data-ld-part="toggle-audio"] .switch[aria-checked="true"]:active .knob {
+  transform: translateX(38px) translateY(1px);
+}
+
+[data-ld-part="toggle-audio"] .switch:focus-visible {
+  outline: 2px solid var(--_accent);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ld-part="toggle-audio"] .knob,
+  [data-ld-part="toggle-audio"] .lamp,
+  [data-ld-part="toggle-audio"] .mark {
+    transition: none;
+  }
+}

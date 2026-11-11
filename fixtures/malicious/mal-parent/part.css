@@ -1,0 +1,6 @@
+[data-ld-part="mal-parent"] {
+  --_bg: var(--ld-bg, #fefce8);
+  --_fg: var(--ld-fg, #1f1f23);
+  font: 16px system-ui, sans-serif;
+  color: var(--_fg);
+}

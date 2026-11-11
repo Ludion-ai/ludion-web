@@ -1,0 +1,118 @@
+[data-ld-part="fx-nav"] {
+  --_bg: var(--ld-bg, #f3f6f8);
+  --_surface: var(--ld-surface, #ffffff);
+  --_fg: var(--ld-fg, #10212b);
+  --_muted: var(--ld-muted, #4c5d68);
+  --_accent: var(--ld-accent, #0f6e8c);
+  --_radius: var(--ld-radius, 10px);
+  --_font: var(--ld-font, system-ui, sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 1px 2px rgb(16 33 43 / .08));
+  --_motion: var(--ld-motion, 150ms);
+
+  /* 幅いっぱいに広がるナビ：置かれた場所の幅をそのまま使う */
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--_font);
+  color: var(--_fg);
+}
+
+[data-ld-part="fx-nav"] .bar {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--_space) * 3);
+  min-height: 64px;
+  padding: calc(var(--_space) * 1.5) calc(var(--_space) * 3);
+  border: 1px solid color-mix(in oklab, var(--_muted) 22%, var(--_surface));
+  border-radius: var(--_radius);
+  background: var(--_surface);
+  box-shadow: var(--_shadow);
+  box-sizing: border-box;
+}
+
+[data-ld-part="fx-nav"] a {
+  color: inherit;
+  text-decoration: none;
+  border-radius: calc(var(--_radius) - 4px);
+}
+[data-ld-part="fx-nav"] a:focus-visible {
+  outline: 2px solid var(--_accent);
+  outline-offset: 2px;
+}
+
+[data-ld-part="fx-nav"] .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--_space);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+[data-ld-part="fx-nav"] .mark {
+  width: 24px;
+  height: 24px;
+  color: var(--_accent);
+}
+
+[data-ld-part="fx-nav"] .links {
+  display: flex;
+  gap: calc(var(--_space) * 0.5);
+  margin-inline: auto;
+}
+[data-ld-part="fx-nav"] .links a {
+  padding: var(--_space) calc(var(--_space) * 1.5);
+  color: var(--_muted);
+  font-size: 14px;
+  font-weight: 500;
+  transition: color var(--_motion) ease, background var(--_motion) ease;
+}
+[data-ld-part="fx-nav"] .links a:hover,
+[data-ld-part="fx-nav"] .links a[aria-current="page"] {
+  color: var(--_fg);
+  background: color-mix(in oklab, var(--_accent) 8%, var(--_surface));
+}
+
+[data-ld-part="fx-nav"] .actions {
+  display: flex;
+  align-items: center;
+  gap: var(--_space);
+}
+[data-ld-part="fx-nav"] .signin {
+  padding: var(--_space) calc(var(--_space) * 1.5);
+  font-size: 14px;
+  font-weight: 500;
+}
+[data-ld-part="fx-nav"] .cta {
+  padding: var(--_space) calc(var(--_space) * 2);
+  background: var(--_accent);
+  color: var(--_surface);
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: var(--_radius);
+  transition: background var(--_motion) ease;
+}
+[data-ld-part="fx-nav"] .cta:hover {
+  background: color-mix(in oklab, var(--_accent) 85%, black);
+}
+
+/* 狭い幅：リンクを2段目に回し、横にスクロールさせる */
+@media (max-width: 760px) {
+  [data-ld-part="fx-nav"] .bar {
+    flex-wrap: wrap;
+    row-gap: var(--_space);
+    padding: var(--_space) calc(var(--_space) * 2);
+  }
+  [data-ld-part="fx-nav"] .actions {
+    margin-left: auto;
+  }
+  [data-ld-part="fx-nav"] .signin {
+    display: none;
+  }
+  [data-ld-part="fx-nav"] .links {
+    order: 3;
+    flex-basis: 100%;
+    margin-inline: 0;
+    overflow-x: auto;
+  }
+}

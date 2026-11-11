@@ -1,0 +1,136 @@
+<div data-ld-part="my-ui" lang="ja">
+  <button type="button" class="ripple-btn">押してみて</button>
+</div>
+<style>
+[data-ld-part="my-ui"] {
+  /* 外から --ld-* で差し替えられる変数（既定値は元の見た目） */
+  --_bg: var(--ld-bg, #f4f1ea);
+  --_fg: var(--ld-fg, #1f2a30);
+  --_accent: var(--ld-accent, #1f5f6b);
+  --_radius: var(--ld-radius, 999px);
+  --_font: var(--ld-font, system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif);
+  --_space: var(--ld-space, 16px);
+  --_shadow: var(--ld-shadow, 0 6px 18px rgba(0, 0, 0, 0.15));
+  --_motion: var(--ld-motion, 200ms);
+
+  /* この部品だけの色 */
+  --_accent-hover: #19505a;
+  --_on-accent: #ffffff;
+  --_ripple: rgba(255, 255, 255, 0.45);
+  --_ring: #e0a43a;
+
+  box-sizing: border-box;
+  margin: 0;
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: var(--_space);
+  background: var(--_bg);
+  color: var(--_fg);
+  font-family: var(--_font);
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-ld-part="my-ui"]:not([data-theme="light"], [data-theme="light"] *) {
+    --_bg: var(--ld-bg, #12181b);
+    --_fg: var(--ld-fg, #e6e2d9);
+    --_accent: var(--ld-accent, #4fa3b0);
+    --_accent-hover: #63b4c0;
+    --_on-accent: #0d1416;
+    --_ripple: rgba(255, 255, 255, 0.55);
+  }
+}
+[data-ld-part="my-ui"]:is([data-theme="dark"], [data-theme="dark"] *) {
+  --_bg: var(--ld-bg, #12181b);
+  --_fg: var(--ld-fg, #e6e2d9);
+  --_accent: var(--ld-accent, #4fa3b0);
+  --_accent-hover: #63b4c0;
+  --_on-accent: #0d1416;
+  --_ripple: rgba(255, 255, 255, 0.55);
+}
+
+[data-ld-part="my-ui"] * { box-sizing: border-box; }
+
+[data-ld-part="my-ui"] .ripple-btn {
+  position: relative;
+  overflow: hidden;           /* 波紋をボタンの形に切り抜く */
+  padding: 18px 44px;
+  border: 0;
+  border-radius: var(--_radius);
+  background: var(--_accent);
+  color: var(--_on-accent);
+  font: inherit;
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  transition: background-color var(--_motion), transform calc(var(--_motion) / 2);
+  box-shadow: var(--_shadow);
+}
+[data-ld-part="my-ui"] .ripple-btn:hover { background: var(--_accent-hover); }
+[data-ld-part="my-ui"] .ripple-btn:active { transform: scale(0.98); }
+[data-ld-part="my-ui"] .ripple-btn:focus-visible {
+  outline: 3px solid var(--_ring);
+  outline-offset: 3px;
+}
+
+[data-ld-part="my-ui"] .ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--_ripple);
+  transform: scale(0);
+  pointer-events: none;
+  animation: ld-my-ui-ripple calc(var(--_motion) * 3.25) ease-out forwards;
+}
+@keyframes ld-my-ui-ripple {
+  to { transform: scale(1); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ld-part="my-ui"] .ripple { animation-duration: 1ms; }
+  [data-ld-part="my-ui"] .ripple-btn { transition: none; }
+}
+</style>
+<script type="module">
+function mount(root) {
+  const ac = new AbortController();
+  const opts = { signal: ac.signal };
+
+  function spawn(btn, x, y) {
+    const rect = btn.getBoundingClientRect();
+    const cx = x - rect.left;
+    const cy = y - rect.top;
+    // 押した点から一番遠い角まで届く半径
+    const radius = Math.hypot(
+      Math.max(cx, rect.width - cx),
+      Math.max(cy, rect.height - cy)
+    );
+    btn.insertAdjacentHTML('beforeend', '<span class="ripple"></span>');
+    const dot = btn.lastElementChild;
+    dot.style.width = dot.style.height = radius * 2 + 'px';
+    dot.style.left = cx - radius + 'px';
+    dot.style.top = cy - radius + 'px';
+    dot.addEventListener('animationend', () => dot.remove(), { once: true, signal: ac.signal });
+  }
+
+  root.querySelectorAll('.ripple-btn').forEach((btn) => {
+    btn.addEventListener('pointerdown', (e) => spawn(btn, e.clientX, e.clientY), opts);
+    // キーボード（Enter / Space）で押したときは中心から広げる
+    btn.addEventListener('keydown', (e) => {
+      if (e.repeat) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        const r = btn.getBoundingClientRect();
+        spawn(btn, r.left + r.width / 2, r.top + r.height / 2);
+      }
+    }, opts);
+  });
+
+  return () => {
+    ac.abort();
+    root.querySelectorAll('.ripple').forEach((dot) => dot.remove());
+  };
+}
+mount(document.querySelector('[data-ld-part="my-ui"]'));
+</script>

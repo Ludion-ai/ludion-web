@@ -1,0 +1,90 @@
+// Worker ludion-web（CLAUDE.md「技術の決定」）。Hono の API と、Vite で作った静的アセット。
+// 開発は @cloudflare/vite-plugin（npm run dev）。D1 と R2 は手元の .wrangler/state に置く。
+// 本番へは npm run deploy（ビルド → 本番の D1 のマイグレーション → wrangler deploy）。名前が ludion で始まる既存のリソース（旧Ludion）には触らない。
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "ludion-web",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // 本番の送り先。workers.dev と ludion.ai の両方（docs/tasks/T010.md「3」）。ludion.ai の DNS の行は Cloudflare が作る
+  "workers_dev": true,
+  // 版ごとの URL を作らない。本番の D1 と秘密の値につながるため（docs/tasks/T012.md「2」）
+  "preview_urls": false,
+  "routes": [{ "pattern": "ludion.ai", "custom_domain": true }],
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // すべての応答に Cache-Control を付けるため、静的アセットも Worker を通す（SPEC.md「10」、worker/cachePolicy.ts）
+    "run_worker_first": true
+  },
+  // 1回の要求の CPU 時間の上限。ふつうの要求は数十ミリ秒で、いちばん重いのは投稿の画像の作り直し（600万画素で約0.5秒）。
+  // 細工した画像で止まらなくなっても、ここで切れる（SEC001 A06）
+  "limits": { "cpu_ms": 15000 },
+  // Workers Cache（SPEC.md「10」）。許すのは worker/cachePolicy.ts の道だけ。Worker の版がキャッシュのキーに入るので、デプロイのたびに空から始まる
+  "cache": { "enabled": true },
+  // Workers Logs（docs/tasks/T022.md「3」、CLAUDE.md 原則6）。要求ごとの自動の記録（invocation logs）は URL などの要求の情報を持つので切る。
+  // 残るのは worker/log.ts の決まった名前だけ。7日で消える。トレースも切る。URL の値は、ログに入っても落とす
+  // https://developers.cloudflare.com/workers/observability/logs/workers-logs/#invocation-logs
+  "observability": {
+    "enabled": true,
+    "redact_query_string": true,
+    "logs": { "enabled": true, "invocation_logs": false },
+    "traces": { "enabled": false }
+  },
+  // 回数の制限（docs/tasks/T012.md「2」、worker/rateLimit.ts）。鍵は IP の HMAC（worker/limitKey.ts）、60秒あたりの回数、データセンターごとの近似。
+  // namespace_id はアカウントの中で一意の整数
+  "ratelimits": [
+    // 開いた回数とコピーした回数。人が1秒に1ページ開いても超えない。超えても画面には何も出ない（SPEC.md「13」）
+    { "name": "LIMIT_COUNT", "namespace_id": "11001", "simple": { "limit": 60, "period": 60 } },
+    // いいねとしおりを合わせて。人が1秒に1回押し続けても超えない
+    { "name": "LIMIT_TOGGLE", "namespace_id": "11002", "simple": { "limit": 60, "period": 60 } },
+    // ログインは1回の流れで2回通る。同じ回線（学校、会社、携帯の共有 IP）の人が1分に10人以上ログインしても超えない
+    { "name": "LIMIT_AUTH", "namespace_id": "11003", "simple": { "limit": 30, "period": 60 } },
+    // アカウントのページの API。handle を打つあいだの確かめも通るので、人が1秒に1回叩いても超えない
+    { "name": "LIMIT_ACCOUNT", "namespace_id": "11004", "simple": { "limit": 60, "period": 60 } },
+    // 回復のコードを試す回数。打ち間違えを何度か直せる数。コードは130ビットなので、総当たりの守りとしてはこれで足りる
+    { "name": "LIMIT_RECOVERY", "namespace_id": "11005", "simple": { "limit": 5, "period": 60 } },
+    // 作品の投稿の保存。画像を作り直すので重い。人が1分に10回保存することはない。1日の上限は worker/quota.ts
+    { "name": "LIMIT_POST", "namespace_id": "11006", "simple": { "limit": 10, "period": 60 } }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ludion-app",
+      // 本番の D1
+      "database_id": "2f6da333-087e-46ae-a456-af6420d9dc03",
+      // 手元の開発とテストの D1 はこちらの id で置かれる。今の手元のデータを別の場所に移さないため、前の値のまま
+      "preview_database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "PARTS",
+      "bucket_name": "ludion-parts"
+    }
+  ],
+  // GitHub の URL。テストと手元の確かめでは、.dev.vars の同じ名前で手元の偽の GitHub に差し替えられる
+  "vars": {
+    "GITHUB_WEB_URL": "https://github.com",
+    "GITHUB_API_URL": "https://api.github.com",
+    // Google の URL（https://accounts.google.com/.well-known/openid-configuration）。テストでは .dev.vars で手元の偽の Google に差し替える
+    "GOOGLE_AUTH_URL": "https://accounts.google.com/o/oauth2/v2/auth",
+    "GOOGLE_TOKEN_URL": "https://oauth2.googleapis.com/token",
+    "GOOGLE_JWKS_URL": "https://www.googleapis.com/oauth2/v3/certs",
+    "GOOGLE_ISSUER": "https://accounts.google.com",
+    // パスキーの RP ID と origin。これ以外の origin では使えない（workers.dev でも）。手元は .dev.vars で localhost に差し替える
+    "PASSKEY_RP_ID": "ludion.ai",
+    "PASSKEY_ORIGIN": "https://ludion.ai",
+    // 投稿を全員に開いたか（worker/revisions.ts の canPost）。"1" で開く。開くまでは運営だけが投稿できる。
+    // 開く条件は docs/PHASE0.md（利用規約と取り下げの窓口。T027）。開くかは CEO が決める（docs/reports/T021.md）
+    // 11/10 に CEO の決定で全員に開いた（docs/reports/T032.md）。閉じるときは "0" にして、main に入れて npm run deploy する
+    "POSTING_OPEN": "1"
+  },
+  // 管理トークン、GitHub の OAuth App、Google の OAuth クライアント、回数の制限の鍵の秘密の値。開発は apps/web/.dev.vars（コミットしない）、本番は wrangler secret（T010、T020、T024）
+  // ここに書いた名前だけが .dev.vars から読まれる。手元でなければ警告が出るだけで、ログインは 503 を返す。本番になければ wrangler deploy が失敗する
+  "secrets": {
+    "required": ["ADMIN_TOKEN", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "RATE_KEY_SECRET"]
+  }
+}

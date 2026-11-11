@@ -1,0 +1,561 @@
+{
+  "_": "絵と時間と音は、この表だけから作る（docs/tasks/V002.md）。時間はすべて秒。文言は captions と page を、順は cards を直す。",
+  "fps": 60,
+  "duration": 47.3,
+  "bpm": 84,
+  "seed": 20261109,
+  "scenes": [
+    {
+      "id": 1,
+      "start": 0,
+      "end": 1,
+      "name": "白い部屋。ノートパソコンへ寄る"
+    },
+    {
+      "id": 2,
+      "start": 1,
+      "end": 8.286,
+      "name": "カードが流れてきて、画面に吸い込まれる"
+    },
+    {
+      "id": 3,
+      "start": 8.286,
+      "end": 12.286,
+      "name": "最後のカードを追って、カメラも画面に入る"
+    },
+    {
+      "id": 4,
+      "start": 12.286,
+      "end": 20.286,
+      "name": "並びの上を進み、1枚が開く。触ると昼が夜になる"
+    },
+    {
+      "id": 5,
+      "start": 20.286,
+      "end": 29.486,
+      "name": "コードをコピー。コードの板が浮き、クレジット行が光る"
+    },
+    {
+      "id": 6,
+      "start": 29.486,
+      "end": 34.886,
+      "name": "並びに戻る。よく使われたものが上へ"
+    },
+    {
+      "id": 7,
+      "start": 34.886,
+      "end": 38.386,
+      "name": "並びが遠ざかる"
+    },
+    {
+      "id": 8,
+      "start": 38.386,
+      "end": 47.3,
+      "name": "画面から外へ戻る。ロゴと ludion.ai"
+    }
+  ],
+  "stills": [
+    0.5,
+    5.886,
+    9.986,
+    19.186,
+    26.686,
+    32.486,
+    36.686,
+    45.486
+  ],
+  "captions": [
+    {
+      "scene": 2,
+      "ja": "触れるUIの展示場。",
+      "en": "A gallery of UI you can touch.",
+      "in": 3.286,
+      "out": 8.386
+    },
+    {
+      "scene": 4,
+      "ja": "触って、確かめる。",
+      "en": "Touch it first.",
+      "in": 16.186,
+      "out": 20.086
+    },
+    {
+      "scene": 5,
+      "ja": "コピーして、そのまま使う。",
+      "en": "Copy it. Use it.",
+      "in": 20.286,
+      "out": 24.486
+    },
+    {
+      "scene": 5,
+      "ja": "作った人の名前と一緒に。",
+      "en": "With the maker's name, always.",
+      "in": 24.486,
+      "out": 29.686
+    },
+    {
+      "scene": 6,
+      "ja": "使われた数で、良いものが上に。",
+      "en": "The most used rise to the top.",
+      "in": 29.686,
+      "out": 35.136
+    },
+    {
+      "scene": 7,
+      "ja": "オープンソース。",
+      "en": "Open source.",
+      "in": 35.136,
+      "out": 38.586
+    }
+  ],
+  "end": {
+    "wordmark": "Ludion",
+    "domain": "ludion.ai",
+    "in": 42.286,
+    "modelCredit": {
+      "show": true,
+      "text": "3D model: \"Modern Silver Laptop\" by Ottto3d (CC BY 4.0), modified",
+      "in": 43.886
+    }
+  },
+  "page": {
+    "workId": "toggle-daylight",
+    "copyLabel": "コードをコピー",
+    "copiedLabel": "コピーしました"
+  },
+  "cards": {
+    "_": "absorb はカードが画面に入る時刻。だんだん間隔が詰まる。最後の1枚をカメラが追う。order は並びの順。",
+    "flights": [
+      {
+        "id": "button-ticket",
+        "absorb": 2.486,
+        "dur": 3.2,
+        "side": -1
+      },
+      {
+        "id": "tabs-prism",
+        "absorb": 3.536,
+        "dur": 3.2,
+        "side": 1
+      },
+      {
+        "id": "like-pond",
+        "absorb": 4.486,
+        "dur": 3.2,
+        "side": -1
+      },
+      {
+        "id": "login-lumen",
+        "absorb": 5.286,
+        "dur": 3.1,
+        "side": 1
+      },
+      {
+        "id": "slider-resident",
+        "absorb": 5.986,
+        "dur": 3,
+        "side": -1
+      },
+      {
+        "id": "check-origami",
+        "absorb": 6.586,
+        "dur": 2.9,
+        "side": 1
+      },
+      {
+        "id": "progress-ferro",
+        "absorb": 7.086,
+        "dur": 2.8,
+        "side": -1
+      },
+      {
+        "id": "toggle-audio",
+        "absorb": 7.536,
+        "dur": 2.7,
+        "side": 1
+      },
+      {
+        "id": "auth-set",
+        "absorb": 7.936,
+        "dur": 2.6,
+        "side": -1
+      },
+      {
+        "id": "toggle-daylight",
+        "absorb": 9.786,
+        "dur": 2,
+        "side": 0
+      }
+    ],
+    "orderBefore": [
+      "login-lumen",
+      "button-ticket",
+      "like-pond",
+      "tabs-prism",
+      "auth-set",
+      "slider-resident",
+      "toggle-audio",
+      "progress-ferro",
+      "check-origami",
+      "toggle-daylight"
+    ],
+    "orderAfter": [
+      "toggle-daylight",
+      "slider-resident",
+      "login-lumen",
+      "like-pond",
+      "button-ticket",
+      "tabs-prism",
+      "progress-ferro",
+      "auth-set",
+      "toggle-audio",
+      "check-origami"
+    ],
+    "reorder": {
+      "start": 30.586,
+      "end": 33.886,
+      "stagger": 0.11,
+      "dur": 1.5
+    }
+  },
+  "camera": {
+    "_": "outer は部屋のカメラ（az 左右の角度、el 高さの角度、dist 距離 m、target 見る点）。fill は画面がちょうど画面いっぱいになる姿勢。fill の間は画面の中のカメラ inner だけが動く。inner の z は 2.352 で並びが画面いっぱい。",
+    "fov": 26,
+    "enter": [
+      {
+        "t": 0,
+        "az": -38,
+        "el": 18,
+        "dist": 1.22,
+        "target": [
+          0,
+          0.055,
+          -0.005
+        ]
+      },
+      {
+        "t": 8.286,
+        "az": -16,
+        "el": 15.5,
+        "dist": 0.875,
+        "target": [
+          0,
+          0.045,
+          0.02
+        ]
+      },
+      {
+        "t": 11.986,
+        "pose": "fill"
+      }
+    ],
+    "exit": [
+      {
+        "t": 38.686,
+        "pose": "fill"
+      },
+      {
+        "t": 42.686,
+        "az": -5,
+        "el": 14.5,
+        "dist": 1.1,
+        "target": [
+          0,
+          0.1,
+          -0.07
+        ]
+      },
+      {
+        "t": 47.3,
+        "az": -9,
+        "el": 15,
+        "dist": 0.98,
+        "target": [
+          0,
+          0.098,
+          -0.06
+        ]
+      }
+    ],
+    "inner": [
+      {
+        "t": 11.186,
+        "x": 0,
+        "y": 0,
+        "z": 2.352,
+        "tx": 0,
+        "ty": 0
+      },
+      {
+        "t": 12.486,
+        "x": 0.1,
+        "y": 0.05,
+        "z": 2,
+        "tx": 0.13,
+        "ty": 0.03
+      },
+      {
+        "t": 14.486,
+        "x": -0.27,
+        "y": -0.15,
+        "z": 1.6,
+        "tx": -0.3,
+        "ty": -0.17
+      },
+      {
+        "t": 15.486,
+        "x": -0.42,
+        "y": -0.26,
+        "z": 1.5,
+        "tx": -0.43,
+        "ty": -0.27
+      },
+      {
+        "t": 16.586,
+        "x": 0,
+        "y": 0,
+        "z": 2.352,
+        "tx": 0,
+        "ty": 0
+      },
+      {
+        "t": 23.886,
+        "x": 0,
+        "y": 0,
+        "z": 2.352,
+        "tx": 0,
+        "ty": 0
+      },
+      {
+        "t": 28.286,
+        "x": 0,
+        "y": 0.03,
+        "z": 2.27,
+        "tx": 0,
+        "ty": 0.03
+      },
+      {
+        "t": 30.386,
+        "x": 0,
+        "y": -0.13,
+        "z": 3.02,
+        "tx": 0,
+        "ty": -0.13
+      },
+      {
+        "t": 34.686,
+        "x": 0,
+        "y": -0.13,
+        "z": 3.1,
+        "tx": 0,
+        "ty": -0.13
+      },
+      {
+        "t": 39.286,
+        "x": 0,
+        "y": -0.06,
+        "z": 3.95,
+        "tx": 0,
+        "ty": -0.06
+      },
+      {
+        "t": 41.686,
+        "x": 0,
+        "y": -0.04,
+        "z": 4.1,
+        "tx": 0,
+        "ty": -0.04
+      }
+    ]
+  },
+  "workSequence": {
+    "_": "作品のページで実際に動かして撮る範囲。grab で掴み、release で離す。x はつまみの位置（0 昼、1 夜）",
+    "start": 14.686,
+    "end": 30.286,
+    "cursorIn": [
+      16.536,
+      17.236
+    ],
+    "grab": 17.286,
+    "drag": [
+      17.336,
+      19.536
+    ],
+    "dragTo": 0.86,
+    "release": 19.636
+  },
+  "pageFlow": {
+    "open": [
+      14.836,
+      16.536
+    ],
+    "cursorToCopy": [
+      19.836,
+      21.136
+    ],
+    "press": 21.236,
+    "codeRise": [
+      21.486,
+      22.736
+    ],
+    "creditGlow": [
+      22.986,
+      23.986
+    ],
+    "cursorOut": [
+      21.486,
+      22.386
+    ],
+    "close": [
+      28.986,
+      30.436
+    ]
+  },
+  "screen": {
+    "_": "画面の中の地の明るさ（線形、1 が白）",
+    "level": [
+      {
+        "t": 0,
+        "v": 0.9
+      },
+      {
+        "t": 1.6,
+        "v": 1
+      },
+      {
+        "t": 40.586,
+        "v": 1
+      },
+      {
+        "t": 41.786,
+        "v": 0.0022
+      },
+      {
+        "t": 47.3,
+        "v": 0.0022
+      }
+    ],
+    "cardsOut": [
+      40.286,
+      41.486
+    ],
+    "homeIn": [
+      7.686,
+      9.486
+    ]
+  },
+  "audio": {
+    "_": "音はすべてコードで作る。和音は1小節ごとに進む（度数ではなく MIDI の音で書く）。",
+    "chords": [
+      {
+        "name": "Fmaj9",
+        "notes": [
+          41,
+          53,
+          60,
+          64,
+          67,
+          72
+        ]
+      },
+      {
+        "name": "Am7",
+        "notes": [
+          45,
+          52,
+          60,
+          64,
+          67,
+          71
+        ]
+      },
+      {
+        "name": "Bbmaj9",
+        "notes": [
+          46,
+          53,
+          62,
+          65,
+          69,
+          72
+        ]
+      },
+      {
+        "name": "C6/9",
+        "notes": [
+          48,
+          55,
+          62,
+          64,
+          69,
+          74
+        ]
+      }
+    ],
+    "sparkleScale": [
+      72,
+      74,
+      77,
+      79,
+      81,
+      84,
+      86,
+      89
+    ],
+    "cardPitches": [
+      72,
+      74,
+      77,
+      79,
+      81,
+      84,
+      86,
+      89,
+      91,
+      93
+    ],
+    "enterAt": 11.426,
+    "padIn": [
+      0,
+      1.6
+    ],
+    "musicOut": [
+      39.286,
+      41.586
+    ],
+    "finalChord": {
+      "at": 42.286,
+      "notes": [
+        29,
+        41,
+        53,
+        60,
+        64,
+        69,
+        72,
+        79
+      ]
+    },
+    "levels": {
+      "pad": 0.3,
+      "bass": 0.14,
+      "sparkle": 0.09,
+      "air": 0.22,
+      "cardTone": 0.06,
+      "enter": 0.26,
+      "touch": 0.13,
+      "copy": 0.14,
+      "final": 0.34
+    },
+    "loudness": {
+      "I": -14,
+      "TP": -1.5,
+      "LRA": 20
+    },
+    "bassIn": [
+      0.4,
+      2.8
+    ],
+    "sparkleFrom": 1.2
+  }
+}

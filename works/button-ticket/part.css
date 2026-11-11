@@ -1,0 +1,173 @@
+[data-ld-part="button-ticket"] {
+  /* 固定しないトークン：使い手の値を受け、なければ作者の値 */
+  --_bg: var(--ld-bg, #fbfaf6);
+  --_surface: var(--ld-surface, #dcdad2);
+  --_fg: var(--ld-fg, #121212);
+  --_muted: var(--ld-muted, #57554f);
+  --_accent: var(--ld-accent, #cf2a1f);
+  --_radius: var(--ld-radius, 4px);
+  --_font: var(--ld-font, "Helvetica Neue", Arial, "Hiragino Sans", "Noto Sans JP", sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 1px 0 rgb(255 255 255 / .6) inset, 0 14px 30px rgb(40 38 32 / .18));
+  --_motion: var(--ld-motion, 80ms);
+
+  box-sizing: border-box;
+  width: min(100%, 400px);
+  padding: calc(var(--_space) * 2.5) calc(var(--_space) * 3) calc(var(--_space) * 3);
+  background: var(--_surface);
+  border: 1px solid color-mix(in oklab, var(--_surface) 80%, black);
+  border-radius: calc(var(--_radius) * 3);
+  box-shadow: var(--_shadow);
+  font-family: var(--_font);
+  color: var(--_fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+[data-ld-part="button-ticket"] *,
+[data-ld-part="button-ticket"] *::before,
+[data-ld-part="button-ticket"] *::after {
+  box-sizing: border-box;
+}
+
+/* 見出し：機械に貼った小さな札 */
+[data-ld-part="button-ticket"] .head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(var(--_space) * 2);
+  margin-bottom: calc(var(--_space) * 2);
+  padding-bottom: calc(var(--_space) * 1.25);
+  border-bottom: 1px solid color-mix(in oklab, var(--_muted) 40%, transparent);
+}
+
+[data-ld-part="button-ticket"] .caption,
+[data-ld-part="button-ticket"] .code {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+[data-ld-part="button-ticket"] .code {
+  color: var(--_muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 並び：数字4つ、その下に主ボタンと取消 */
+[data-ld-part="button-ticket"] .keys,
+[data-ld-part="button-ticket"] .numbers {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: calc(var(--_space) * 1.25);
+}
+
+[data-ld-part="button-ticket"] .numbers {
+  grid-column: 1 / -1;
+}
+
+[data-ld-part="button-ticket"] .wide {
+  grid-column: span 3;
+}
+
+/* 金属の枠。内側は、ボタンが沈む暗い穴 */
+[data-ld-part="button-ticket"] .bezel {
+  display: block;
+  padding-bottom: calc(var(--_space) * .625);
+  border: 3px solid transparent;
+  border-radius: calc(var(--_radius) + 3px);
+  background:
+    linear-gradient(
+      color-mix(in oklab, var(--_surface) 45%, black),
+      color-mix(in oklab, var(--_surface) 65%, black)
+    ) padding-box,
+    linear-gradient(
+      160deg,
+      color-mix(in oklab, var(--_muted) 15%, white) 0%,
+      color-mix(in oklab, var(--_muted) 55%, white) 40%,
+      color-mix(in oklab, var(--_muted) 25%, white) 55%,
+      color-mix(in oklab, var(--_muted) 80%, black) 100%
+    ) border-box;
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--_surface) 40%, white),
+    0 -1px 0 color-mix(in oklab, var(--_muted) 40%, transparent);
+}
+
+/* 厚みのあるボタン。下の影が側面 */
+[data-ld-part="button-ticket"] .key {
+  display: block;
+  width: 100%;
+  height: 64px;
+  margin: 0;
+  padding: 0 calc(var(--_space) * 1);
+  border: 0;
+  border-radius: var(--_radius);
+  background: linear-gradient(
+    var(--_bg),
+    color-mix(in oklab, var(--_bg) 93%, var(--_fg))
+  );
+  color: var(--_fg);
+  font: 800 30px/1 var(--_font);
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--_bg) 40%, white) inset,
+    0 -1px 0 color-mix(in oklab, var(--_fg) 10%, transparent) inset,
+    0 calc(var(--_space) * .625) 0 color-mix(in oklab, var(--_bg) 70%, black);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--_motion) ease-out, box-shadow var(--_motion) ease-out, background var(--_motion) ease-out;
+}
+
+[data-ld-part="button-ticket"] .buy,
+[data-ld-part="button-ticket"] .cancel {
+  height: 76px;
+}
+
+[data-ld-part="button-ticket"] .buy {
+  font-size: 22px;
+  letter-spacing: .01em;
+}
+
+/* 取消だけが強調色 */
+[data-ld-part="button-ticket"] .cancel {
+  background: linear-gradient(
+    color-mix(in oklab, var(--_accent) 88%, white),
+    var(--_accent)
+  );
+  padding: 0 calc(var(--_space) * .25);
+  color: var(--_bg);
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--_accent) 60%, white) inset,
+    0 -1px 0 color-mix(in oklab, var(--_accent) 80%, black) inset,
+    0 calc(var(--_space) * .625) 0 color-mix(in oklab, var(--_accent) 62%, black);
+}
+
+/* 押すと沈む。選んだ数字は沈んだまま */
+[data-ld-part="button-ticket"] .key:active,
+[data-ld-part="button-ticket"] .num[aria-pressed="true"] {
+  transform: translateY(calc(var(--_space) * .5));
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--_bg) 40%, white) inset,
+    0 1px 0 color-mix(in oklab, var(--_bg) 70%, black);
+}
+
+[data-ld-part="button-ticket"] .num[aria-pressed="true"] {
+  background: linear-gradient(
+    color-mix(in oklab, var(--_bg) 88%, var(--_fg)),
+    color-mix(in oklab, var(--_bg) 84%, var(--_fg))
+  );
+}
+
+[data-ld-part="button-ticket"] .cancel:active {
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--_accent) 60%, white) inset,
+    0 1px 0 color-mix(in oklab, var(--_accent) 62%, black);
+}
+
+[data-ld-part="button-ticket"] .key:focus-visible {
+  outline: 2px solid var(--_fg);
+  outline-offset: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ld-part="button-ticket"] .key {
+    transition: none;
+  }
+}

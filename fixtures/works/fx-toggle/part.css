@@ -1,0 +1,89 @@
+[data-ld-part="fx-toggle"] {
+  --_bg: var(--ld-bg, #0e0f13);
+  --_surface: var(--ld-surface, #181a20);
+  --_fg: var(--ld-fg, #f2f3f5);
+  --_muted: var(--ld-muted, #9a9fab);
+  --_accent: var(--ld-accent, #7c9cff);
+  --_radius: var(--ld-radius, 16px);
+  --_font: var(--ld-font, system-ui, sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 16px 40px rgb(0 0 0 / .45));
+  --_motion: var(--ld-motion, 180ms);
+
+  box-sizing: border-box;
+  width: min(100%, 360px);
+  padding: calc(var(--_space) * 0.5) 0;
+  background: var(--_surface);
+  border-radius: var(--_radius);
+  box-shadow: var(--_shadow);
+  font-family: var(--_font);
+  color: var(--_fg);
+}
+
+[data-ld-part="fx-toggle"] .row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--_space) * 2);
+  padding: calc(var(--_space) * 1.75) calc(var(--_space) * 2.5);
+}
+
+[data-ld-part="fx-toggle"] .row + .row {
+  border-top: 1px solid color-mix(in oklab, var(--_muted) 22%, transparent);
+}
+
+[data-ld-part="fx-toggle"] .text {
+  display: grid;
+  gap: 2px;
+}
+
+[data-ld-part="fx-toggle"] .label {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
+[data-ld-part="fx-toggle"] .hint {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--_muted);
+}
+
+[data-ld-part="fx-toggle"] .switch {
+  position: relative;
+  flex: none;
+  width: 48px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--_muted) 45%, var(--_surface));
+  cursor: pointer;
+  transition: background var(--_motion) ease;
+}
+
+[data-ld-part="fx-toggle"] .switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--_fg);
+  transition: transform var(--_motion) ease;
+}
+
+[data-ld-part="fx-toggle"] .switch[aria-checked="true"] {
+  background: var(--_accent);
+}
+
+[data-ld-part="fx-toggle"] .switch[aria-checked="true"]::after {
+  transform: translateX(20px);
+  background: var(--_bg);
+}
+
+[data-ld-part="fx-toggle"] .switch:focus-visible {
+  outline: 2px solid var(--_accent);
+  outline-offset: 3px;
+}

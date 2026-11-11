@@ -1,0 +1,52 @@
+/* わざと壊した見本：作者の --_muted が白い地に薄すぎる（約1.6:1）。「アクセシビリティ」だけで落ちる。 */
+[data-ld-part="fx-bad-contrast"] {
+  --_bg: var(--ld-bg, #ffffff);
+  --_surface: var(--ld-surface, #ffffff);
+  --_fg: var(--ld-fg, #18181b);
+  --_muted: var(--ld-muted, #c8c8cf);
+  --_accent: var(--ld-accent, #4338ca);
+  --_radius: var(--ld-radius, 14px);
+  --_font: var(--ld-font, system-ui, sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 8px 24px rgb(0 0 0 / .08));
+  --_motion: var(--ld-motion, 150ms);
+
+  box-sizing: border-box;
+  width: min(100%, 320px);
+  padding: calc(var(--_space) * 3);
+  border-radius: var(--_radius);
+  background: var(--_surface);
+  box-shadow: var(--_shadow);
+  color: var(--_fg);
+  font-family: var(--_font);
+}
+
+[data-ld-part="fx-bad-contrast"] .eyebrow {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--_muted);
+}
+
+[data-ld-part="fx-bad-contrast"] .title {
+  margin: var(--_space) 0 0;
+  font-size: 24px;
+}
+
+[data-ld-part="fx-bad-contrast"] .text {
+  margin: var(--_space) 0 calc(var(--_space) * 3);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--_muted);
+}
+
+[data-ld-part="fx-bad-contrast"] .button {
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--_radius);
+  background: var(--_accent);
+  color: var(--_surface);
+  font: 600 15px/20px var(--_font);
+  transition: background var(--_motion) ease;
+}

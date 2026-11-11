@@ -1,0 +1,35 @@
+[data-ld-part="fx-motion"] {
+  --_bg: var(--ld-bg, #0e0f13);
+  --_surface: var(--ld-surface, #181a20);
+  --_fg: var(--ld-fg, #f2f3f5);
+  --_muted: var(--ld-muted, #9a9fab);
+  --_accent: var(--ld-accent, #7c9cff);
+  --_radius: var(--ld-radius, 16px);
+  --_font: var(--ld-font, system-ui, sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 16px 40px rgb(0 0 0 / .45));
+  --_motion: var(--ld-motion, 180ms);
+
+  box-sizing: border-box;
+  width: min(100%, 360px);
+  overflow: hidden;
+  background: var(--_surface);
+  border-radius: var(--_radius);
+  box-shadow: var(--_shadow);
+  font-family: var(--_font);
+  color: var(--_fg);
+}
+
+[data-ld-part="fx-motion"] .stage {
+  display: block;
+  width: 100%;
+  height: 180px;
+}
+
+[data-ld-part="fx-motion"] .caption {
+  margin: 0;
+  padding: calc(var(--_space) * 1.5) calc(var(--_space) * 2);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}

@@ -1,0 +1,15 @@
+{
+  "id": "fx-landing",
+  "title": "Tidy Notes Landing",
+  "type": "screen",
+  "platform": "web",
+  "category": "Web",
+  "subtype": "Landing Page",
+  "tags": ["minimal"],
+  "creator": "fixture",
+  "license": "MIT",
+  "made_with": "ai-assisted",
+  "version": "1",
+  "published_at": "2026-11-08",
+  "pin_order": null
+}

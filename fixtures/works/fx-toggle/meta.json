@@ -1,0 +1,15 @@
+{
+  "id": "fx-toggle",
+  "title": "Quiet Switches",
+  "type": "component",
+  "platform": null,
+  "category": "Components",
+  "subtype": "Toggle",
+  "tags": ["minimal"],
+  "creator": "fixture",
+  "license": "MIT",
+  "made_with": "ai-assisted",
+  "version": "1",
+  "published_at": "2026-11-08",
+  "pin_order": null
+}

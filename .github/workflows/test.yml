@@ -1,0 +1,122 @@
+# テスト（docs/tasks/CI001.md「1」）。npm test と同じ中身を、GitHub Actions の機械に分けて流す。
+# - apps/web の Playwright の全部のプロジェクトを、shard で同時に流す（どの shard もビルドとテストのサーバーを自分で立てる）
+# - packages/ld、render、rules は1台で流す
+# - 「テストの全部」が、main に入れてよいかの印（branch protection で必須にする名前）
+# 本番の秘密の値は使わない。テストの値は playwright.config.ts と scripts/test-server.mjs が、その場で作るか偽の値を置く。
+name: test
+
+# main への pull request と、main への push だけで動く（ほかの枝への push では動かさない。
+# 同じ中身を2回流さず、分を節約するため。11/11 の CTO の答え、docs/tasks/CI001.md）
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 同じ枝に新しい push が来たら、前の実行を止める。push と pull request は別の列
+concurrency:
+  group: test-${{ github.event_name }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # 落ちたときの報告を自動で開かない
+  PLAYWRIGHT_HTML_OPEN: never
+
+jobs:
+  web:
+    name: web (${{ matrix.shard }}/6)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - id: pw
+        name: Playwright の版
+        run: echo "version=$(node -p "require('./node_modules/playwright-core/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: ブラウザのキャッシュ
+        id: browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}-chromium-webkit-firefox
+      - name: ブラウザを入れる
+        if: steps.browsers.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium webkit firefox
+      - name: ブラウザが使う OS の部品を入れる
+        if: steps.browsers.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium webkit firefox
+      - name: テスト
+        run: npm test -w @ludion/web -- --shard=${{ matrix.shard }}/6
+      - name: 落ちたときの報告を残す
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-web-${{ matrix.shard }}
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          retention-days: 7
+
+  packages:
+    name: packages (ld, render, rules)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - id: pw
+        name: Playwright の版
+        run: echo "version=$(node -p "require('./node_modules/playwright-core/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: ブラウザのキャッシュ
+        id: browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}-chromium-webkit-firefox
+      - name: ブラウザを入れる
+        if: steps.browsers.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium webkit firefox
+      - name: ブラウザが使う OS の部品を入れる
+        if: steps.browsers.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium webkit firefox
+      - name: テスト
+        # 報告の形だけを足す（render と rules の設定は node の型を持たないので、設定ではなく引数で渡す）
+        run: npm test -w @ludion/ld -w @ludion/render -w @ludion/rules -- --reporter=list,html
+      - name: スキルのテスト（skills/ludion、偽のサーバーで。docs/tasks/T038.md）
+        if: success() || failure()
+        run: npm run test:skill
+      - name: 落ちたときの報告を残す
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-packages
+          path: |
+            packages/*/playwright-report/
+            packages/*/test-results/
+          retention-days: 7
+
+  all:
+    name: テストの全部
+    if: always()
+    needs: [web, packages]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 全部が通ったか
+        run: |
+          echo "web: ${{ needs.web.result }}、packages: ${{ needs.packages.result }}"
+          test "${{ needs.web.result }}" = success && test "${{ needs.packages.result }}" = success

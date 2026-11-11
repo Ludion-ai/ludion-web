@@ -1,0 +1,1688 @@
+// part.js — ESモジュール。rootの中だけを触る
+// 磁性流体の進み具合：横長のガラス管の中に、鏡のように黒い磁性流体が入っている。
+//
+// 形：管の中を光線で追う。流体は、細い帯、頭の塊、とげ（六方の格子）を、なめらかに溶け合わせたもの。
+//     進み具合の先に見えない磁石があり、とげの高さと傾きは格子ごとのばねで追いかける。だから波のように移る。
+//     100% で磁石が消えると、とげはほどけ、両端が引き戻されて2つの玉になり、ぶつかって1つの球になる。
+// 光：ガラスは入るときと出るときで4回曲げて、面の映り込みと、縁の暗い線を出す。流体は周りの光だけを映す。
+//     とげどうしで映り合うところは、反射の光線を短く追って暗くする。
+// 床：影、管が集めた光、下へ薄れていく映り込みを、絵を描いたあとで重ねる。
+// 色は JS に書かない。--_bg、--_fg、--_surface、--_muted、--_accent を読み、色相を保って明るさだけを決める。
+
+const R_IN = 0.945;
+const ROW_Z = 0.27;
+const PITCH = 0.34;
+const MAX_COLS = 40;
+const ROWS = 3;
+const TEX = 512;
+const MAX_BLOBS = 6;
+const BALL = 0.76;
+const WIDTH_K = 0.62;
+const SPIKE_R = 0.15;
+const ROOT = 0.26; // とげの根が、体の中へ細くなって消える深さ
+const CAMERA_TILT = (9.5 * Math.PI) / 180;
+const CAMERA_DIST = 30;
+const SIM_DT = 1 / 120;
+const HOLD = 0.45; // 動き出すまでの間
+const GATHER = 0.16;
+const PULL = 1.62;
+const MERGE = 0.3;
+const RETURN_TIME = 1.05;
+
+// アップロードの進み方：ひと息ごとに進み、少し止まる
+const KEYS = [
+  [0, 0],
+  [1.1, 0.06],
+  [1.9, 0.075],
+  [3.4, 0.27],
+  [4.2, 0.3],
+  [5.9, 0.53],
+  [6.6, 0.55],
+  [8.3, 0.81],
+  [8.9, 0.83],
+  [10.4, 1],
+];
+const RUN_TIME = KEYS[KEYS.length - 1][0];
+
+const clamp = (v, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, v));
+const mix = (a, b, t) => a + (b - a) * t;
+const sq = (v) => v * v;
+const smoothstep = (a, b, x) => {
+  const t = clamp((x - a) / (b - a));
+  return t * t * (3 - 2 * t);
+};
+
+function progressAt(t) {
+  if (t <= 0) return 0;
+  for (let i = 1; i < KEYS.length; i++) {
+    if (t <= KEYS[i][0]) {
+      const a = KEYS[i - 1];
+      const b = KEYS[i];
+      return mix(a[1], b[1], smoothstep(a[0], b[0], t));
+    }
+  }
+  return 1;
+}
+
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// ---- 色の計算（OKLab）。色の値は書かず、トークンの色相に明るさだけを与える
+const toLinear = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+function rgbToOklab(r, g, b) {
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+}
+function oklabToLinear(L, a, b) {
+  const l = Math.pow(L + 0.3963377774 * a + 0.2158037573 * b, 3);
+  const m = Math.pow(L - 0.1055613458 * a - 0.0638541728 * b, 3);
+  const s = Math.pow(L - 0.0894841775 * a - 1.291485548 * b, 3);
+  return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s];
+}
+// 明るさを決め、色域に入るまで鮮やかさを落とす
+function labTone(lab, L, keep = 1) {
+  let chroma = keep;
+  for (let i = 0; i < 24; i++) {
+    const rgb = oklabToLinear(L, lab[1] * chroma, lab[2] * chroma);
+    if (rgb.every((v) => v >= -0.001 && v <= 1.001)) return rgb.map((v) => clamp(v));
+    chroma *= 0.9;
+  }
+  return oklabToLinear(L, 0, 0).map((v) => clamp(v));
+}
+
+// ---- シェーダー
+const VERT = `#version 300 es
+void main() {
+  vec2 p = vec2(float(gl_VertexID & 1), float((gl_VertexID >> 1) & 1));
+  gl_Position = vec4(p * 4.0 - 1.0, 0.0, 1.0);
+}`;
+
+// 床：絵の中（ガラス越し）と、合成の段の両方で使う
+const FLOOR = `
+uniform sampler2D uProfile;
+uniform float uTexX, uTexK, uL;
+uniform vec3 uBackdrop, uLight;
+float sq(float x) { return x * x; }
+vec3 floorAt(vec2 q) {
+  vec4 P = textureLod(uProfile, vec2((q.x + uTexX) * uTexK, 0.5), 0.0);
+  float z = q.y;
+  float ax = abs(q.x);
+  float body = 1.0 - smoothstep(uL + 0.1, uL + 1.3, ax);
+  float near = 1.0 - smoothstep(uL + 0.55, uL + 0.98, ax);
+  float sh = 0.0;
+  sh += 0.085 * body * exp(-sq((z - 0.8) / 1.6));
+  sh += 0.26 * near * exp(-sq(z / 0.07));
+  sh += 0.13 * near * exp(-sq(z / 0.3));
+  sh += 0.86 * P.b * exp(-sq((z - 0.5) / 0.85));
+  sh += 0.40 * P.a * exp(-sq((z - 1.9) / 2.3));
+  float line = exp(-sq((z - 1.36) / 0.06)) + 0.36 * exp(-sq((z - 1.36) / 0.32));
+  float caustic = line * near * sq(1.0 - P.b);
+  return uBackdrop * exp(-sh * 1.15) + uLight * caustic * 0.17;
+}`;
+
+const SCENE_FRAG = `#version 300 es
+precision highp float;
+precision highp int;
+#define R_IN ${R_IN.toFixed(4)}
+#define WIDTH_K ${WIDTH_K.toFixed(3)}
+#define PITCH ${PITCH.toFixed(3)}
+#define ROW_Z ${ROW_Z.toFixed(3)}
+#define COLS ${MAX_COLS}
+#define MAX_BLOBS ${MAX_BLOBS}
+#define SPIKE_R ${SPIKE_R.toFixed(3)}
+#define ROOT ${ROOT.toFixed(3)}
+#define SPIKE_BASE SPIKE_R
+#define SPIKE_TIP tipR
+#define STEPS 72
+${FLOOR}
+uniform vec2 uOrigin, uCenter;
+uniform float uScale, uFocal, uPixel;
+uniform vec3 uRo, uRight, uUp, uFwd;
+uniform vec4 uTrail;
+uniform float uTrailOn, uBlend, uCrownOn, uCellX0;
+uniform vec4 uBlob[MAX_BLOBS];
+uniform int uBlobs;
+uniform vec4 uCell[COLS * 3];
+uniform vec4 uCrown;
+uniform vec3 uTall, uBound;
+uniform vec3 uInk, uAmber, uCool, uGlassAbs;
+uniform vec3 uTick;
+out vec4 outColor;
+float tipR = 0.0;
+
+// ---- 流体の形
+float ellipsoid(vec3 q, vec3 r) {
+  float k0 = length(q / r);
+  float k1 = length(q / (r * r));
+  return k0 * (k0 - 1.0) / max(k1, 1.0e-4);
+}
+float smin3(float a, float b, float k) {
+  float h = max(k - abs(a - b), 0.0) / k;
+  return min(a, b) - h * h * h * k / 6.0;
+}
+float sdTrail(vec3 p) {
+  float xc = clamp(p.x, uTrail.x, uTrail.y);
+  vec2 P = textureLod(uProfile, vec2((xc + uTexX) * uTexK, 0.5), 0.0).rg;
+  float h = max(P.x, 0.003);
+  float dx = p.x - xc;
+  vec3 r = vec3(dx < 0.0 ? uTrail.z : uTrail.w, h, sqrt(WIDTH_K * h) * (1.0 - exp(-h / 0.06)));
+  vec3 q = vec3(dx, p.y + R_IN - h, p.z);
+  return ellipsoid(q, r) / sqrt(1.0 + P.y * P.y * 0.9);
+}
+float sdSpike(vec3 p, int row, float col, float off, float cz) {
+  col = clamp(col, 0.0, float(COLS - 1));
+  vec4 c = uCell[row * COLS + int(col)];
+  float H = c.y;
+  if (H < 0.012) return 9.0;
+  float y = p.y - c.x;
+  float u = clamp(y / H, 0.0, 1.0);
+  vec2 q = vec2(p.x - (uCellX0 + (col + off) * PITCH + c.w) - c.z * u * u, p.z - cz);
+  float rr = SPIKE_TIP + 0.05 * (1.0 - smoothstep(0.03, 0.2, H));
+  float a = SPIKE_BASE * min(1.0, sqrt(H / 0.4));
+  float sl0 = 1.25 * a / H;
+  float scale = 1.0 / sqrt(1.0 + sl0 * sl0);
+  if (y > H) return (length(vec3(q, y - H)) - rr) * scale;
+  if (y < -ROOT) return (length(vec3(q, y + ROOT)) - rr) * scale;
+  if (y < 0.0) {
+    float n = y / ROOT;
+    return (length(q) - (a - sl0 * y) * (1.0 - n * n) - rr) * scale;
+  }
+  float w = 1.0 - u;
+  return (length(q) - a * w * sqrt(sqrt(w)) - rr) * scale;
+}
+float map(vec3 p) {
+  float d = 9.0;
+  if (uTrailOn > 0.5) d = sdTrail(p);
+  for (int i = 0; i < uBlobs; i++) {
+    vec4 b = uBlob[i];
+    d = smin3(d, ellipsoid(vec3(p.x - b.x, p.y + R_IN - b.y, p.z), b.zyw), uBlend);
+  }
+  if (uCrownOn > 0.5) {
+    vec2 bq = vec2(max(uCrown.x - p.x, p.x - uCrown.y), max(uCrown.z - p.y, p.y - uCrown.w));
+    float bd = length(max(bq, 0.0));
+    if (bd < d + 0.16) {
+      float u = (p.x - uCellX0) / PITCH;
+      float i0 = floor(u);
+      float i1 = floor(u - 0.5);
+      int side = p.z >= 0.0 ? 2 : 0;
+      float cz = p.z >= 0.0 ? ROW_Z : -ROW_Z;
+      float s = sdSpike(p, 1, i0, 0.0, 0.0);
+      s = smin3(s, sdSpike(p, 1, i0 + 1.0, 0.0, 0.0), 0.05);
+      s = smin3(s, sdSpike(p, side, i1, 0.5, cz), 0.05);
+      s = smin3(s, sdSpike(p, side, i1 + 1.0, 0.5, cz), 0.05);
+      d = smin3(d, s, 0.15);
+    }
+  }
+  return d;
+}
+
+// ---- 向き：差分を取らず、式から直接求める。鏡の面に段が出ないように
+void sminG(inout float a, inout vec3 ga, float b, vec3 gb, float k) {
+  float h = max(k - abs(a - b), 0.0) / k;
+  float m = 0.5 * h * h;
+  float s = h * h * h * k / 6.0;
+  if (a < b) { ga = mix(ga, gb, m); a -= s; }
+  else { ga = mix(gb, ga, m); a = b - s; }
+}
+float trailG(vec3 p, out vec3 g) {
+  float xc = clamp(p.x, uTrail.x, uTrail.y);
+  vec2 P = textureLod(uProfile, vec2((xc + uTexX) * uTexK, 0.5), 0.0).rg;
+  float h = max(P.x, 0.003);
+  float dx = p.x - xc;
+  float cap = dx < 0.0 ? uTrail.z : uTrail.w;
+  float wr = sqrt(WIDTH_K * h);
+  float we = exp(-h / 0.06);
+  float w = wr * (1.0 - we);
+  float dwdh = WIDTH_K / (2.0 * wr) * (1.0 - we) + wr * we / 0.06;
+  vec3 r = vec3(cap, h, w);
+  vec3 q = vec3(dx, p.y + R_IN - h, p.z);
+  float k0 = max(length(q / r), 1.0e-4);
+  float slope = dx == 0.0 ? P.y : 0.0;
+  float dh = (-q.y / (h * h) * (1.0 + q.y / h) - q.z * q.z / (w * w * w) * dwdh) / k0;
+  g = normalize(vec3(q.x / (cap * cap) / k0 + slope * dh, q.y / (h * h) / k0, q.z / (w * w) / k0));
+  return ellipsoid(q, r) / sqrt(1.0 + P.y * P.y * 0.9);
+}
+float spikeG(vec3 p, int row, float col, float off, float cz, out vec3 g) {
+  g = vec3(0.0, 1.0, 0.0);
+  col = clamp(col, 0.0, float(COLS - 1));
+  vec4 c = uCell[row * COLS + int(col)];
+  float H = c.y;
+  if (H < 0.012) return 9.0;
+  float y = p.y - c.x;
+  float u = clamp(y / H, 0.0, 1.0);
+  vec2 q = vec2(p.x - (uCellX0 + (col + off) * PITCH + c.w) - c.z * u * u, p.z - cz);
+  float rr = SPIKE_TIP + 0.05 * (1.0 - smoothstep(0.03, 0.2, H));
+  float a = SPIKE_BASE * min(1.0, sqrt(H / 0.4));
+  float sl0 = 1.25 * a / H;
+  float scale = 1.0 / sqrt(1.0 + sl0 * sl0);
+  if (y > H) {
+    vec3 t = vec3(q.x, y - H, q.y);
+    float l = max(length(t), 1.0e-5);
+    g = t / l;
+    return (l - rr) * scale;
+  }
+  float l = max(length(q), 1.0e-5);
+  vec2 rad = q / l;
+  if (y < -ROOT) {
+    vec3 t = vec3(q.x, y + ROOT, q.y);
+    float lt = max(length(t), 1.0e-5);
+    g = t / lt;
+    return (lt - rr) * scale;
+  }
+  if (y < 0.0) {
+    float n = y / ROOT;
+    float fall = 1.0 - n * n;
+    float slope = -sl0 * fall - (a - sl0 * y) * 2.0 * y / (ROOT * ROOT);
+    g = normalize(vec3(rad.x, -slope, rad.y));
+    return (l - (a - sl0 * y) * fall - rr) * scale;
+  }
+  float w = 1.0 - u;
+  float rw = sqrt(sqrt(w));
+  float sl = 1.25 * a * rw / H;
+  g = normalize(vec3(rad.x, sl - rad.x * 2.0 * c.z * u / H, rad.y));
+  return (l - a * w * rw - rr) * scale;
+}
+vec3 normalAt(vec3 p) {
+  float d = 9.0;
+  vec3 g = vec3(0.0, 1.0, 0.0);
+  if (uTrailOn > 0.5) d = trailG(p, g);
+  for (int i = 0; i < uBlobs; i++) {
+    vec4 b = uBlob[i];
+    vec3 r = b.zyw;
+    vec3 q = vec3(p.x - b.x, p.y + R_IN - b.y, p.z);
+    sminG(d, g, ellipsoid(q, r), normalize(q / (r * r) + vec3(0.0, 1.0e-5, 0.0)), uBlend);
+  }
+  if (uCrownOn > 0.5) {
+    float u = (p.x - uCellX0) / PITCH;
+    float i0 = floor(u);
+    float i1 = floor(u - 0.5);
+    int side = p.z >= 0.0 ? 2 : 0;
+    float cz = p.z >= 0.0 ? ROW_Z : -ROW_Z;
+    vec3 gs, gt;
+    float s = spikeG(p, 1, i0, 0.0, 0.0, gs);
+    float t = spikeG(p, 1, i0 + 1.0, 0.0, 0.0, gt);
+    sminG(s, gs, t, gt, 0.05);
+    t = spikeG(p, side, i1, 0.5, cz, gt);
+    sminG(s, gs, t, gt, 0.05);
+    t = spikeG(p, side, i1 + 1.0, 0.5, cz, gt);
+    sminG(s, gs, t, gt, 0.05);
+    sminG(d, g, s, gs, 0.15);
+  }
+  return normalize(g);
+}
+
+// ---- 管：胴と両端の球
+vec2 capHit(vec3 ro, vec3 rd, float r) {
+  float tn = 1.0e9;
+  float tf = -1.0e9;
+  float a = dot(rd.yz, rd.yz);
+  float b = dot(ro.yz, rd.yz);
+  float c = dot(ro.yz, ro.yz) - r * r;
+  float h = b * b - a * c;
+  if (h > 0.0 && a > 1.0e-7) {
+    h = sqrt(h);
+    float t0 = (-b - h) / a;
+    float t1 = (-b + h) / a;
+    float rx = abs(rd.x) < 1.0e-6 ? 1.0e-6 : rd.x;
+    float sa = (-uL - ro.x) / rx;
+    float sb = (uL - ro.x) / rx;
+    t0 = max(t0, min(sa, sb));
+    t1 = min(t1, max(sa, sb));
+    if (t0 <= t1) { tn = t0; tf = t1; }
+  }
+  for (int i = 0; i < 2; i++) {
+    vec3 oc = ro - vec3(i == 0 ? -uL : uL, 0.0, 0.0);
+    float bb = dot(oc, rd);
+    float hh = bb * bb - dot(oc, oc) + r * r;
+    if (hh > 0.0) {
+      hh = sqrt(hh);
+      tn = min(tn, -bb - hh);
+      tf = max(tf, -bb + hh);
+    }
+  }
+  return vec2(tn, tf);
+}
+vec3 capNormal(vec3 p) {
+  vec3 q = p;
+  q.x -= clamp(p.x, -uL, uL);
+  return normalize(q);
+}
+float schlick(float c, float f0) {
+  return f0 + (1.0 - f0) * pow(clamp(1.0 - c, 0.0, 1.0), 5.0);
+}
+
+// ---- 部屋の光
+float box(vec2 p, vec2 c, vec2 h, float s) {
+  vec2 q = abs(p - c) - h;
+  float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+  return 1.0 - smoothstep(-s, s, d);
+}
+float strip(vec2 q, vec2 c, vec2 h, vec2 s) {
+  vec2 d = abs(q - c) - h;
+  return (1.0 - smoothstep(-s.x, s.x, d.x)) * (1.0 - smoothstep(-s.y, s.y, d.y));
+}
+vec3 env(vec3 d, float b) {
+  float back = 1.0 - smoothstep(-0.6, 0.35, d.z);
+  vec3 c = uBackdrop * back * 0.72 + uLight * 0.006;
+  float fl = 1.0 - smoothstep(-0.03 - b * 2.5, 0.03 + b * 2.5, d.y);
+  if (fl > 0.0) {
+    float toward = smoothstep(-0.95, -0.06, d.y);
+    vec3 ground = uBackdrop * (0.03 + 0.5 * toward * toward);
+    c = mix(c, ground, fl);
+  }
+  if (d.y > 0.02) {
+    vec2 q = d.xz / d.y;
+    c += uLight * 11.0 * box(q, vec2(0.0, 0.16), vec2(3.8, 0.085), 0.05 + b * 2.0);
+  }
+  if (d.z > 0.02) {
+    vec2 q = d.xy / d.z;
+    vec2 g = abs(q - vec2(-0.92, 0.98));
+    float m = smoothstep(0.012, 0.024 + b, g.x) * smoothstep(0.012, 0.024 + b, g.y);
+    c += uLight * 24.0 * box(q, vec2(-0.92, 0.98), vec2(0.4, 0.52), 0.014 + b) * mix(1.0, m, 0.9);
+    c += uCool * 46.0 * strip(q, vec2(-1.75, 0.42), vec2(0.03, 0.95), vec2(0.016 + b, 0.7 + b));
+    c += uLight * 38.0 * strip(q, vec2(1.42, 0.5), vec2(0.04, 1.0), vec2(0.018 + b, 0.7 + b));
+  }
+  if (d.z < -0.02) {
+    vec2 q = d.xy / -d.z;
+    c += uLight * 9.0 * strip(q, vec2(0.0, 0.92), vec2(2.4, 0.03), vec2(1.0 + b, 0.014 + b));
+    c += uAmber * 7.0 * strip(q, vec2(1.6, 0.3), vec2(0.05, 0.6), vec2(0.03 + b, 0.5 + b));
+  }
+  return c;
+}
+vec3 behind(vec3 p, vec3 d) {
+  if (d.y < -0.002) {
+    float t = (-1.0 - p.y) / d.y;
+    return floorAt(p.xz + d.xz * t) * (1.0 - 0.62 * smoothstep(0.3, 0.85, -d.y));
+  }
+  return uBackdrop * (1.0 - 0.86 * smoothstep(0.1, 0.6, d.y));
+}
+
+// ---- 流体を追う
+bool traceFluid(vec3 ro, vec3 rd, float tEnd, out vec3 hit, out float cov) {
+  cov = 0.0;
+  hit = ro;
+  float xa = ro.x;
+  float xb = ro.x + rd.x * tEnd;
+  if (max(xa, xb) < uBound.x || min(xa, xb) > uBound.y) return false;
+  float xm = 0.5 * (xa + xb);
+  float topY = (xm > uTall.x && xm < uTall.y) ? uTall.z : uBound.z;
+  float t = 0.0;
+  if (ro.y > topY) {
+    if (rd.y >= 0.0) return false;
+    t = (topY - ro.y) / rd.y;
+    if (t >= tEnd) return false;
+  }
+  float best = 1.0e9;
+  float tb = t;
+  for (int i = 0; i < STEPS; i++) {
+    float d = map(ro + rd * t);
+    float r = d / uPixel;
+    if (r < best) { best = r; tb = t; }
+    if (r < 0.25) { best = 0.0; break; }
+    t += d * 0.9;
+    if (t > tEnd) break;
+  }
+  cov = 1.0 - smoothstep(0.25, 1.25, best);
+  hit = ro + rd * tb;
+  return cov > 0.0;
+}
+float reflectShade(vec3 p, vec3 R) {
+  float o = 1.0;
+  float t = 0.07;
+  for (int i = 0; i < 10; i++) {
+    float d = map(p + R * t);
+    o = min(o, d / (t * 0.2 + 0.004));
+    if (o < 0.02) break;
+    t += clamp(d, 0.04, 0.34);
+    if (t > 1.8) break;
+  }
+  o = clamp(o, 0.0, 1.0);
+  return o * o * (3.0 - 2.0 * o);
+}
+vec3 shadeFluid(vec3 p, vec3 rd, vec3 N, vec3 R, vec3 rx, vec3 ry, float blur) {
+  float ndv = clamp(dot(N, -rd), 0.0, 1.0);
+  float f = 0.042 + 0.46 * pow(1.0 - ndv, 5.0);
+  // 1画素に映る範囲を4点で拾う。細い光が点線にならない
+  vec3 L = env(normalize(R - 0.375 * rx - 0.125 * ry), blur);
+  L += env(normalize(R + 0.125 * rx - 0.375 * ry), blur);
+  L += env(normalize(R + 0.375 * rx + 0.125 * ry), blur);
+  L += env(normalize(R - 0.125 * rx + 0.375 * ry), blur);
+  L *= 0.25;
+  float occ = 1.0;
+  if (uCrownOn > 0.5 && p.x > uCrown.x - 0.2 && p.x < uCrown.y + 0.2) occ = reflectShade(p + N * 0.02, R);
+  vec3 c = L * f * occ;
+  c += uInk * (0.25 + 0.5 * max(N.y, 0.0));
+  c += uAmber * pow(1.0 - ndv, 3.0) * 0.022;
+  return c;
+}
+
+void main() {
+  tipR = max(0.0065, uPixel * 0.62);
+  vec2 px = uOrigin + gl_FragCoord.xy / uScale;
+  vec2 v = px - uCenter;
+  vec3 rd = normalize(uRight * v.x + uUp * v.y + uFwd * uFocal);
+
+  // 外の輪郭：線で切らず、1画素ぶんだけ薄くする
+  float tc = -dot(uRo.yz, rd.yz) / dot(rd.yz, rd.yz);
+  vec3 pc = uRo + rd * tc;
+  vec3 axis = vec3(clamp(pc.x, -uL, uL), 0.0, 0.0);
+  if (abs(pc.x) > uL) {
+    tc = dot(axis - uRo, rd);
+    pc = uRo + rd * tc;
+  }
+  float dist = length(pc - axis);
+  float cover = clamp((1.0 - dist) / uPixel + 0.5, 0.0, 1.0);
+  if (cover <= 0.0) { outColor = vec4(0.0); return; }
+  if (dist > 0.9992) {
+    vec3 onEdge = axis + (pc - axis) / dist * 0.9992;
+    rd = normalize(onEdge - uRo);
+  }
+
+  vec3 start = uRo + rd * ((uRo.z - 1.6) / -rd.z);
+  vec2 ho = capHit(start, rd, 1.0);
+  if (ho.x > ho.y) { outColor = vec4(0.0); return; }
+  vec3 P0 = start + rd * ho.x;
+  vec3 N0 = capNormal(P0);
+  float c0 = clamp(dot(-rd, N0), 0.0, 1.0);
+  float F0 = schlick(c0, 0.04);
+  vec3 R0 = reflect(rd, N0);
+  vec3 T1 = refract(rd, N0, 1.0 / 1.5);
+
+  vec3 inner = vec3(0.0);
+  vec3 fluidN = vec3(0.0);
+  vec3 fluidR = vec3(0.0);
+  vec3 fluidP = vec3(0.0);
+  float fluidCov = 0.0;
+  vec3 fluidRd = rd;
+  vec3 through = vec3(1.0);
+
+  vec2 hi = capHit(P0 + T1 * 1.0e-3, T1, R_IN);
+  vec3 T2 = vec3(0.0);
+  vec3 N1 = vec3(0.0);
+  float Fi = 0.0;
+  if (hi.x < hi.y && hi.x > 0.0) {
+    vec3 P1 = P0 + T1 * hi.x;
+    N1 = capNormal(P1);
+    T2 = refract(T1, N1, 1.5);
+  }
+  bool inside = dot(T2, T2) > 0.5;
+  vec3 exitP = P0;
+  vec3 exitD = rd;
+  float wallPath = 0.0;
+
+  if (inside) {
+    vec3 P1 = P0 + T1 * hi.x;
+    wallPath = hi.x;
+    Fi = schlick(clamp(dot(T2, -N1), 0.0, 1.0), 0.04);
+    float far = max(capHit(P1 + T2 * 1.0e-3, T2, R_IN).y, 0.0);
+    vec3 hit;
+    float cov;
+    if (traceFluid(P1 + T2 * 1.0e-3, T2, far, hit, cov)) {
+      fluidCov = cov;
+      fluidP = hit;
+      fluidRd = T2;
+      fluidN = normalAt(hit);
+      fluidR = reflect(T2, fluidN);
+    }
+    // 流体の向こう：奥の壁を通って、外へ
+    vec3 P2 = P1 + T2 * far;
+    vec3 N2 = capNormal(P2);
+    vec3 T3 = refract(T2, -N2, 1.0 / 1.5);
+    float out3 = max(capHit(P2 + T3 * 1.0e-3, T3, 1.0).y, 0.0);
+    vec3 P3 = P2 + T3 * out3;
+    vec3 N3 = capNormal(P3);
+    vec3 T4 = refract(T3, -N3, 1.5);
+    if (dot(T4, T4) < 0.5) T4 = reflect(T3, -N3);
+    wallPath += out3;
+    exitP = P3;
+    exitD = T4;
+    float Fb = schlick(clamp(dot(T2, N2), 0.0, 1.0), 0.04);
+    inner += env(reflect(T2, -N2), 0.03) * Fb * 0.5 * (1.0 - fluidCov);
+    through *= (1.0 - Fb) * (1.0 - Fb);
+    through *= 1.0 - Fi;
+  } else {
+    // 肉の中だけを通る光：曲がりが大きく、縁の暗い線になる
+    float far = max(capHit(P0 + T1 * 1.0e-3, T1, 1.0).y, 0.0);
+    vec3 P3 = P0 + T1 * far;
+    vec3 N3 = capNormal(P3);
+    vec3 T4 = refract(T1, -N3, 1.5);
+    if (dot(T4, T4) < 0.5) T4 = reflect(T1, -N3);
+    wallPath = far;
+    exitP = P3;
+    exitD = T4;
+  }
+
+  vec3 rx = dFdx(fluidR);
+  vec3 ry = dFdy(fluidR);
+  float foot = max(length(rx), length(ry));
+  // となりの画素が流体でないときの差は使わない
+  if (foot > 0.9) { rx = vec3(0.0); ry = vec3(0.0); foot = 0.5; }
+  float blurF = clamp(foot * 0.14, 0.002, 0.2);
+
+  vec3 glassT = exp(-uGlassAbs * clamp(wallPath, 0.0, 3.0));
+  vec3 c = behind(exitP, exitD) * through * glassT;
+  if (fluidCov > 0.0) {
+    vec3 f = shadeFluid(fluidP, fluidRd, fluidN, fluidR, rx, ry, blurF);
+    c = mix(c, f * exp(-uGlassAbs * hi.x), fluidCov);
+  }
+  if (inside) c += env(reflect(T1, N1), 0.03) * Fi * 0.55;
+  c = c * (1.0 - F0) + inner * (1.0 - F0) + env(R0, 0.03) * F0;
+
+  // 目盛り：ガラスの面に細く彫ってある
+  if (uTick.z > 0.0 && P0.z > 0.0) {
+    float f = (P0.x - uTick.x) / uTick.y;
+    float n = clamp(floor(f + 0.5), 0.0, 50.0);
+    float dx = abs(P0.x - (uTick.x + n * uTick.y));
+    float tall = mod(n, 5.0) < 0.5 ? 1.0 : 0.0;
+    float bandTop = mix(0.555, 0.63, tall);
+    float hw = max(0.0055, uPixel * 0.55);
+    float line = (1.0 - smoothstep(hw - uPixel * 0.5, hw + uPixel * 0.5, dx)) * min(1.0, 0.011 / (hw * 2.0));
+    line *= smoothstep(0.47 - uPixel, 0.47 + uPixel, P0.y) * (1.0 - smoothstep(bandTop - uPixel, bandTop + uPixel, P0.y));
+    c = mix(c, uBackdrop * 0.34 + uLight * 0.1, line * uTick.z * mix(0.55, 0.85, tall));
+  }
+
+  // ぼかしの段へ、壊れた値を流さない
+  if (any(isnan(c)) || any(isinf(c))) c = vec3(0.0);
+  outColor = vec4(min(c, vec3(64.0)) * cover, cover);
+}`;
+
+const COMPOSE_FRAG = `#version 300 es
+precision highp float;
+${FLOOR}
+uniform sampler2D uScene;
+uniform vec4 uRect;
+uniform vec2 uCenter;
+uniform float uFocal, uSUnit, uContact, uRootEnc, uMaxLod, uKnee, uBottom, uViewW;
+uniform vec3 uRo, uRight, uUp, uFwd, uBgGamma;
+out vec4 outColor;
+
+vec3 enc(vec3 c) {
+  vec3 lo = c * 12.92;
+  vec3 hi = 1.055 * pow(max(c, vec3(1.0e-5)), vec3(1.0 / 2.4)) - 0.055;
+  return mix(lo, hi, step(vec3(0.0031308), c));
+}
+vec3 tone(vec3 c) {
+  float k = uKnee;
+  vec3 over = k + (1.0 - k) * (1.0 - exp(-(c - k) / max(1.0 - k, 1.0e-4)));
+  return mix(c, over, step(vec3(k), c));
+}
+vec4 scene(vec2 uv, float lod) {
+  vec4 s = textureLod(uScene, uv, lod);
+  if (uRootEnc > 0.5) s.rgb *= s.rgb;
+  return s;
+}
+float maxc(vec3 v) { return max(v.r, max(v.g, v.b)); }
+float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+
+void main() {
+  vec2 px = gl_FragCoord.xy;
+  vec2 v = px - uCenter;
+  vec3 rd = normalize(uRight * v.x + uUp * v.y + uFwd * uFocal);
+
+  vec3 c = uBackdrop;
+  if (rd.y < -1.0e-3) {
+    float t = (-1.0 - uRo.y) / rd.y;
+    c = floorAt(uRo.xz + rd.xz * t);
+    // 磨かれた床の映り込み：触れている線で折り返し、遠いほどぼやけて薄くなる
+    float below = (uContact - px.y) / uSUnit;
+    if (below > 0.0) {
+      vec2 m = vec2(px.x, uContact + (uContact - px.y));
+      vec2 uv = (m - uRect.xy) / uRect.zw;
+      float lod = min(uMaxLod, log2(1.0 + below * uSUnit * 0.09));
+      vec4 r = scene(uv, lod);
+      float inX = smoothstep(0.0, 0.035, uv.x) * (1.0 - smoothstep(0.965, 1.0, uv.x));
+      float k = 0.34 * inX * exp(-below * 2.3) * (1.0 - smoothstep(0.6, 1.05, below));
+      c = c * (1.0 - r.a * k) + r.rgb * k;
+    }
+  }
+
+  vec2 uv = (px - uRect.xy) / uRect.zw;
+  vec4 s = vec4(0.0);
+  vec3 glow = vec3(0.0);
+  if (all(greaterThan(uv, vec2(-0.05))) && all(lessThan(uv, vec2(1.05)))) {
+    s = scene(uv, 0.0);
+    // 強い光のにじみ
+    vec3 g1 = scene(uv, 2.0).rgb;
+    vec3 g2 = scene(uv, 3.6).rgb;
+    glow = max(g1 - 1.0, vec3(0.0)) * 0.22 + max(g2 - 0.96, vec3(0.0)) * 0.34;
+  }
+  vec3 hdr = c * (1.0 - s.a) + s.rgb + glow;
+  vec3 T = enc(tone(hdr));
+
+  // ページの地の上に重ねて、同じ色になる透明度を求める。地が違うページでも、影は影のまま重なる
+  vec3 B = uBgGamma;
+  vec3 dark = (B - T) / max(B, vec3(1.0e-3));
+  vec3 lite = (T - B) / max(vec3(1.0) - B, vec3(1.0e-3));
+  float a = clamp(max(maxc(dark), maxc(lite)), 0.0, 1.0);
+  float margin = uSUnit * 0.22;
+  a *= smoothstep(0.0, margin, px.x) * smoothstep(0.0, margin, uViewW - px.x) * smoothstep(uBottom, uBottom + margin * 2.0, px.y);
+  a = max(a, s.a);
+  float noise = (ign(px) + ign(px + 17.0) - 1.0) / 255.0;
+  T += noise * min(a * 60.0, 1.0);
+  // 薄くした分は、地の色へ近づける
+  outColor = vec4(clamp(T - (1.0 - a) * B, vec3(0.0), vec3(a)), a);
+}`;
+
+export function mount(root) {
+  const cleanups = [];
+  const on = (target, type, fn, options) => {
+    target.addEventListener(type, fn, options);
+    cleanups.push(() => target.removeEventListener(type, fn, options));
+  };
+
+  const canvas = root.querySelector('.scene');
+  const bar = root.querySelector('[data-bar]');
+  const stateEl = root.querySelector('[data-state]');
+  const valueEl = root.querySelector('[data-value]');
+  const readout = root.querySelector('.readout');
+  const again = root.querySelector('[data-again]');
+  const probe = root.querySelector('.probe');
+  const ownerDoc = root.ownerDocument;
+  const motionQuery = matchMedia('(prefers-reduced-motion: reduce)');
+  const schemeQuery = matchMedia('(prefers-color-scheme: dark)');
+  let calm = motionQuery.matches;
+
+  // ---- 大きさ
+  let L = 5.2;
+  let texX = L + 1.02;
+  let texDx = (2 * texX) / TEX;
+  let cols = MAX_COLS;
+  let cellX0 = 0;
+  let unit = 100; // canvas の1px を単位にした、管の軸での1の長さ
+  const camera = { ro: [0, 0, 0], right: [1, 0, 0], up: [0, 1, 0], fwd: [0, 0, -1], focal: 1, cx: 0, cy: 0 };
+  const rect = { x: 0, y: 0, w: 1, h: 1 };
+  let contactY = 0;
+  let floorBottom = 0;
+  let viewW = 1;
+  let viewH = 1;
+
+  // ---- 流体の状態
+  let phase = 'run'; // run → gather → rest → return → run
+  let clock = 0;
+  let p = 0;
+  let shownValue = -1;
+  let finished = false;
+  let wob = 0;
+  let wobV = 0;
+  let wobStarted = false;
+  let magnet = 0;
+  let xm = 0;
+  let vm = 0;
+  let sigma = 1;
+  let blend = 0.24;
+  let blobCount = 1;
+  const blobs = new Float32Array(MAX_BLOBS * 4);
+  const trail = { on: false, xL: 0, xR: 0, capL: 0.34, capR: 0.3, h: 0.2, swell: 0.055, head: 0, pinch: 0, phase: 0 };
+  const sats = [];
+
+  const cells = new Float32Array(MAX_COLS * ROWS * 4);
+  const cellVel = new Float32Array(MAX_COLS * ROWS * 2);
+  const cellSeed = new Float32Array(MAX_COLS * ROWS * 3);
+  {
+    const r = seeded(4111);
+    for (let i = 0; i < cellSeed.length; i++) cellSeed[i] = r();
+  }
+  const crown = [0, 0, 0, 0];
+  let crownOn = 0;
+  const tall = [0, 0, 0];
+  const bound = [0, 0, 0];
+
+  const eta = new Float32Array(TEX);
+  const etaV = new Float32Array(TEX);
+  const heights = new Float32Array(TEX);
+  const density = new Float32Array(TEX);
+  const blurA = new Float32Array(TEX);
+  const blurB = new Float32Array(TEX);
+  const profile = new Float32Array(TEX * 4);
+
+  // 頭の塊の形。磁石に引かれて、平たく長くなる
+  const headAt = (v) => {
+    const rx0 = 1.3;
+    const rx = mix(rx0, 1.02, v);
+    const front = mix(-L - 0.72 + 2 * rx0, L + 0.66, v);
+    return { x: front - rx, rx, ry: mix(0.5, 0.31, v), rz: mix(0.68, 0.54, v) };
+  };
+  const frontAt = (v) => mix(-L - 0.72 + 2 * 1.3, L + 0.66, v);
+
+  const setBlob = (i, x, rx, ry, rz) => {
+    blobs[i * 4] = x;
+    blobs[i * 4 + 1] = ry;
+    blobs[i * 4 + 2] = rx;
+    blobs[i * 4 + 3] = rz;
+  };
+
+  // ---- 状態ごとの形
+  const poseRun = (v) => {
+    const head = headAt(v);
+    setBlob(0, head.x, head.rx, head.ry, head.rz);
+    blobCount = 1;
+    blend = 0.36;
+    trail.on = true;
+    trail.xL = -L - 0.2;
+    trail.xR = head.x;
+    trail.capL = 0.34;
+    trail.capR = 0.3;
+    trail.h = mix(0.205, 0.145, v);
+    trail.swell = 0.11;
+    trail.head = head.x;
+    trail.pinch = 0;
+    sigma = mix(1.12, 0.9, v);
+    return { magnetAt: head.x + 0.12, strength: 1 };
+  };
+
+  const poseGather = (t) => {
+    const end = headAt(1);
+    const tau = clamp((t - GATHER) / PULL);
+    const e = Math.pow(tau, 1.5);
+    const grow = Math.pow(e, 0.75);
+    const V = BALL * BALL * BALL;
+    const rightEnd = Math.cbrt(0.6 * V);
+    const leftEnd = Math.cbrt(0.4 * V);
+    let rR = Math.cbrt(mix(0.125, 0.6 * V, grow));
+    let rL = Math.cbrt(mix(0.0028, 0.4 * V, grow));
+    let xR = mix(end.x, (rightEnd + leftEnd) * 0.4, e);
+    let xL = mix(-L - 0.04, -(rightEnd + leftEnd) * 0.6, e);
+    const merge = smoothstep(0, 1, (t - GATHER - PULL) / MERGE);
+    rR = mix(rR, BALL, merge);
+    rL = mix(rL, BALL, merge);
+    xR = mix(xR, 0, merge);
+    xL = mix(xL, 0, merge);
+    if (merge > 0 && !wobStarted) {
+      wobStarted = true;
+      wobV = 1.5;
+    }
+    const relax = smoothstep(0, 0.55, t);
+    const sx = 1 + wob;
+    const syz = 1 - 0.5 * wob;
+    setBlob(0, xR, mix(end.rx, rR, relax) * sx, mix(end.ry, rR, relax) * syz, mix(end.rz, rR, relax) * syz);
+    setBlob(1, xL, rL * sx, rL * syz, rL * syz);
+    blend = mix(0.3, 0.0012, merge);
+    blobCount = merge >= 1 ? 1 : 2;
+
+    trail.on = e < 0.94;
+    trail.xL = xL;
+    trail.xR = xR;
+    trail.capL = 0.2;
+    trail.capR = 0.2;
+    trail.h = 0.145 * (1 - 0.8 * smoothstep(0.2, 0.7, e)) * (1 - smoothstep(0.7, 0.94, e));
+    trail.swell = 0;
+    trail.head = xR;
+    trail.pinch = 0.5 * smoothstep(0.12, 0.5, e);
+
+    // 細くなった糸がちぎれて、小さな玉が残る
+    let n = 2;
+    for (const s of sats) {
+      const born = smoothstep(s.at, s.at + 0.1, e);
+      const toward = s.x0 < 0 ? 1 : -1;
+      const roll = Math.max(0, tau - s.tau);
+      const x = s.x0 * (1 - e) * 0.18 + s.x0 * 0.82 * (1 - e) + toward * roll * roll * 0.5;
+      const swallowed = merge > 0 || x < xL + rL * 0.8 || x > xR - rR * 0.8;
+      const r = s.r * born * (swallowed ? 0 : 1);
+      if (r > 0.004 && n < MAX_BLOBS) {
+        setBlob(n, x, r, r, r);
+        n += 1;
+      }
+    }
+    if (merge < 1) blobCount = n;
+    return { magnetAt: xR, strength: 0 };
+  };
+
+  const poseReturn = (t) => {
+    const u = clamp(t / RETURN_TIME);
+    const e = u * u * (3 - 2 * u);
+    const head = headAt(0);
+    const stretch = 1 + 0.26 * Math.sin(Math.PI * u);
+    const x = mix(0, head.x, e);
+    setBlob(0, x, mix(BALL, head.rx, e) * stretch, mix(BALL, head.ry, e) / Math.sqrt(stretch), mix(BALL, head.rz, e) / Math.sqrt(stretch));
+    blobCount = 1;
+    blend = 0.24;
+    trail.on = false;
+    sigma = 1;
+    return { magnetAt: x + 0.12, strength: smoothstep(0.62, 1, u) };
+  };
+
+  // ---- 1コマごとの計算
+  const bodyTop = (cx, cz) => {
+    let top = -9;
+    for (let i = 0; i < blobCount; i++) {
+      const rx = blobs[i * 4 + 2];
+      const ry = blobs[i * 4 + 1];
+      const rz = blobs[i * 4 + 3];
+      const f = 1 - sq((cx - blobs[i * 4]) / rx) - sq(cz / rz);
+      if (f > 0) top = Math.max(top, -R_IN + ry + ry * Math.sqrt(f));
+    }
+    if (trail.on && cx > trail.xL && cx < trail.xR) {
+      const h = trail.h;
+      const w = Math.sqrt(WIDTH_K * h) * (1 - Math.exp(-h / 0.06));
+      const f = 1 - sq(cz / w);
+      if (f > 0) top = Math.max(top, -R_IN + h + h * Math.sqrt(f));
+    }
+    return top;
+  };
+
+  const footprint = (cx, cz) => {
+    let best = 0;
+    for (let i = 0; i < blobCount; i++) {
+      const f = 1 - sq((Math.abs(cx - blobs[i * 4]) + SPIKE_R) / blobs[i * 4 + 2]) - sq((Math.abs(cz) + SPIKE_R) / blobs[i * 4 + 3]);
+      if (f > best) best = f;
+    }
+    return smoothstep(0, 0.24, best);
+  };
+  const lowestTop = (cx, cz, top) => {
+    let low = top;
+    const a = bodyTop(cx - SPIKE_R, cz);
+    const b = bodyTop(cx + SPIKE_R, cz);
+    const c = bodyTop(cx, cz - SPIKE_R);
+    const d = bodyTop(cx, cz + SPIKE_R);
+    if (a < -8 || b < -8 || c < -8 || d < -8) return top - 0.08;
+    low = Math.min(low, a, b, c, d);
+    return low - 0.035;
+  };
+
+  const stepCells = (dt, snap, speed) => {
+    const time = performance.now() * 0.001;
+    for (let row = 0; row < ROWS; row++) {
+      const off = row === 1 ? 0 : 0.5;
+      const cz = (row - 1) * ROW_Z;
+      for (let col = 0; col < cols; col++) {
+        const id = row * MAX_COLS + col;
+        const a = id * 4;
+        const b = id * 2;
+        const s1 = cellSeed[id * 3];
+        const s2 = cellSeed[id * 3 + 1];
+        const s3 = cellSeed[id * 3 + 2];
+        const jitter = (s1 - 0.5) * 0.04;
+        const cx = cellX0 + (col + off) * PITCH + jitter;
+        const base = bodyTop(cx, cz);
+        let target = 0;
+        const dx = cx - xm;
+        if (magnet > 0.001 && base > -8) {
+          const envelope = Math.exp(-sq(dx / sigma)) * Math.exp(-sq(cz / 1.25));
+          const ax = Math.max(Math.abs(cx) - L, 0);
+          const ceiling2 = R_IN * R_IN - ax * ax - cz * cz;
+          if (ceiling2 > 0) {
+            const ceiling = Math.sqrt(ceiling2) - 0.24;
+            const tip = -R_IN + (ceiling + R_IN) * (0.2 + 0.8 * envelope) * (0.92 + 0.08 * s2);
+            const tremble = calm ? 1 : 1 + 0.012 * Math.sin(time * (2.2 + s3 * 3) + s1 * 20);
+            const raw = Math.max(0, tip - base);
+            target = raw * smoothstep(0.05, 0.26, raw) * magnet * footprint(cx, cz) * tremble;
+          }
+        }
+        const leanTarget = clamp(-dx * 0.17, -0.2, 0.2) * clamp(target, 0, 1) + clamp(speed * 0.1, -0.16, 0.16) * clamp(target, 0, 1);
+        if (base < -8) {
+          cells[a + 1] *= Math.exp(-dt * 40);
+          cellVel[b] = 0;
+        }
+        if (snap) {
+          cells[a + 1] = target;
+          cells[a + 2] = leanTarget;
+          cellVel[b] = 0;
+          cellVel[b + 1] = 0;
+        } else {
+          const stiff = 62 + s2 * 26;
+          const damp = 5.4 + s3 * 2.2;
+          cellVel[b] += (stiff * (target - cells[a + 1]) - damp * cellVel[b]) * dt;
+          cells[a + 1] = Math.max(0, cells[a + 1] + cellVel[b] * dt);
+          if (cells[a + 1] === 0 && cellVel[b] < 0) cellVel[b] = 0;
+          cellVel[b + 1] += (46 * (leanTarget - cells[a + 2]) - 5.2 * cellVel[b + 1]) * dt;
+          cells[a + 2] += cellVel[b + 1] * dt;
+        }
+        cells[a] = base > -8 ? lowestTop(cx, cz, base) : cells[a];
+        cells[a + 3] = jitter;
+      }
+    }
+  };
+
+  const stepEta = (dt, speed) => {
+    const K = sq(1.5 / texDx);
+    for (let i = 1; i < TEX - 1; i++) {
+      etaV[i] += (K * (eta[i - 1] + eta[i + 1] - 2 * eta[i]) - 6 * eta[i] - 1.25 * etaV[i]) * dt;
+    }
+    for (let i = 1; i < TEX - 1; i++) eta[i] += etaV[i] * dt;
+    // 頭のそばを押して、さざ波を送る
+    if (!calm && trail.on) {
+      const at = Math.round((trail.head + texX) / texDx);
+      const push = (Math.abs(speed) * 0.5 + 0.1 + Math.random() * 0.22) * (Math.random() < 0.5 ? -1 : 1);
+      for (let i = -9; i <= 9; i++) {
+        const j = at - 14 + i;
+        if (j > 0 && j < TEX - 1) etaV[j] += push * 0.15 * Math.exp(-sq(i / 4.5));
+      }
+    }
+  };
+
+  let simLeft = 0;
+  const simulate = (dt) => {
+    simLeft = Math.min(simLeft + dt, 0.25);
+    while (simLeft >= SIM_DT) {
+      simLeft -= SIM_DT;
+      clock += SIM_DT;
+      let aim;
+      if (phase === 'run') {
+        p = progressAt(clock - HOLD);
+        aim = poseRun(p);
+        if (clock - HOLD >= RUN_TIME) {
+          p = 1;
+          phase = 'gather';
+          clock = 0;
+          wob = 0;
+          wobV = 0;
+          wobStarted = false;
+          makeSats();
+        }
+      } else if (phase === 'gather') {
+        aim = poseGather(clock);
+        if (wobStarted) {
+          wobV += (-260 * wob - 3.6 * wobV) * SIM_DT;
+          wob += wobV * SIM_DT;
+        }
+        if (!finished && clock > GATHER + PULL + MERGE * 0.6) finish();
+        if (clock > GATHER + PULL + MERGE && Math.abs(wob) + Math.abs(wobV) / 16 < 0.001) {
+          phase = 'rest';
+          clock = 0;
+          wob = 0;
+          wobV = 0;
+        }
+      } else if (phase === 'return') {
+        aim = poseReturn(clock);
+        if (clock >= RETURN_TIME) {
+          phase = 'run';
+          clock = 0;
+        }
+      } else {
+        setBlob(0, 0, BALL, BALL, BALL);
+        blobCount = 1;
+        blend = 0.0012;
+        trail.on = false;
+        aim = { magnetAt: 0, strength: 0 };
+      }
+      const wasXm = xm;
+      vm += (64 * (aim.magnetAt - xm) - 15 * vm) * SIM_DT;
+      xm += vm * SIM_DT;
+      magnet += (aim.strength - magnet) * (1 - Math.exp(-SIM_DT * (aim.strength > magnet ? 5 : 14)));
+      const speed = (xm - wasXm) / SIM_DT;
+      stepCells(SIM_DT, false, speed);
+      stepEta(SIM_DT, speed);
+    }
+  };
+
+  // 落ち着いた形へ直接置く（最初のコマと、動きを減らす設定のとき）
+  const settle = () => {
+    let aim;
+    if (phase === 'run') {
+      p = progressAt(clock - HOLD);
+      aim = poseRun(p);
+    } else if (phase === 'return') aim = poseReturn(clock);
+    else {
+      setBlob(0, 0, BALL, BALL, BALL);
+      blobCount = 1;
+      blend = 0.0012;
+      trail.on = false;
+      aim = { magnetAt: 0, strength: 0 };
+    }
+    xm = aim.magnetAt;
+    vm = 0;
+    magnet = aim.strength;
+    stepCells(0, true, 0);
+    eta.fill(0);
+    etaV.fill(0);
+  };
+
+  function makeSats() {
+    sats.length = 0;
+    const r = seeded(Math.floor(Math.random() * 100000) + 7);
+    const spots = [-0.62, -0.3, 0.26, 0.58];
+    for (const spot of spots) {
+      sats.push({
+        x0: spot * L + (r() - 0.5) * 0.5,
+        r: 0.045 + r() * 0.04,
+        at: 0.58 + r() * 0.14,
+        tau: 0.7,
+      });
+    }
+  }
+
+  // ---- 表へ書く
+  const boxBlur = (src, dst, radius) => {
+    const n = TEX;
+    const size = 2 * radius + 1;
+    let sum = 0;
+    for (let i = -radius; i <= radius; i++) sum += src[clamp(i, 0, n - 1)];
+    for (let i = 0; i < n; i++) {
+      dst[i] = sum / size;
+      sum += src[Math.min(n - 1, i + radius + 1)] - src[Math.max(0, i - radius)];
+    }
+  };
+
+  const buildProfile = () => {
+    const n = TEX;
+    for (let i = 0; i < n; i++) {
+      const x = -texX + (i + 0.5) * texDx;
+      let h = 0;
+      if (trail.on) {
+        h = trail.h;
+        if (trail.swell > 0) h += trail.swell * Math.exp(-sq((trail.head - x) / 1.55));
+        if (trail.pinch > 0) h *= Math.max(0.02, 1 + trail.pinch * Math.sin(x * 5.1 + 0.6) * Math.sin(x * 2.3 + 1.7));
+        h *= 1 + eta[i];
+        h = Math.max(h, 0.004);
+      }
+      heights[i] = h;
+      // 影の濃さ
+      let d = 0;
+      if (trail.on && x > trail.xL - trail.capL && x < trail.xR + trail.capR) d = h * 2.2;
+      for (let b = 0; b < blobCount; b++) {
+        const f = 1 - sq((x - blobs[b * 4]) / blobs[b * 4 + 2]);
+        if (f > 0) d = Math.max(d, blobs[b * 4 + 1] * 1.5 * Math.sqrt(f));
+      }
+      density[i] = Math.min(1, d);
+    }
+    const radius = (units) => Math.max(1, Math.round(units / texDx));
+    boxBlur(density, blurA, radius(0.14));
+    boxBlur(blurA, blurB, radius(0.14));
+    for (let i = 0; i < n; i++) profile[i * 4 + 2] = blurB[i];
+    boxBlur(blurB, blurA, radius(0.5));
+    boxBlur(blurA, blurB, radius(0.5));
+    for (let i = 0; i < n; i++) {
+      profile[i * 4] = heights[i];
+      const a = heights[Math.max(0, i - 1)];
+      const b = heights[Math.min(n - 1, i + 1)];
+      profile[i * 4 + 1] = (b - a) / (2 * texDx);
+      profile[i * 4 + 3] = blurB[i];
+    }
+  };
+
+  const buildBounds = () => {
+    // 流体の左右の端、高い場所、とげの箱。光線を追う範囲をここまで狭める
+    let xa = 1e3;
+    let xb = -1e3;
+    let lowTop = -R_IN;
+    let tallA = 1e3;
+    let tallB = -1e3;
+    let tallY = -R_IN;
+    if (trail.on) {
+      xa = trail.xL - 0.02;
+      xb = trail.xR + 0.02;
+      lowTop = -R_IN + 2 * (trail.h + trail.swell) * 1.25 + 0.02;
+    }
+    for (let i = 0; i < blobCount; i++) {
+      const x = blobs[i * 4];
+      const rx = blobs[i * 4 + 2];
+      xa = Math.min(xa, x - rx - 0.04);
+      xb = Math.max(xb, x + rx + 0.04);
+      tallA = Math.min(tallA, x - rx - 0.04);
+      tallB = Math.max(tallB, x + rx + 0.04);
+      tallY = Math.max(tallY, -R_IN + 2 * blobs[i * 4 + 1] + 0.12);
+    }
+    let cA = 1e3;
+    let cB = -1e3;
+    let cY0 = 9;
+    let cY1 = -9;
+    crownOn = 0;
+    for (let row = 0; row < ROWS; row++) {
+      const off = row === 1 ? 0 : 0.5;
+      for (let col = 0; col < cols; col++) {
+        const a = (row * MAX_COLS + col) * 4;
+        const H = cells[a + 1];
+        if (H < 0.012) continue;
+        crownOn = 1;
+        const cx = cellX0 + (col + off) * PITCH + cells[a + 3];
+        const lean = Math.abs(cells[a + 2]);
+        cA = Math.min(cA, cx - 0.2 - lean);
+        cB = Math.max(cB, cx + 0.2 + lean);
+        cY0 = Math.min(cY0, cells[a] - ROOT - 0.01);
+        cY1 = Math.max(cY1, cells[a] + H + 0.075);
+      }
+    }
+    crown[0] = cA;
+    crown[1] = cB;
+    crown[2] = cY0;
+    crown[3] = cY1;
+    if (crownOn) {
+      xa = Math.min(xa, cA - 0.05);
+      xb = Math.max(xb, cB + 0.05);
+      tallA = Math.min(tallA, cA - 0.05);
+      tallB = Math.max(tallB, cB + 0.05);
+      tallY = Math.max(tallY, cY1 + 0.04);
+    }
+    bound[0] = xa;
+    bound[1] = xb;
+    bound[2] = lowTop;
+    tall[0] = tallA;
+    tall[1] = tallB;
+    tall[2] = tallY;
+  };
+
+  // ---- GL
+  const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false, powerPreference: 'high-performance' });
+  let ready = false;
+  let scene = null;
+  let compose = null;
+  let texProfile = null;
+  let texScene = null;
+  let fbo = null;
+  let fboW = 0;
+  let fboH = 0;
+  let floatTarget = false;
+  let quality = 1;
+  let appliedQuality = 0;
+
+  const compile = (type, source) => {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader) || 'shader');
+    return shader;
+  };
+  const program = (fragSource) => {
+    const prog = gl.createProgram();
+    const vs = compile(gl.VERTEX_SHADER, VERT);
+    const fs = compile(gl.FRAGMENT_SHADER, fragSource);
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) || 'link');
+    const u = {};
+    const count = gl.getProgramParameter(prog, gl.ACTIVE_UNIFORMS);
+    for (let i = 0; i < count; i++) {
+      const name = gl.getActiveUniform(prog, i).name.replace(/\[0\]$/, '');
+      u[name] = gl.getUniformLocation(prog, name);
+    }
+    return { prog, u };
+  };
+
+  const initGl = () => {
+    scene = program(SCENE_FRAG);
+    compose = program(COMPOSE_FRAG);
+    floatTarget = !!gl.getExtension('EXT_color_buffer_float');
+    texProfile = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texProfile);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, TEX, 1, 0, gl.RGBA, gl.FLOAT, profile);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    texScene = gl.createTexture();
+    fbo = gl.createFramebuffer();
+    gl.disable(gl.BLEND);
+    gl.disable(gl.DEPTH_TEST);
+    fboW = 0;
+    appliedQuality = 0;
+    ready = true;
+  };
+
+  const ensureTarget = () => {
+    const w = Math.max(2, Math.round(rect.w * quality));
+    const h = Math.max(2, Math.round(rect.h * quality));
+    if (w === fboW && h === fboH && quality === appliedQuality) return;
+    fboW = w;
+    fboH = h;
+    appliedQuality = quality;
+    const levels = Math.floor(Math.log2(Math.max(w, h))) + 1;
+    gl.deleteTexture(texScene);
+    texScene = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, texScene);
+    gl.texStorage2D(gl.TEXTURE_2D, levels, floatTarget ? gl.RGBA16F : gl.RGBA8, w, h);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texScene, 0);
+    if (floatTarget && gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      floatTarget = false;
+      fboW = 0;
+      ensureTarget();
+    }
+  };
+
+  // ---- 色
+  const colors = { bg: [1, 1, 1], bgGamma: [1, 1, 1], light: [1, 1, 1], ink: [0, 0, 0], amber: [1, 0.5, 0.2], cool: [1, 1, 1], abs: [0.2, 0.2, 0.2] };
+  const paint = new OffscreenCanvas(1, 1).getContext('2d', { willReadFrequently: true });
+  const readColor = (name) => {
+    probe.style.color = getComputedStyle(root).getPropertyValue(`--_${name}`).trim();
+    paint.clearRect(0, 0, 1, 1);
+    paint.fillStyle = getComputedStyle(probe).color;
+    paint.fillRect(0, 0, 1, 1);
+    const d = paint.getImageData(0, 0, 1, 1).data;
+    const gamma = [d[0] / 255, d[1] / 255, d[2] / 255];
+    const linear = gamma.map(toLinear);
+    return { gamma, linear, lab: rgbToOklab(linear[0], linear[1], linear[2]) };
+  };
+  const readPalette = () => {
+    const bg = readColor('bg');
+    const fg = readColor('fg');
+    const surface = readColor('surface');
+    const muted = readColor('muted');
+    const accent = readColor('accent');
+    colors.bg = bg.linear;
+    colors.bgGamma = bg.gamma;
+    colors.light = labTone(bg.lab, 0.995, 0.5);
+    colors.ink = labTone(fg.lab, 0.14, 1);
+    colors.amber = labTone(accent.lab, 0.72, 0.9);
+    colors.cool = labTone(muted.lab, 0.97, 1.4);
+    const peak = Math.max(...surface.linear, 1e-3);
+    colors.abs = surface.linear.map((v) => 0.1 - 0.42 * Math.log(Math.max(v / peak, 0.05)));
+  };
+
+  // ---- 大きさを測る
+  const measure = () => {
+    const box = root.getBoundingClientRect();
+    const cssW = Math.max(1, box.width);
+    const cssH = Math.max(1, box.height);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    viewW = Math.max(2, Math.round(cssW * dpr));
+    viewH = Math.max(2, Math.round(cssH * dpr));
+    if (canvas.width !== viewW) canvas.width = viewW;
+    if (canvas.height !== viewH) canvas.height = viewH;
+
+    // 狭い枠では管を短くして、太さを保つ
+    const prevL = L;
+    L = mix(3, 5.2, smoothstep(360, 1000, cssW));
+    texX = L + 1.02;
+    texDx = (2 * texX) / TEX;
+    cols = Math.min(MAX_COLS, Math.ceil((2 * (L + 1)) / PITCH) + 2);
+    cellX0 = -((cols - 1) / 2) * PITCH;
+
+    const stageH = readout.offsetTop;
+    const span = 1.92 + 0.2 + 1.0; // 管の高さ、上の余白、床
+    const cssUnit = Math.min((cssW * 0.964) / (2 * (L + 1)), stageH / span);
+    unit = cssUnit * dpr;
+    const c = Math.cos(CAMERA_TILT);
+    const s = Math.sin(CAMERA_TILT);
+    camera.right = [1, 0, 0];
+    camera.up = [0, c, -s];
+    camera.fwd = [0, -s, -c];
+    camera.ro = [0, CAMERA_DIST * s, CAMERA_DIST * c];
+    camera.focal = unit * CAMERA_DIST;
+    camera.cx = viewW / 2;
+    // canvas の座標は下が 0
+    const stageTopCss = Math.max(0, (stageH - span * cssUnit) * 0.5);
+    camera.cy = viewH - (stageTopCss + (0.2 + 0.98) * cssUnit) * dpr;
+
+    // 管の絵の範囲
+    const halfW = (L + 1) * unit * 1.045 + 3;
+    const halfH = 1.07 * unit + 3;
+    rect.x = Math.max(0, Math.floor(camera.cx - halfW));
+    rect.y = Math.max(0, Math.floor(camera.cy - halfH));
+    rect.w = Math.min(viewW - rect.x, Math.ceil(halfW * 2));
+    rect.h = Math.min(viewH - rect.y, Math.ceil(halfH * 2));
+
+    // 触れている線
+    const contact = project(0, -1, 0);
+    contactY = contact[1];
+    floorBottom = Math.max(0, contactY - 1.55 * unit);
+
+    // 本物の進み具合の要素を、管の場所に置く
+    const tubeLeft = (camera.cx - (L + 1) * unit) / dpr;
+    const tubeTop = (viewH - (camera.cy + unit)) / dpr;
+    bar.style.left = `${tubeLeft}px`;
+    bar.style.top = `${tubeTop}px`;
+    bar.style.width = `${(2 * (L + 1) * unit) / dpr}px`;
+    bar.style.height = `${(2 * unit) / dpr}px`;
+
+    if (prevL !== L) settle();
+  };
+
+  const project = (x, y, z) => {
+    const d = [x - camera.ro[0], y - camera.ro[1], z - camera.ro[2]];
+    const zv = d[0] * camera.fwd[0] + d[1] * camera.fwd[1] + d[2] * camera.fwd[2];
+    const xv = d[0] * camera.right[0] + d[1] * camera.right[1] + d[2] * camera.right[2];
+    const yv = d[0] * camera.up[0] + d[1] * camera.up[1] + d[2] * camera.up[2];
+    return [camera.cx + (xv / zv) * camera.focal, camera.cy + (yv / zv) * camera.focal];
+  };
+
+  // ---- 描く
+  const setFloorUniforms = (u) => {
+    gl.uniform1f(u.uTexX, texX);
+    gl.uniform1f(u.uTexK, 1 / (2 * texX));
+    gl.uniform1f(u.uL, L);
+    gl.uniform3fv(u.uBackdrop, colors.bg);
+    gl.uniform3fv(u.uLight, colors.light);
+    gl.uniform1i(u.uProfile, 0);
+  };
+  const setCamera = (u) => {
+    gl.uniform3fv(u.uRo, camera.ro);
+    gl.uniform3fv(u.uRight, camera.right);
+    gl.uniform3fv(u.uUp, camera.up);
+    gl.uniform3fv(u.uFwd, camera.fwd);
+    gl.uniform1f(u.uFocal, camera.focal);
+    gl.uniform2f(u.uCenter, camera.cx, camera.cy);
+  };
+
+  const render = () => {
+    if (!ready) return;
+    buildProfile();
+    buildBounds();
+    ensureTarget();
+
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, texProfile);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, TEX, 1, gl.RGBA, gl.FLOAT, profile);
+
+    // ---- 管の絵
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.viewport(0, 0, fboW, fboH);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(scene.prog);
+    const us = scene.u;
+    setFloorUniforms(us);
+    setCamera(us);
+    gl.uniform2f(us.uOrigin, rect.x, rect.y);
+    gl.uniform1f(us.uScale, fboW / rect.w);
+    gl.uniform1f(us.uPixel, rect.w / fboW / unit);
+    const xA = trail.xL + trail.capL;
+    const xB = Math.max(xA, trail.xR - trail.capR);
+    gl.uniform4f(us.uTrail, xA, xB, trail.capL, trail.capR);
+    gl.uniform1f(us.uTrailOn, trail.on ? 1 : 0);
+    gl.uniform1f(us.uBlend, Math.max(blend, 0.0012));
+    gl.uniform1f(us.uCrownOn, crownOn);
+    gl.uniform1f(us.uCellX0, cellX0);
+    gl.uniform4fv(us.uBlob, blobs);
+    gl.uniform1i(us.uBlobs, blobCount);
+    gl.uniform4fv(us.uCell, cells);
+    gl.uniform4fv(us.uCrown, crown);
+    gl.uniform3fv(us.uTall, tall);
+    gl.uniform3fv(us.uBound, bound);
+    gl.uniform3fv(us.uInk, colors.ink);
+    gl.uniform3fv(us.uAmber, colors.amber);
+    gl.uniform3fv(us.uCool, colors.cool);
+    gl.uniform3fv(us.uGlassAbs, colors.abs);
+    const f0 = frontAt(0);
+    const stepX = (frontAt(1) - f0) / 50;
+    gl.uniform3f(us.uTick, f0, stepX, smoothstep(0.42, 0.9, (stepX * unit) / (window.devicePixelRatio > 1 ? 18 : 14)));
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, texScene);
+    gl.generateMipmap(gl.TEXTURE_2D);
+
+    // ---- 床と合成
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, viewW, viewH);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.SCISSOR_TEST);
+    const sy = Math.floor(floorBottom);
+    gl.scissor(0, sy, viewW, Math.min(viewH, Math.ceil(rect.y + rect.h + 2)) - sy);
+    gl.useProgram(compose.prog);
+    const uc = compose.u;
+    setFloorUniforms(uc);
+    setCamera(uc);
+    gl.uniform1i(uc.uScene, 1);
+    gl.uniform4f(uc.uRect, rect.x, rect.y, rect.w, rect.h);
+    gl.uniform1f(uc.uSUnit, unit);
+    gl.uniform1f(uc.uContact, contactY);
+    gl.uniform1f(uc.uRootEnc, floatTarget ? 0 : 1);
+    gl.uniform1f(uc.uMaxLod, 6);
+    gl.uniform1f(uc.uKnee, Math.min(1, Math.max(0.94, ...colors.bg)));
+    gl.uniform1f(uc.uBottom, floorBottom);
+    gl.uniform1f(uc.uViewW, viewW);
+    gl.uniform3fv(uc.uBgGamma, colors.bgGamma);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.disable(gl.SCISSOR_TEST);
+  };
+
+  // ---- 文字
+  const showValue = () => {
+    const n = phase === 'run' || phase === 'return' ? Math.floor(p * 100) : 100;
+    if (n === shownValue) return;
+    shownValue = n;
+    valueEl.textContent = String(n);
+    bar.setAttribute('aria-valuenow', String(n));
+    bar.setAttribute('aria-valuetext', `${n}%`);
+    bar.style.setProperty('--p', String(n / 100));
+  };
+
+  function finish() {
+    finished = true;
+    stateEl.textContent = '完了しました';
+    root.setAttribute('data-done', '');
+    if (root.getRootNode().activeElement === bar) again.focus({ preventScroll: true });
+  }
+
+  const restart = () => {
+    if (!finished) return;
+    finished = false;
+    stateEl.textContent = 'アップロード中';
+    root.removeAttribute('data-done');
+    const moveFocus = root.getRootNode().activeElement === again;
+    if (moveFocus) bar.focus({ preventScroll: true });
+    p = 0;
+    phase = 'return';
+    clock = 0;
+    showValue();
+    if (calm) {
+      phase = 'run';
+      clock = 0;
+      settle();
+      stepCalm();
+      paint1();
+    } else {
+      wake();
+    }
+  };
+
+  // ---- ループ
+  let raf = 0;
+  let last = 0;
+  let visible = true;
+  let calmTimer = 0;
+  let perfT = 0;
+  let perfN = 0;
+  let perfGood = 0;
+
+  const isOn = () => visible && !ownerDoc.hidden;
+
+  const paint1 = () => {
+    showValue();
+    render();
+  };
+
+  const frame = (now) => {
+    raf = 0;
+    if (!isOn()) return;
+    const ms = last ? now - last : 16.7;
+    last = now;
+    const dt = Math.min(ms / 1000, 0.25);
+    simulate(dt);
+    if (phase === 'rest') {
+      // 動きが止まった：一番きれいな1枚を描いて、休む
+      quality = 1;
+      paint1();
+      last = 0;
+      return;
+    }
+    // 重いときは、管の絵だけ解像度を下げて 60fps を守る
+    perfT += ms;
+    perfN += 1;
+    if (perfN >= 30) {
+      const avg = perfT / perfN;
+      perfT = 0;
+      perfN = 0;
+      if (avg > 21 && quality > 0.5) {
+        quality = Math.max(0.5, quality * 0.86);
+        perfGood = 0;
+      } else if (avg < 17.6 && quality < 1) {
+        perfGood += 1;
+        if (perfGood >= 4) {
+          quality = Math.min(1, quality * 1.08);
+          perfGood = 0;
+        }
+      }
+    }
+    paint1();
+    raf = requestAnimationFrame(frame);
+  };
+
+  function wake() {
+    if (raf || !ready || calm || !isOn() || phase === 'rest') return;
+    last = 0;
+    raf = requestAnimationFrame(frame);
+  }
+
+  // 動きを減らす設定：動かさず、進み具合の段ごとに形を置き直すだけ
+  function stepCalm() {
+    clearTimeout(calmTimer);
+    if (!calm || phase !== 'run' || !isOn()) return;
+    calmTimer = setTimeout(() => {
+      clock += 1;
+      if (clock - HOLD >= RUN_TIME) {
+        p = 1;
+        phase = 'rest';
+        clock = 0;
+        finish();
+      }
+      settle();
+      paint1();
+      stepCalm();
+    }, 1000);
+  }
+
+  const redraw = () => {
+    if (!isOn() && !ready) return;
+    if (calm || phase === 'rest') paint1();
+  };
+
+  const applyCalm = () => {
+    calm = motionQuery.matches;
+    if (calm) {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      if (phase === 'gather') {
+        phase = 'rest';
+        clock = 0;
+        if (!finished) finish();
+      } else if (phase === 'return') {
+        phase = 'run';
+        clock = 0;
+      }
+      settle();
+      paint1();
+      stepCalm();
+    } else {
+      clearTimeout(calmTimer);
+      wake();
+    }
+  };
+
+  // ---- つなぐ
+  on(again, 'click', restart);
+  on(bar, 'click', restart);
+  on(motionQuery, 'change', applyCalm);
+  on(schemeQuery, 'change', () => {
+    readPalette();
+    redraw();
+  });
+  on(ownerDoc, 'visibilitychange', () => {
+    if (isOn()) {
+      if (calm) stepCalm();
+      else wake();
+    } else {
+      clearTimeout(calmTimer);
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+    }
+  });
+  const io = new IntersectionObserver((entries) => {
+    visible = entries.some((e) => e.isIntersecting);
+    if (isOn()) {
+      if (calm) {
+        stepCalm();
+        redraw();
+      } else wake();
+    } else {
+      clearTimeout(calmTimer);
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+    }
+  });
+  io.observe(root);
+  const ro = new ResizeObserver(() => {
+    measure();
+    redraw();
+  });
+  ro.observe(root);
+
+  on(canvas, 'webglcontextlost', (event) => {
+    event.preventDefault();
+    ready = false;
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0;
+  });
+  on(canvas, 'webglcontextrestored', () => {
+    try {
+      initGl();
+      paint1();
+      wake();
+    } catch {
+      root.setAttribute('data-flat', '');
+    }
+  });
+
+  // ---- 組み立て
+  measure();
+  try {
+    if (!gl) throw new Error('webgl2');
+    initGl();
+    readPalette();
+    settle();
+    paint1();
+    if (calm) stepCalm();
+    else wake();
+  } catch (error) {
+    // WebGL が使えなくても、進み具合と完了は伝える
+    root.setAttribute('data-flat', '');
+    ready = false;
+    let t = 0;
+    const flatStep = () => {
+      t += 0.4;
+      p = progressAt(t);
+      showValue();
+      if (t < RUN_TIME) calmTimer = setTimeout(flatStep, 400);
+      else finish();
+    };
+    calmTimer = setTimeout(flatStep, 400);
+    on(again, 'click', () => {
+      t = 0;
+      calmTimer = setTimeout(flatStep, 400);
+    });
+    if (gl) console.warn(error);
+  }
+
+  return () => {
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0;
+    clearTimeout(calmTimer);
+    visible = false;
+    io.disconnect();
+    ro.disconnect();
+    for (const off of cleanups) off();
+    if (gl && ready) {
+      gl.deleteProgram(scene.prog);
+      gl.deleteProgram(compose.prog);
+      gl.deleteTexture(texProfile);
+      gl.deleteTexture(texScene);
+      gl.deleteFramebuffer(fbo);
+      const lose = gl.getExtension('WEBGL_lose_context');
+      if (lose) lose.loseContext();
+    }
+    ready = false;
+  };
+}

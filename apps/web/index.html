@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <title>Ludion</title>
+    <link rel="stylesheet" href="/src/index.css" />
+    <script>
+      // 最初の描画の前にライトとダークを決める（docs/tasks/T035.md「2」）。HTML はキャッシュされるので、決めるのはブラウザ。
+      // 順番：その端末で選んだもの（localStorage の ld-theme）→ 端末の設定。サーバーには送らない。
+      (function () {
+        var theme;
+        try {
+          theme = localStorage.getItem('ld-theme');
+        } catch (e) {}
+        if (theme !== 'light' && theme !== 'dark') theme = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        var root = document.documentElement;
+        root.setAttribute('data-theme', theme);
+        // アドレスバーの色は、サイトの地の色（SPEC.md 2 の site-bg。e2e/spec-sync.spec.ts が一致を確かめる）。
+        // ビルドの後は CSS の読み込みがこのスクリプトより後ろに来るので、CSS からは読まない
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', theme === 'dark' ? '#0f0f12' : '#ffffff');
+      })();
+    </script>
+    <script>
+      // 最初の描画の前に言語を決める（SPEC.md 9）。HTML はキャッシュされるので Worker では決められない。
+      // 順番：切り替えで選んだ言語 → ブラウザの言語（ja があれば日本語）。/en を直接開いた人は、選んでいなければそのまま。
+      (function () {
+        var path = location.pathname;
+        var onEn = path === '/en' || path.indexOf('/en/') === 0;
+        var chosen = (document.cookie.match(/(?:^|; )ld_lang=(ja|en)/) || [])[1];
+        var want = chosen;
+        if (!want && !onEn) {
+          // 検索エンジンと共有のカードのボットは移さない。どの言語の URL も、そのまま読めるようにする
+          if (/bot|crawl|spider|slurp|preview|facebookexternalhit|embedly|lighthouse/i.test(navigator.userAgent)) return;
+          var langs = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || ''];
+          if (!langs[0]) return;
+          want = /(^|,)ja\b/i.test(langs.join(',')) ? 'ja' : 'en';
+        }
+        if (!want || (want === 'en') === onEn) return;
+        window.__ldLeaving = true;
+        document.documentElement.style.visibility = 'hidden';
+        var target = want === 'en' ? '/en' + (path === '/' ? '' : path) : path.slice(3) || '/';
+        location.replace(target + location.search + location.hash);
+      })();
+    </script>
+    <script>
+      // 最初の描画の前に決める：キーの表示（CSS で切り替える）。
+      (function () {
+        var root = document.documentElement;
+        var data = navigator.userAgentData;
+        var platform = (data && data.platform) || navigator.platform || '';
+        if (/mac|iphone|ipad|ipod/i.test(platform)) root.setAttribute('data-mac', '');
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

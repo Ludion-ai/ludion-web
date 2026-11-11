@@ -1,0 +1,15 @@
+{
+  "id": "fx-bad-radius",
+  "title": "Broken: Radius Literal",
+  "type": "component",
+  "platform": null,
+  "category": "Components",
+  "subtype": "Card",
+  "tags": [],
+  "creator": "fixture",
+  "license": "MIT",
+  "made_with": "human",
+  "version": "1",
+  "published_at": "2026-11-08",
+  "pin_order": null
+}

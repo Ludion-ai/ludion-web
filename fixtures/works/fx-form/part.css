@@ -1,0 +1,85 @@
+[data-ld-part="fx-form"] {
+  --_bg: var(--ld-bg, #ffffff);
+  --_surface: var(--ld-surface, #f6f6f7);
+  --_fg: var(--ld-fg, #18181b);
+  --_muted: var(--ld-muted, #5f5f6a);
+  --_accent: var(--ld-accent, #2f5fe0);
+  --_radius: var(--ld-radius, 10px);
+  --_font: var(--ld-font, system-ui, sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 1px 3px rgb(0 0 0 / .12));
+  --_motion: var(--ld-motion, 150ms);
+  /* 任意のトークン。使う作品だけが宣言する */
+  --_danger: var(--ld-danger, #b42318);
+
+  box-sizing: border-box;
+  width: min(100%, 360px);
+  padding: calc(var(--_space) * 3);
+  background: var(--_surface);
+  border-radius: var(--_radius);
+  box-shadow: var(--_shadow);
+  font-family: var(--_font);
+  color: var(--_fg);
+}
+
+[data-ld-part="fx-form"] .form {
+  display: grid;
+  gap: var(--_space);
+}
+
+[data-ld-part="fx-form"] .title {
+  margin: 0 0 var(--_space);
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 700;
+}
+
+[data-ld-part="fx-form"] .label {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
+[data-ld-part="fx-form"] .input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--_space) calc(var(--_space) * 1.5);
+  border: 1px solid var(--_muted);
+  border-radius: var(--_radius);
+  background: var(--_bg);
+  color: var(--_fg);
+  font: 14px/20px var(--_font);
+  transition: border-color var(--_motion) ease;
+}
+
+[data-ld-part="fx-form"] .input[aria-invalid="true"] {
+  border-color: var(--_danger);
+}
+
+[data-ld-part="fx-form"] .error,
+[data-ld-part="fx-form"] .done {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+}
+
+[data-ld-part="fx-form"] .error {
+  color: var(--_danger);
+}
+
+[data-ld-part="fx-form"] .submit {
+  margin-top: var(--_space);
+  padding: var(--_space) calc(var(--_space) * 2);
+  border: 0;
+  border-radius: var(--_radius);
+  background: var(--_accent);
+  color: var(--_bg);
+  font: 600 14px/20px var(--_font);
+  cursor: pointer;
+  transition: background var(--_motion) ease;
+}
+
+[data-ld-part="fx-form"] .submit:hover {
+  background: color-mix(in oklab, var(--_accent) 85%, black);
+}

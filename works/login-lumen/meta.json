@@ -1,0 +1,16 @@
+{
+  "id": "login-lumen",
+  "title": "Lumen Gate",
+  "type": "screen",
+  "platform": "web",
+  "category": "Web",
+  "subtype": "Login Page",
+  "tags": ["experimental", "motion"],
+  "creator": "Lattice_Node",
+  "license": "MIT",
+  "made_with": "ai-assisted",
+  "version": "5",
+  "published_at": "2026-11-08",
+  "pin_order": null,
+  "capture": { "delay_ms": 3000 }
+}

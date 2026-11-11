@@ -1,0 +1,6 @@
+[data-ld-part="mal-nav-fake-ready"] {
+  --_bg: var(--ld-bg, #fff7ed);
+  --_fg: var(--ld-fg, #1f1f23);
+  font: 16px system-ui, sans-serif;
+  color: var(--_fg);
+}

@@ -1,0 +1,545 @@
+[data-ld-part="auth-set"] {
+  /* 固定しないトークン：使い手の値を受け、なければ作者の値。色はどれも固定しない */
+  --_bg: var(--ld-bg, #ecebe6);
+  --_surface: var(--ld-surface, #fbfbf9);
+  --_fg: var(--ld-fg, #111111);
+  --_muted: var(--ld-muted, #66655f);
+  --_accent: var(--ld-accent, #c8371a);
+  --_radius: var(--ld-radius, 0px);
+  --_font: var(--ld-font, "Helvetica Neue", Helvetica, Arial, sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 1px 2px rgb(17 17 17 / .06), 0 18px 40px rgb(17 17 17 / .08));
+  --_motion: var(--ld-motion, 140ms);
+
+  position: relative;
+  box-sizing: border-box;
+  width: min(100%, 400px);
+  overflow: hidden;
+  background: var(--_surface);
+  border-radius: var(--_radius);
+  box-shadow: var(--_shadow);
+  font-family: var(--_font);
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--_fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 左端の、強調色の細い縦線 */
+[data-ld-part="auth-set"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  width: 3px;
+  background: var(--_accent);
+  pointer-events: none;
+}
+
+[data-ld-part="auth-set"] *,
+[data-ld-part="auth-set"] *::before,
+[data-ld-part="auth-set"] *::after {
+  box-sizing: border-box;
+}
+
+[data-ld-part="auth-set"] [hidden] {
+  display: none !important;
+}
+
+[data-ld-part="auth-set"] p {
+  margin: 0;
+}
+
+/* 読み上げだけに渡す文字 */
+[data-ld-part="auth-set"] .vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* 段の左右の余白。帯だけは端まで出す */
+[data-ld-part="auth-set"] .pad {
+  padding: 0 calc(var(--_space) * 4) 0 calc(var(--_space) * 4.5);
+}
+
+/* 見出し：大きく、太く、詰めて。下に細い罫線 */
+[data-ld-part="auth-set"] .head {
+  padding-top: calc(var(--_space) * 5);
+}
+
+[data-ld-part="auth-set"] .title {
+  margin: 0;
+  padding-bottom: calc(var(--_space) * 2);
+  border-bottom: 1px solid var(--_fg);
+  font-size: 48px;
+  line-height: .95;
+  font-weight: 800;
+  letter-spacing: -.03em;
+  overflow-wrap: break-word;
+}
+
+[data-ld-part="auth-set"] .title:focus {
+  outline: none;
+}
+
+[data-ld-part="auth-set"] .lead {
+  max-width: 30ch;
+  margin-top: calc(var(--_space) * 1.5);
+  color: var(--_muted);
+}
+
+[data-ld-part="auth-set"] .lead strong {
+  color: var(--_fg);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* 外のアカウント：高さを抑えた横一列 */
+[data-ld-part="auth-set"] .providers {
+  display: grid;
+  gap: calc(var(--_space) * 1);
+  margin-top: calc(var(--_space) * 3.5);
+}
+
+[data-ld-part="auth-set"] .caption,
+[data-ld-part="auth-set"] .label {
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+[data-ld-part="auth-set"] .caption {
+  color: var(--_muted);
+}
+
+[data-ld-part="auth-set"] .provider-row {
+  display: flex;
+  gap: calc(var(--_space) * .75);
+}
+
+[data-ld-part="auth-set"] .provider {
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--_space) * .75);
+  min-width: 0;
+  height: 32px;
+  margin: 0;
+  padding: 0 calc(var(--_space) * 1);
+  border: 1px solid color-mix(in oklab, var(--_fg) 28%, transparent);
+  border-radius: var(--_radius);
+  background: transparent;
+  color: var(--_fg);
+  font: 600 12px/1 var(--_font);
+  letter-spacing: .02em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--_motion) ease, border-color var(--_motion) ease;
+}
+
+[data-ld-part="auth-set"] .provider:hover {
+  border-color: var(--_fg);
+  background: color-mix(in oklab, var(--_fg) 5%, transparent);
+}
+
+[data-ld-part="auth-set"] .icon-slot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: calc(var(--_radius) * .5);
+  background: color-mix(in oklab, var(--_muted) 30%, transparent);
+}
+
+/* フォーム */
+[data-ld-part="auth-set"] .form {
+  margin: 0;
+}
+
+[data-ld-part="auth-set"] .fields {
+  display: grid;
+  gap: calc(var(--_space) * 3);
+  margin-top: calc(var(--_space) * 3.5);
+  padding-bottom: calc(var(--_space) * 3.5);
+}
+
+[data-ld-part="auth-set"] .field {
+  display: grid;
+  gap: calc(var(--_space) * .5);
+}
+
+[data-ld-part="auth-set"] .label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(var(--_space) * 1);
+}
+
+[data-ld-part="auth-set"] .label {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--_space) * 1);
+  padding: 0;
+}
+
+[data-ld-part="auth-set"] .num {
+  color: var(--_accent);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .04em;
+}
+
+[data-ld-part="auth-set"] .control {
+  position: relative;
+}
+
+/* 入力欄は下線だけ。フォーカスで線が太くなり、強調色に変わる */
+[data-ld-part="auth-set"] .input,
+[data-ld-part="auth-set"] .digit {
+  display: block;
+  width: 100%;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--_fg) 55%, transparent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--_fg);
+  font: 400 18px/24px var(--_font);
+  caret-color: var(--_accent);
+  transition: border-color var(--_motion) ease;
+}
+
+[data-ld-part="auth-set"] .input.has-reveal {
+  padding-right: calc(var(--_space) * 7);
+}
+
+[data-ld-part="auth-set"] .input:hover,
+[data-ld-part="auth-set"] .digit:hover {
+  border-bottom-color: var(--_fg);
+}
+
+[data-ld-part="auth-set"] .input:focus,
+[data-ld-part="auth-set"] .digit:focus {
+  outline: none;
+  border-bottom-color: var(--_accent);
+  background: linear-gradient(var(--_accent), var(--_accent)) bottom / 100% 1px no-repeat;
+}
+
+/* エラー：色の token がないので、太い線と印で知らせる */
+[data-ld-part="auth-set"] .input[aria-invalid="true"],
+[data-ld-part="auth-set"] .digit[aria-invalid="true"] {
+  border-bottom-color: var(--_fg);
+  background: linear-gradient(var(--_fg), var(--_fg)) bottom / 100% 1px no-repeat;
+}
+
+[data-ld-part="auth-set"] .input[aria-invalid="true"]:focus,
+[data-ld-part="auth-set"] .digit[aria-invalid="true"]:focus {
+  border-bottom-color: var(--_accent);
+  background: linear-gradient(var(--_accent), var(--_accent)) bottom / 100% 1px no-repeat;
+}
+
+[data-ld-part="auth-set"] .error {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--_space) * .75);
+  padding-top: calc(var(--_space) * .75);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--_fg);
+}
+
+[data-ld-part="auth-set"] .error::before {
+  content: "!";
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--_fg);
+  color: var(--_surface);
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+/* Caps Lock の知らせ */
+[data-ld-part="auth-set"] .caps {
+  padding-top: calc(var(--_space) * .75);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--_muted);
+}
+
+/* 表示と非表示 */
+[data-ld-part="auth-set"] .reveal {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  height: 32px;
+  margin: 0;
+  padding: 0 0 0 calc(var(--_space) * 1);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--_muted);
+  font: 600 11px/1 var(--_font);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+[data-ld-part="auth-set"] .reveal:hover {
+  color: var(--_fg);
+}
+
+/* パスワードの条件：小さな四角が、満たすと埋まる */
+[data-ld-part="auth-set"] .rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--_space) * .75) calc(var(--_space) * 2);
+  margin: 0;
+  padding: calc(var(--_space) * 1.25) 0 0;
+  list-style: none;
+}
+
+[data-ld-part="auth-set"] .rule {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--_space) * .75);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--_muted);
+  transition: color var(--_motion) ease;
+}
+
+[data-ld-part="auth-set"] .rule::before {
+  content: "";
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border: 1px solid color-mix(in oklab, var(--_muted) 80%, transparent);
+  border-radius: 0;
+  transition: background var(--_motion) ease, border-color var(--_motion) ease;
+}
+
+[data-ld-part="auth-set"] .rule[data-met] {
+  color: var(--_fg);
+}
+
+[data-ld-part="auth-set"] .rule[data-met]::before {
+  border-color: var(--_accent);
+  background: var(--_accent);
+}
+
+/* 小さな文とリンク */
+[data-ld-part="auth-set"] .aside {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--_muted);
+}
+
+[data-ld-part="auth-set"] .link {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--_fg);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--_accent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+[data-ld-part="auth-set"] .link:hover {
+  text-decoration-thickness: 2px;
+}
+
+[data-ld-part="auth-set"] .link.small {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+[data-ld-part="auth-set"] .status {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--_fg);
+}
+
+[data-ld-part="auth-set"] .status:empty {
+  display: none;
+}
+
+/* 送信：カードの下端いっぱいの帯。右端に矢印 */
+[data-ld-part="auth-set"] .submit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--_space) * 1.5);
+  width: 100%;
+  min-height: 64px;
+  margin: 0;
+  padding: calc(var(--_space) * 1.5) calc(var(--_space) * 4) calc(var(--_space) * 1.5) calc(var(--_space) * 4.5);
+  border: 0;
+  border-radius: 0;
+  background: var(--_accent);
+  color: var(--_surface);
+  font: 700 17px/22px var(--_font);
+  letter-spacing: -.01em;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--_motion) ease;
+}
+
+[data-ld-part="auth-set"] .submit:hover {
+  background: color-mix(in oklab, var(--_accent) 88%, black);
+}
+
+[data-ld-part="auth-set"] .arrow {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: square;
+  transition: transform var(--_motion) ease;
+}
+
+[data-ld-part="auth-set"] .submit:hover .arrow {
+  transform: translateX(4px);
+}
+
+[data-ld-part="auth-set"] .submit:disabled {
+  cursor: progress;
+  background: color-mix(in oklab, var(--_accent) 88%, black);
+}
+
+/* 送信中は、矢印の場所で回る */
+[data-ld-part="auth-set"] .submit[aria-busy="true"] .arrow {
+  display: none;
+}
+
+[data-ld-part="auth-set"] .submit[aria-busy="true"]::after {
+  content: "";
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-right: calc(var(--_space) * .375);
+  border: 2px solid color-mix(in oklab, var(--_surface) 35%, transparent);
+  border-top-color: var(--_surface);
+  border-radius: 50%;
+  animation: auth-set-spin calc(var(--_motion) * 5) linear infinite;
+}
+
+@keyframes auth-set-spin {
+  to { transform: rotate(1turn); }
+}
+
+/* 6桁：下線の枠が6つ */
+[data-ld-part="auth-set"] .code-field {
+  display: grid;
+  gap: calc(var(--_space) * .5);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+[data-ld-part="auth-set"] .code {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: calc(var(--_space) * 1.5);
+  margin-top: calc(var(--_space) * .5);
+}
+
+[data-ld-part="auth-set"] .digit {
+  height: 56px;
+  text-align: center;
+  font-size: 30px;
+  line-height: 1;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 送ったあと */
+[data-ld-part="auth-set"] .done {
+  display: grid;
+  gap: calc(var(--_space) * 2.5);
+  margin-top: calc(var(--_space) * 3.5);
+  padding-bottom: calc(var(--_space) * 5);
+}
+
+[data-ld-part="auth-set"] .done:focus {
+  outline: none;
+}
+
+[data-ld-part="auth-set"] .done-text {
+  font-size: 16px;
+  line-height: 22px;
+}
+
+[data-ld-part="auth-set"] .done-text strong {
+  overflow-wrap: anywhere;
+}
+
+[data-ld-part="auth-set"] .done-mark {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: calc(var(--_space) * 1);
+  background: var(--_accent);
+}
+
+/* キーボードのフォーカス */
+[data-ld-part="auth-set"] .provider:focus-visible,
+[data-ld-part="auth-set"] .reveal:focus-visible,
+[data-ld-part="auth-set"] .link:focus-visible {
+  outline: 2px solid var(--_accent);
+  outline-offset: 2px;
+}
+
+[data-ld-part="auth-set"] .submit:focus-visible {
+  outline: 2px solid var(--_surface);
+  outline-offset: -6px;
+}
+
+@media (max-width: 420px) {
+  [data-ld-part="auth-set"] .pad {
+    padding: 0 calc(var(--_space) * 2.5) 0 calc(var(--_space) * 3);
+  }
+  [data-ld-part="auth-set"] .submit {
+    padding-right: calc(var(--_space) * 2.5);
+    padding-left: calc(var(--_space) * 3);
+  }
+  [data-ld-part="auth-set"] .title {
+    font-size: 40px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ld-part="auth-set"] *,
+  [data-ld-part="auth-set"] *::before,
+  [data-ld-part="auth-set"] *::after {
+    transition: none !important;
+    animation-duration: calc(var(--_motion) * 20) !important;
+  }
+}

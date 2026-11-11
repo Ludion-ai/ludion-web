@@ -1,0 +1,2674 @@
+/* UI by @Lattice_Node — ludion.ai/p/toggle-daylight (MIT) */
+/* Remixed by Claude */
+// part.js — ESモジュール。rootの中だけを触る
+// 深海基地のスイッチ：真鍮の舷窓の奥に、ピクセルの海底があり、潜水士が1人暮らしている。
+//
+// 世界：低い解像度で、約20色の番号だけで描く。時刻の変化はディザの置き換えで行い、中間色を作らない。
+// 外側：真鍮とリベットの枠、窓の奥行き、液体のレンズを WebGL で描く。ピクセルは常に整数倍のまま写す。
+// 灯り：世界の光る画素をぼかした「光の場」を作り、ガラスと外の面を照らす。人影が窓を横切れば、外の光も変わる。
+// 時間：太陽の届かない海底で、基地の時計が昼と夜を作る。左端は昼の照明、右端は夜の消灯。
+//       右へ動かすと 昼→夕方→夜。左へ戻すと 夜→深夜→点灯前→朝→昼 と、時間は前へ進む。
+//       太陽のかわりに探査艇が頭上を渡り、月のかわりに大きなクラゲが昇る。星はマリンスノーになる。
+// 色は JS に書かない。--_bg、--_surface、--_fg、--_muted、--_accent の色相を、決めた明るさで並べて作る。
+
+const CORE_W = 192; // 景色の中心の幅。窓が広いぶんは、両わきへ広がる
+const CORE_H = 112;
+const HORIZON = 82;
+const MARGIN = 14; // レンズが窓の外を覗いてもよいよう、世界を少し広く描く
+const WORLD_HZ = 30;
+const PILL_RATIO = 1.85; // 縦 : 横
+const CLOCK_DAY = 12;
+const CLOCK_NIGHT = 21.5;
+const CLOCK_SLEEP = 23.4;
+const NIGHT_CREEP = 26; // 右端に着いてから、灯りを消して眠るまでの秒数の目安
+
+// ---- パレット：5つのトークン × 4つの明るさ = 20色
+const RAMPS = [
+  ['bg', [0.74, 0.84, 0.92, 0.985]],
+  ['surface', [0.36, 0.48, 0.6, 0.74]],
+  ['fg', [0.13, 0.2, 0.28, 0.36]],
+  ['muted', [0.36, 0.48, 0.6, 0.74]],
+  ['accent', [0.46, 0.62, 0.78, 0.92]],
+];
+const C0 = 0, C1 = 1, C2 = 2, C3 = 3;
+const G0 = 4, G1 = 5, G2 = 6, G3 = 7;
+const I0 = 8, I1 = 9, I2 = 10, I3 = 11;
+const U0 = 12, U1 = 13, U2 = 14, U3 = 15;
+const A0 = 16, A1 = 17, A2 = 18, A3 = 19;
+
+// ---- 材質：[昼, 夕, 宵, 夜] のパレット番号。0 番は「水」で、時刻ごとの水の色を使う
+const MATS = [
+  ['WATER', I0, I0, I0, I0],
+  ['RIDGE_FAR', U0, I3, I2, I0],
+  ['RIDGE_NEAR', I3, I2, I1, I0],
+  ['RIDGE_TUFT', I2, I1, I0, I0],
+  ['SAND', G3, G2, I3, I1],
+  ['SAND_DK', G2, G1, I2, I0],
+  ['SAND_LT', C0, G3, U0, I2],
+  ['TRACK', G2, G1, U0, I2],
+  ['TRACK_DK', G1, G0, I3, I1],
+  ['ROCK', U0, I3, I2, I0],
+  ['ROCK_LT', U1, U0, I3, I1],
+  ['ROCK_DK', I3, I2, I1, I0],
+  ['HULL', C2, A3, U1, I2],
+  ['HULL_SH', C0, A2, U0, I1],
+  ['HULL_SEAM', C1, A2, I3, I1],
+  ['STEEL', U1, U0, I2, I1],
+  ['STEEL_LT', U2, U1, I3, I2],
+  ['STEEL_DK', U0, I3, I1, I0],
+  ['DOME', I3, I2, I1, I0],
+  ['DOME_LT', U0, I3, I2, I1],
+  ['DOME_HI', U2, U0, I3, I1],
+  ['BRASS', A0, A0, I2, I0],
+  ['BRASS_LT', A1, A1, I3, I1],
+  ['BRASS_DK', I3, I2, I1, I0],
+  ['HAZARD', A2, A1, A0, I2],
+  ['HAZARD_DK', I1, I1, I0, I0],
+  ['BARK', I3, I2, I1, I0],
+  ['BARK_LT', A0, A0, I1, I0],
+  ['BARK_MID', A0, A0, I2, I0],
+  ['FAN0', A0, A0, I1, I0],
+  ['FAN1', A1, A0, I2, I0],
+  ['FAN2', A2, A1, I2, I1],
+  ['FAN3', A3, A2, I3, I1],
+  ['KELP0', G0, G0, I1, I0],
+  ['KELP1', G1, G0, I2, I0],
+  ['KELP2', G2, G1, I2, I1],
+  ['KELP3', G3, G2, I3, I1],
+  ['ANEMONE_A', A2, A1, A0, I2],
+  ['ANEMONE_C', C3, A3, U1, I3],
+  ['STEM', G0, G0, I2, I0],
+  ['GLASS', I2, A0, I1, I0],
+  ['GLASS_HI', U1, A1, I2, I1],
+  ['ROOM', C1, C0, I3, I1],
+  ['SKIN', A3, A3, U2, I3],
+  ['HAIR', I0, I0, I0, I0],
+  ['SHIRT', A1, A0, I3, I1],
+  ['SHIRT_DK', A0, A0, I2, I0],
+  ['PANTS', I2, I2, I1, I0],
+  ['BOOT', I0, I0, I0, I0],
+  ['BOOK', C3, C3, U2, I3],
+  ['BOOK_DK', C1, C1, U0, I2],
+  ['HELMET', A2, A1, A0, I3],
+  ['HELMET_HI', A3, A3, A1, U0],
+  ['VISOR', U3, U2, U0, I2],
+  ['SUIT', C2, A3, U0, I2],
+  ['SUIT_DK', U1, U0, I3, I1],
+  ['TANK', A1, A0, I3, I1],
+  ['GLOVE', I2, I2, I1, I0],
+  ['SILT', U2, U1, I3, I1],
+  ['SILT_SH', U1, U0, I2, I1],
+  ['SMOKE', I2, I2, I1, I1],
+  ['SMOKE_DK', I1, I1, I0, I0],
+  ['EMBER', A2, A2, A2, A2],
+  ['SUB', A2, A1, A0, I3],
+  ['SUB_DK', A1, A0, I3, I1],
+  ['SUB_HI', A3, A2, A1, U0],
+  ['SUB_LAMP', C3, C3, A3, A3],
+  ['BEAM', G3, A2, U1, I3],
+  ['JELLY', C1, C1, C1, C1],
+  ['JELLY_DK', G3, G3, G3, G3],
+  ['JELLY_RIM', C3, C3, C3, C3],
+  ['TENTACLE', G2, G2, G2, G2],
+  ['SNOW', C1, C0, U3, C2],
+  ['SNOW_DIM', U3, U2, U1, U1],
+  ['GLOW', G3, G3, G3, G3],
+  ['GLOW_HI', C2, C2, C2, C2],
+  ['LIT', A2, A2, A2, A2],
+  ['LIT_HI', A3, A3, A3, A3],
+  ['LIT_DK', A1, A1, A1, A1],
+  ['SIL', I0, I0, I0, I0],
+  ['PLANKTON', G3, G3, G3, G3],
+  ['FISH', I2, I2, I1, I0],
+  ['MARK', I0, I0, C3, C3],
+  ['ZZZ', U3, U3, U3, U3],
+  ['MINNOW', A2, A2, A1, I2],
+  ['MINNOW_DK', I3, I3, I2, I0],
+  ['BUBBLE', C3, C2, U2, U1],
+  ['BUBBLE_DK', C0, U2, U0, I3],
+];
+const M = Object.fromEntries(MATS.map((row, i) => [row[0], i]));
+
+// ---- 時刻のかなめ：[時, 材質の列, 水の色（上から海底へ）]
+const KEYS = [
+  [0, 3, [I0, I0, I0, I1, I1]],
+  [4.8, 3, [I0, I0, I0, I1, I1]],
+  [5.4, 3, [I0, I0, I1, I1, I2]],
+  [6.0, 2, [I0, I1, I2, I3, U0]],
+  [6.7, 1, [I1, I2, I3, U0, G0, U1]],
+  [7.8, 0, [I2, I3, U0, U1, G1]],
+  [10, 0, [I3, U0, U1, G1, G2]],
+  [15, 0, [I2, I3, U0, U1, G1, G2]],
+  [17, 1, [I2, I3, U0, G0, U1, A0]],
+  [18, 1, [I1, I2, I3, I3, A0]],
+  [19, 2, [I0, I1, I2, I3, U0, G0]],
+  [20.3, 3, [I0, I0, I0, I1, I1]],
+  [24, 3, [I0, I0, I0, I1, I1]],
+];
+
+const clamp = (v, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, v));
+const mix = (a, b, t) => a + (b - a) * t;
+const smoothstep = (a, b, x) => {
+  const t = clamp((x - a) / (b - a));
+  return t * t * (3 - 2 * t);
+};
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+const bayerAt = (x, y) => BAYER[((y & 3) << 2) | (x & 3)];
+
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function makeNoise(seed) {
+  const r = seeded(seed);
+  const table = new Float32Array(65536);
+  for (let i = 0; i < 65536; i++) table[i] = r();
+  const at = (x, y) => table[((x & 255) << 8) | (y & 255)];
+  return (x, y) => {
+    const xi = Math.floor(x);
+    const yi = Math.floor(y);
+    const fx = x - xi;
+    const fy = y - yi;
+    const u = fx * fx * (3 - 2 * fx);
+    const v = fy * fy * (3 - 2 * fy);
+    return mix(mix(at(xi, yi), at(xi + 1, yi), u), mix(at(xi, yi + 1), at(xi + 1, yi + 1), u), v);
+  };
+}
+
+// ---- 色の計算（OKLab）。色の値は書かず、トークンの色相に明るさだけを与える
+const toLinear = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+const toGamma = (c) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055);
+function rgbToOklab([r8, g8, b8]) {
+  const r = toLinear(r8 / 255);
+  const g = toLinear(g8 / 255);
+  const b = toLinear(b8 / 255);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+}
+function oklabToLinear(L, a, b) {
+  const l = Math.pow(L + 0.3963377774 * a + 0.2158037573 * b, 3);
+  const m = Math.pow(L - 0.1055613458 * a - 0.0638541728 * b, 3);
+  const s = Math.pow(L - 0.0894841775 * a - 1.291485548 * b, 3);
+  return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s];
+}
+function labTone(lab, L) {
+  // 明るさを決め、色域に入るまで鮮やかさを落とす
+  let chroma = 1;
+  for (let i = 0; i < 24; i++) {
+    const rgb = oklabToLinear(L, lab[1] * chroma, lab[2] * chroma);
+    if (rgb.every((v) => v >= -0.001 && v <= 1.001)) return rgb.map((v) => Math.round(toGamma(clamp(v)) * 255));
+    chroma *= 0.9;
+  }
+  return oklabToLinear(L, 0, 0).map((v) => Math.round(toGamma(clamp(v)) * 255));
+}
+
+// ---- 住人の絵。外では潜水服、基地の中では素顔
+const INDOOR = { H: 'HAIR', S: 'SKIN', E: 'HAIR', T: 'SHIRT', D: 'SHIRT_DK', P: 'PANTS', B: 'BOOT' };
+const DIVER = { O: 'HELMET', Q: 'HELMET_HI', V: 'VISOR', E: 'HAIR', T: 'SUIT', D: 'SUIT_DK', P: 'SUIT_DK', B: 'BOOT', A: 'TANK', G: 'GLOVE' };
+const makeSprite = (rows, chars) => {
+  const list = [];
+  rows.forEach((row, y) => {
+    [...row].forEach((ch, x) => {
+      if (ch !== '.') list.push([x, y, M[chars[ch]]]);
+    });
+  });
+  return { list, w: rows[0].length, h: rows.length };
+};
+const HEAD = ['..OOO..', '.OOQOO.', '.OOVVV.', '.OOVEV.', '..OOOO.'];
+const HEAD_BLINK = ['..OOO..', '.OOQOO.', '.OOVVV.', '.OOVVV.', '..OOOO.'];
+const HEAD_UP = ['..OOO..', '.OOQOO.', '.OOVEV.', '.OOVVV.', '..OOOO.'];
+const BODY_STAND = ['..TTT..', 'ATTTTT.', 'AGTTTG.', '..DDD..', '..PPP..', '..P.P..', '..B.B..'];
+const BODY_WALK1 = ['..TTT..', 'ATTTTT.', 'A.TTTG.', '.GDDD..', '..PPP..', '.PP.P..', '.B..BB.'];
+const BODY_WALK2 = ['..TTT..', 'ATTTTT.', 'AGTTTG.', '..DDD..', '..PPP..', '..PP...', '..BB...'];
+const BODY_WALK3 = ['..TTT..', 'ATTTTT.', 'AGTTT..', '..DDDG.', '..PPP..', '..P.PP.', '.BB..B.'];
+const BODY_ARMS = ['G.TTT.G', 'GTTTTTG', 'A.TTT..', '..DDD..', '..PPP..', '..P.P..', '..B.B..'];
+const person = (head, body) => makeSprite([...head, ...body], DIVER);
+const SPR = {
+  stand: person(HEAD, BODY_STAND),
+  blink: person(HEAD_BLINK, BODY_STAND),
+  walk: [person(HEAD, BODY_WALK1), person(HEAD, BODY_WALK2), person(HEAD, BODY_WALK3), person(HEAD, BODY_WALK2)],
+  up: person(HEAD_UP, BODY_ARMS),
+  crouch: person(HEAD, ['..TTT..', 'ATTTTTG', 'A.DDD.G', '..PPP..', '.BB.B..']),
+  seat: makeSprite([
+    '....OOO..',
+    '...OOQOO.',
+    '...VVVOO.',
+    '...EVVOO.',
+    '...OOOO..',
+    '...TTTTA.',
+    '...GTTTA.',
+    '...GTTTA.',
+    'PPPPPPDD.',
+    'BB.PPPPP.',
+  ], DIVER),
+  seatBlink: makeSprite([
+    '....OOO..',
+    '...OOQOO.',
+    '...VVVOO.',
+    '...VVVOO.',
+    '...OOOO..',
+    '...TTTTA.',
+    '...GTTTA.',
+    '...GTTTA.',
+    'PPPPPPDD.',
+    'BB.PPPPP.',
+  ], DIVER),
+  seatUp: makeSprite([
+    '....OOO..',
+    '...OOQOO.',
+    '...EVVOO.',
+    '...VVVOO.',
+    '...OOOO..',
+    '...TTTTA.',
+    '...GTTTA.',
+    '...GTTTA.',
+    'PPPPPPDD.',
+    'BB.PPPPP.',
+  ], DIVER),
+  bust: makeSprite(['...HHH...', '..HHHHH..', '..HSSES..', '...SSS...', '..TTTTT..', '.TTTTTTT.', '.TTTTTTT.', '.TTTTTTT.'], INDOOR),
+  bustBlink: makeSprite(['...HHH...', '..HHHHH..', '..HSSSS..', '...SSS...', '..TTTTT..', '.TTTTTTT.', '.TTTTTTT.', '.TTTTTTT.'], INDOOR),
+  bustUp: makeSprite(['S..HHH..S', 'S.HHHHH.S', 'S.HSSES.S', 'SS.SSS.SS', '.STTTTTS.', '..TTTTT..', '..TTTTT..', '..TTTTT..'], INDOOR),
+  bustHalf: makeSprite(['...HHH...', '..HHHHH..', 'S.HSSES.S', 'SS.SSS.SS', '.STTTTTS.', '..TTTTT..', '.TTTTTTT.', '.TTTTTTT.'], INDOOR),
+  sil: makeSprite(['...HHH..', '..HHHHH.', '..HHHHH.', '...HHH..', '..HHHHH.', '.HHHHHHH', 'HHHHHHHH', 'HHHHHHHH'], INDOOR),
+};
+
+// ---- シェーダー
+const VERT = `#version 300 es
+in vec2 aPos;
+void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
+
+const FRAG = `#version 300 es
+precision highp float;
+uniform sampler2D uWorld, uGlowNear;
+uniform vec2 uRes, uPill, uOrigin, uWorldSize, uGlowSize;
+uniform vec4 uLens;
+uniform float uBezel, uK, uNight, uLift, uSeam;
+uniform vec3 uShellDay, uShellNight, uInk, uLight, uHiNight, uLoNight, uHomeCol, uSkyCol;
+uniform vec2 uHomePos, uSkyPos;
+out vec4 outColor;
+
+float rb(vec2 p, vec2 b, float r) {
+  vec2 q = abs(p) - b + r;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+
+// なめらかに読む（B スプライン。光の場の格子が見えないように）
+vec3 smoothTex(sampler2D t, vec2 uv, vec2 size) {
+  vec2 st = uv * size - 0.5;
+  vec2 i = floor(st);
+  vec2 f = st - i;
+  vec2 f2 = f * f;
+  vec2 f3 = f2 * f;
+  vec2 w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;
+  vec2 w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+  vec2 w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;
+  vec2 w3 = f3 / 6.0;
+  vec2 g0 = w0 + w1;
+  vec2 g1 = w2 + w3;
+  vec2 h0 = (i - 0.5 + w1 / g0 + 0.5) / size;
+  vec2 h1 = (i + 1.5 + w3 / g1 + 0.5) / size;
+  return g0.y * (g0.x * texture(t, vec2(h0.x, h0.y)).rgb + g1.x * texture(t, vec2(h1.x, h0.y)).rgb)
+       + g1.y * (g0.x * texture(t, vec2(h0.x, h1.y)).rgb + g1.x * texture(t, vec2(h1.x, h1.y)).rgb);
+}
+vec3 glowNear(vec2 frag) { return smoothTex(uGlowNear, vec2(frag.x / uRes.x, 1.0 - frag.y / uRes.y), uGlowSize); }
+
+// 光る画素の集まりが、まわりをどれだけ照らすか。遠くまでなだらかに届く
+vec3 reach(vec2 p, vec2 pos, vec3 col, float radius) {
+  vec2 L = pos - p;
+  float r2 = radius * radius;
+  return col * r2 / (r2 + dot(L, L));
+}
+
+// ピクセルのあいだの、ごく細い継ぎ目。大きく写すときの密度になる
+float seamAt(vec2 w, float scale) {
+  if (scale < 7.0) return 1.0;
+  vec2 f = fract(w) * scale;
+  vec2 g = min(f, scale - f);
+  float edge = min(g.x, g.y);
+  return 1.0 - 0.075 * (1.0 - smoothstep(0.0, uSeam, edge));
+}
+
+// 整数倍のまま、そのまま読む
+vec3 worldExact(vec2 frag) {
+  vec2 w = vec2(frag.x - uOrigin.x, uOrigin.y - frag.y) / uK;
+  ivec2 t = ivec2(floor(w));
+  t = clamp(t, ivec2(0), ivec2(uWorldSize) - 1);
+  return texelFetch(uWorld, t, 0).rgb * seamAt(w, uK);
+}
+
+// レンズの中：拡大では、ピクセルの縁は立ったまま。圧縮されるところはミップで読み、模様を出さない
+vec3 worldBent(vec2 frag, float scale, float foot) {
+  vec2 w = vec2(frag.x - uOrigin.x, uOrigin.y - frag.y) / uK;
+  if (foot > 1.0) return textureLod(uWorld, w / uWorldSize, log2(foot)).rgb;
+  vec2 r = floor(w + 0.5);
+  vec2 sharp = r - 0.5 + clamp((w - r) / max(foot, 1.0e-3) + 0.5, 0.0, 1.0);
+  return textureLod(uWorld, sharp / uWorldSize, 0.0).rgb * seamAt(w, scale);
+}
+
+vec3 envLow, envHigh;
+float softBox(vec2 p, vec2 c, vec2 h, float s) {
+  vec2 q = abs(p - c) - h;
+  float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+  return 1.0 - smoothstep(-s, s, d);
+}
+// 磨かれた面に映る部屋：上の大きなやわらかい光と、下からの弱い照り返し
+vec3 studio(vec3 R) {
+  vec3 c = mix(envLow, envHigh, smoothstep(-0.55, 0.85, R.y));
+  vec2 s = R.xy / (1.0 + max(R.z, 0.0));
+  float key = softBox(s, vec2(-0.1, 0.56), vec2(0.5, 0.11), 0.17);
+  float fill = softBox(s, vec2(0.34, -0.6), vec2(0.3, 0.05), 0.2);
+  c += envHigh * key * 1.15;
+  c += envHigh * fill * 0.14;
+  return c;
+}
+
+// 枠のリベット：周の4分の1に折りたたみ、いちばん近い1つとの差を返す（リベットの半径を1とする）
+vec2 rivetAt(vec2 p) {
+  const float HALF_PI = 1.5707963;
+  float inner = uPill.x - uPill.y;
+  float R = uPill.y - uBezel * 0.5;
+  float rr = uBezel * 0.19;
+  float quarter = inner + R * HALF_PI;
+  float count = max(floor(quarter / (uBezel * 2.3)), 1.0);
+  float gap = quarter / count;
+  vec2 q = abs(p);
+  float s = q.x <= inner ? q.x : inner + R * atan(q.x - inner, q.y);
+  float sc = (min(floor(s / gap), count - 1.0) + 0.5) * gap;
+  vec2 c;
+  if (sc <= inner) {
+    c = vec2(sc, R);
+  } else {
+    float a = (sc - inner) / R;
+    c = vec2(inner + R * sin(a), R * cos(a));
+  }
+  vec2 v = (q - c) / rr;
+  return v * vec2(p.x < 0.0 ? -1.0 : 1.0, p.y < 0.0 ? -1.0 : 1.0);
+}
+
+vec3 shellColor(vec2 p, vec2 frag, float d) {
+  // 外の面：丸い厚み。外側は外へ、内側は窓へ向かって傾く
+  vec2 q = p;
+  float inner = uPill.x - uPill.y;
+  q.x = sign(p.x) * max(abs(p.x) - inner, 0.0);
+  vec2 g = q / max(length(q), 1.0e-3);
+  float t = clamp(-d / uBezel, 0.0, 1.0);
+  float a = (1.0 - 2.0 * t);
+  a = sign(a) * pow(abs(a), 1.35) * 0.96;
+  vec3 N = normalize(vec3(g * a, sqrt(max(1.0 - a * a, 0.02))));
+
+  // リベットの頭：小さな丸い盛り上がり
+  vec2 rv = rivetAt(p);
+  float rd = length(rv);
+  float rivet = 1.0 - smoothstep(0.82, 1.06, rd);
+  if (rivet > 0.0) {
+    vec2 rt = rv * 0.72;
+    vec3 Nr = vec3(rt, sqrt(max(1.0 - dot(rt, rt), 0.02)));
+    N = normalize(mix(N, Nr, rivet));
+  }
+
+  vec3 R = vec3(2.0 * N.z * N.xy, 2.0 * N.z * N.z - 1.0);
+  vec3 albedo = mix(uShellDay, uShellNight, uNight);
+  float diffuse = 0.62 + 0.38 * clamp(dot(N, normalize(vec3(-0.25, 0.75, 0.6))), 0.0, 1.0);
+  float fresnel = 0.05 + 0.95 * pow(1.0 - N.z, 3.5);
+  vec3 c = albedo * diffuse;
+  c = mix(c, studio(R), clamp(fresnel * 0.9 + 0.1, 0.0, 1.0));
+  // 窓のそばは、奥へ落ちる影
+  float toWindow = smoothstep(0.62, 1.0, t);
+  c = mix(c, c * 0.8, toWindow * 0.55);
+  // リベットの下に落ちる、小さな影
+  float rs = length(rv + vec2(-0.22, 0.3));
+  c *= 1.0 - 0.42 * (1.0 - smoothstep(0.95, 1.7, rs)) * (1.0 - rivet);
+
+  // 灯りが、磨かれた面を照らす。光に近いところだけが、やわらかく染まる
+  float radius = uPill.y * 0.62;
+  for (int i = 0; i < 2; i++) {
+    vec2 pos = i == 0 ? uHomePos : uSkyPos;
+    vec3 col = i == 0 ? uHomeCol : uSkyCol;
+    vec3 e = reach(p, pos, col, radius);
+    vec2 toL = normalize(pos - p + 1.0e-3);
+    float wrap = 0.5 + 0.5 * dot(N.xy, toL);
+    c += e * wrap * mix(albedo * 0.9, vec3(dot(albedo, vec3(0.34))) + 0.34, 0.55) * 3.1;
+    // 映り込み：線にならないよう、広く弱く
+    vec3 Ld = normalize(vec3(pos - p, uPill.y * 0.7));
+    float spec = pow(max(dot(R, Ld), 0.0), 5.0);
+    c += reach(p, pos, col, uPill.y * 0.4) * spec * 1.4;
+  }
+  return c;
+}
+
+void main() {
+  vec2 frag = gl_FragCoord.xy;
+  vec2 p = frag - 0.5 * uRes;
+  envLow = mix(uShellDay * 0.74, uLoNight, uNight);
+  envHigh = mix(uLight, uHiNight, uNight);
+
+  float d = rb(p, uPill, uPill.y);
+  float dw = d + uBezel;
+
+  // ---- 外：やわらかい影と、漏れた光
+  vec3 premul = vec3(0.0);
+  float alpha = 0.0;
+  if (d > -2.0) {
+    float h = uPill.y;
+    float wide = rb(p + vec2(0.0, h * 0.13), uPill - vec2(h * 0.02, h * 0.02), uPill.y);
+    float contact = rb(p + vec2(0.0, h * 0.028), uPill, uPill.y);
+    float shadow = 0.24 * (1.0 - smoothstep(-h * 0.2, h * 0.28, wide)) + 0.22 * (1.0 - smoothstep(-h * 0.03, h * 0.07, contact));
+    alpha = shadow;
+    premul = uInk * shadow;
+    // 漏れた光は、まわりの地を染める
+    vec3 outside = reach(p, uHomePos, uHomeCol, uPill.y * 0.62) * exp(-max(d, 0.0) / (h * 0.2));
+    float amount = clamp(dot(outside, vec3(0.34)) * 2.3, 0.0, 0.85);
+    vec3 tint = outside / max(dot(outside, vec3(0.34)), 1.0e-3) * 0.34;
+    premul = mix(premul, tint * 1.25, amount);
+    alpha = mix(alpha, 1.0, amount);
+    // canvas の端までに、なめらかに消す
+    vec2 toEdge = 0.5 * uRes - abs(p);
+    float room = min(toEdge.x, toEdge.y) / (h * 0.32);
+    float fade = smoothstep(0.0, 1.0, clamp(room, 0.0, 1.0));
+    premul *= fade;
+    alpha *= fade;
+  }
+
+  vec3 color = premul;
+  if (d < 1.0) {
+    vec3 body = shellColor(p, frag, d);
+
+    if (dw < 1.0) {
+      // ---- 窓の奥の世界
+      vec3 c = worldExact(frag);
+
+      // 灯りのにじみ：ピクセルの上に、ガラスのなめらかな光が乗る
+      vec3 near = glowNear(frag);
+      c = 1.0 - (1.0 - c) * (1.0 - clamp(near * 0.82, 0.0, 1.0));
+
+      // ガラスの映り込み：広く、なだらかに。縁はなぞらない
+      float win = uPill.y - uBezel;
+      float sheen = smoothstep(win * 0.1, win * 1.02, p.y + p.x * 0.09);
+      c = mix(c, envHigh, sheen * sheen * mix(0.17, 0.05, uNight));
+      float low = 1.0 - smoothstep(-win * 1.05, -win * 0.5, p.y - p.x * 0.05);
+      c = mix(c, envHigh, low * mix(0.05, 0.015, uNight));
+
+      // くぼみ：上のふちから落ちる影と、まわりの陰り
+      float top = rb(p - vec2(0.0, win * 0.06), uPill - vec2(uBezel), win);
+      float inset = 1.0 - smoothstep(-win * 0.2, win * 0.03, top);
+      float ring = exp(max(dw, -win) / (win * 0.075));
+      float depth = clamp(ring * 0.46 + exp(min(top, 0.0) / (win * 0.1)) * 0.4 * inset, 0.0, 0.82);
+      c = mix(c, uInk, depth);
+
+      // ---- レンズ
+      vec2 lc = uLens.xy;
+      vec2 he = uLens.zw;
+      float lr = min(he.x, he.y);
+      vec2 lq = p - lc;
+
+      // レンズが窓に落とす影と、集めた光
+      float lift = 0.055 + uLift * 0.04;
+      float sd = rb(lq + vec2(0.0, lr * lift * 1.5), he, lr);
+      float sh = 1.0 - smoothstep(-lr * 0.16, lr * (0.2 + uLift * 0.1), sd);
+      c = mix(c, uInk, sh * mix(0.36, 0.55, uNight));
+
+      float ld = rb(lq, he, lr);
+      if (ld < 1.0) {
+        // 中心線からの距離で丸みを決める
+        vec2 axis = lq;
+        vec2 inner2 = max(he - lr, vec2(0.0));
+        axis.x = sign(lq.x) * max(abs(lq.x) - inner2.x, 0.0);
+        axis.y = sign(lq.y) * max(abs(lq.y) - inner2.y, 0.0);
+        float rad = length(axis);
+        vec2 gr = axis / max(rad, 1.0e-3);
+        float rho = clamp(rad / lr, 0.0, 1.0);
+
+        // 拡大：中ほどは平らに、少しだけ大きく見える。縁に近づくと急に曲がり、外の絵を圧縮して見せる
+        float mag = 1.24;
+        float bt = clamp((rho - 0.7) / 0.3, 0.0, 1.0);
+        float band = bt * bt * (3.0 - 2.0 * bt);
+        float strength = 1.0 - 1.0 / mag + 0.2;
+        float bend = pow(band, 2.2) * lr * strength;
+        vec2 base = lc + lq / mag;
+        vec2 shiftDir = gr * bend;
+        vec2 center = 0.5 * uRes;
+        // 1画素が世界の何ピクセルぶんか（曲がる帯では、圧縮されて大きくなる）
+        float dBand = 6.0 * bt * (1.0 - bt) / 0.3;
+        float foot = (1.0 / mag + 2.2 * pow(max(band, 1.0e-3), 1.2) * dBand * strength) / uK;
+        vec3 seen;
+        float scale = uK * mag;
+        if (band > 0.02) {
+          float ca = 0.05 * band;
+          seen.r = worldBent(center + base + shiftDir * (1.0 - ca), scale, foot).r;
+          seen.g = worldBent(center + base + shiftDir, scale, foot).g;
+          seen.b = worldBent(center + base + shiftDir * (1.0 + ca), scale, foot).b;
+        } else {
+          seen = worldBent(center + base, scale, foot);
+        }
+        vec3 throughGlow = glowNear(center + base + shiftDir);
+        seen = 1.0 - (1.0 - seen) * (1.0 - clamp(throughGlow * 0.8, 0.0, 1.0));
+
+        // ガラスの形：中ほどはゆるい丸み、縁で急に落ちる
+        vec2 tilt = gr * (0.22 * rho + 0.78 * pow(rho, 7.0));
+        vec3 N = normalize(vec3(tilt, sqrt(max(1.0 - dot(tilt, tilt), 0.02))));
+        vec3 R = vec3(2.0 * N.z * N.xy, 2.0 * N.z * N.z - 1.0);
+        vec2 lp = lq / lr;
+
+        vec3 lens = seen * 1.035;
+
+        // 縁の厚み：明るい線ではなく、ガラスの奥の暗さで形を見せる
+        float edge = pow(rho, 16.0);
+        lens = mix(lens, uInk, edge * 0.42);
+
+        // 下の内側に集まる光
+        float pool = smoothstep(0.05, 0.95, -lp.y * 0.9 + lp.x * 0.2) * (1.0 - smoothstep(0.8, 1.0, rho)) * smoothstep(0.42, 0.86, rho);
+        lens += envHigh * pool * mix(0.3, 0.1, uNight);
+
+        // 反射：上の大きなやわらかい光。丸みに沿って歪むが、縁をなぞらない
+        float broad = softBox(lp, vec2(-0.1, 0.62), vec2(0.5, 0.17), 0.3) * (1.0 - smoothstep(0.72, 0.98, rho));
+        lens = mix(lens, envHigh, broad * mix(0.44, 0.1, uNight));
+        float fresnel = pow(1.0 - N.z, 3.0);
+        float dir = 0.2 + 0.8 * smoothstep(-0.6, 0.85, dot(gr, normalize(vec2(-0.42, 0.9))));
+        lens = mix(lens, studio(R), clamp(fresnel * dir * dir * 0.6, 0.0, 0.42));
+
+        // 灯りと、探査艇やクラゲの光も、レンズの面に映る
+        for (int i = 0; i < 2; i++) {
+          vec2 pos = i == 0 ? uHomePos : uSkyPos;
+          vec3 col = i == 0 ? uHomeCol : uSkyCol;
+          vec2 toL = normalize(pos - p + 1.0e-3);
+          float side = max(dot(gr, toL), 0.0);
+          lens += reach(p, pos, col, uPill.y * 0.9) * side * side * side * smoothstep(0.62, 0.97, rho) * 0.6;
+        }
+
+        c = mix(c, lens, 1.0 - smoothstep(-0.8, 0.8, ld));
+      }
+
+      body = mix(body, c, 1.0 - smoothstep(-0.8, 0.8, dw));
+    }
+
+    float cover = 1.0 - smoothstep(-0.8, 0.8, d);
+    color = mix(premul, body, cover);
+    alpha = mix(alpha, 1.0, cover);
+  }
+
+  // 大きな階調が縞にならないよう、わずかに散らす
+  float n = fract(sin(dot(frag, vec2(12.9898, 78.233))) * 43758.5453);
+  n += fract(sin(dot(frag, vec2(93.989, 67.345))) * 24634.6345) - 1.0;
+  color += (n * 0.75) / 255.0 * min(alpha * 4.0, 1.0);
+  outColor = vec4(clamp(color, 0.0, 1.0), alpha);
+}`;
+
+export function mount(root) {
+  const cleanups = [];
+  const on = (target, type, fn, options) => {
+    target.addEventListener(type, fn, options);
+    cleanups.push(() => target.removeEventListener(type, fn, options));
+  };
+
+  let canvas = root.querySelector('.scene');
+  const button = root.querySelector('.hit');
+  const statusEl = root.querySelector('[data-status]');
+  const probe = root.querySelector('.probe');
+  const motionQuery = matchMedia('(prefers-reduced-motion: reduce)');
+  const schemeQuery = matchMedia('(prefers-color-scheme: dark)');
+  let calm = motionQuery.matches;
+
+  // ---- パレットをトークンから作る
+  const paint = new OffscreenCanvas(1, 1).getContext('2d', { willReadFrequently: true });
+  const palette = new Array(20);
+  const palette32 = new Uint32Array(20);
+  const readPalette = () => {
+    const style = getComputedStyle(root);
+    RAMPS.forEach(([name, tones], ramp) => {
+      probe.style.color = style.getPropertyValue(`--_${name}`).trim();
+      paint.clearRect(0, 0, 1, 1);
+      paint.fillStyle = getComputedStyle(probe).color;
+      paint.fillRect(0, 0, 1, 1);
+      const d = paint.getImageData(0, 0, 1, 1).data;
+      const lab = rgbToOklab([d[0], d[1], d[2]]);
+      tones.forEach((L, step) => {
+        const rgb = labTone(lab, L);
+        const id = ramp * 4 + step;
+        palette[id] = rgb;
+        palette32[id] = (255 << 24) | (rgb[2] << 16) | (rgb[1] << 8) | rgb[0];
+      });
+    });
+  };
+  const unit = (id) => palette[id].map((v) => v / 255);
+
+  // ---- 材質の表：時刻のかなめごと、状態（ふつう、影、暖かい灯り、白い照明）ごと
+  const STEP_L = RAMPS.flatMap(([, tones]) => tones);
+  const shadeOf = (id) => {
+    const step = id % 4;
+    if (step > 0) return id - 1;
+    if (id === C0) return U0;
+    if (id === G0) return I3;
+    if (id === U0) return I3;
+    if (id === A0) return I3;
+    return id;
+  };
+  const litOf = (dayId) => (STEP_L[dayId] < 0.9 ? A0 : A1);
+  const NM = MATS.length;
+  const table = KEYS.map(([, col]) => {
+    const t = new Uint8Array(NM * 4);
+    MATS.forEach((row, m) => {
+      const id = row[col + 1];
+      t[m] = id;
+      t[NM + m] = shadeOf(id);
+      t[NM * 2 + m] = litOf(row[1]);
+      t[NM * 3 + m] = id % 4 < 3 ? id + 1 : id;
+    });
+    return t;
+  });
+
+  // ---- 世界の大きさ（整数倍が決める）
+  let bw = 1;
+  let bh = 1;
+  let ox = 0;
+  let oy = 0;
+  let k = 1;
+  let matBuf = new Uint8Array(1);
+  let baseBuf = new Uint8Array(1);
+  let varBuf = new Uint8Array(1);
+  let thrA = new Uint8Array(1);
+  let pixels = new Uint32Array(1);
+  let skyKeys = [];
+  let canopy = [];
+  let polyps = [];
+  let glowers = [];
+  let kelp = [];
+  let snow = [];
+  let farLamp = { x: 100, y: 60 };
+  const emitList = [];
+  const sources = [{ w: 0, x: 0, y: 0 }, { w: 0, x: 0, y: 0 }];
+  const subLamp = { on: false, x: 0, y: 0, s: 0 };
+
+  const noiseA = makeNoise(11);
+  const noiseB = makeNoise(29);
+
+  // ---- 描く道具
+  const put = (x, y, m) => {
+    const px = x + ox;
+    const py = y + oy;
+    if (px < 0 || py < 0 || px >= bw || py >= bh) return;
+    matBuf[py * bw + px] = m;
+  };
+  // 水のところにだけ塗る。先に塗った画素が勝つ
+  const putSky = (x, y, m) => {
+    const px = x + ox;
+    const py = y + oy;
+    if (px < 0 || py < 0 || px >= bw || py >= bh) return;
+    const i = py * bw + px;
+    if (matBuf[i] === 0) matBuf[i] = m;
+  };
+  const rect = (x, y, w, h, m) => {
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) put(x + i, y + j, m);
+  };
+  const get = (x, y) => {
+    const px = x + ox;
+    const py = y + oy;
+    if (px < 0 || py < 0 || px >= bw || py >= bh) return -1;
+    return matBuf[py * bw + px];
+  };
+  const blit = (s, x, y, flip = false, force = -1) => {
+    for (const [dx, dy, m] of s.list) put(flip ? x + s.w - 1 - dx : x + dx, y + dy, force >= 0 ? force : m);
+  };
+  const emit = (x, y, weight, group = 2) => {
+    const px = x + ox;
+    const py = y + oy;
+    if (px < 0 || py < 0 || px >= bw || py >= bh) return;
+    emitList.push(py * bw + px, weight);
+    if (group < 2) {
+      const c = sources[group];
+      c.w += weight;
+      c.x += px * weight;
+      c.y += py * weight;
+    }
+  };
+
+  // ---- 動かない背景
+  const ridgeFar = (x) => 56 + noiseA(x * 0.022 + 3, 1.5) * 17 + Math.abs(noiseB(x * 0.09, 4.5) - 0.5) * 9;
+  const ridgeNear = (x) => 69 + noiseA(x * 0.034 + 40, 7.5) * 11 + noiseB(x * 0.14 + 7, 2.5) * 2;
+
+  const pathDist = (x, y) => {
+    // ハッチから手前へ下る踏み跡と、サンゴへ向かう枝道
+    const main = Math.abs(x - (74 + Math.pow(Math.max(y - 86, 0), 1.45) * 0.62 + Math.sin(y * 0.3) * 1.5));
+    const toFan = y < 100 ? Math.abs(y - (92 + Math.sin(x * 0.09) * 1.4 + (x - 78) * 0.012)) * (x > 78 && x < 136 ? 1 : 99) : 99;
+    return Math.min(main * 0.5, toFan);
+  };
+
+  const paintGround = () => {
+    for (let py = 0; py < bh; py++) {
+      const y = py - oy;
+      for (let px = 0; px < bw; px++) {
+        const x = px - ox;
+        const i = py * bw + px;
+        if (y < HORIZON) {
+          if (y >= ridgeNear(x)) {
+            const crag = noiseB(x * 0.5, y * 0.8) > 0.74 && y > ridgeNear(x) + 1;
+            matBuf[i] = crag ? M.RIDGE_TUFT : M.RIDGE_NEAR;
+          } else if (y >= ridgeFar(x)) {
+            // 遠い海嶺は、上の端を水へディザで溶かす
+            const fromTop = y - ridgeFar(x);
+            matBuf[i] = fromTop < 2 && bayerAt(x, y) > 9 ? 0 : M.RIDGE_FAR;
+          }
+          continue;
+        }
+        // 砂紋：流れが作る細い筋
+        const n = noiseA(x * 0.075 + 9, y * 0.2 + 3) + noiseB(x * 0.3, y * 0.5) * 0.28;
+        const ripple = Math.sin(y * 1.7 + noiseA(x * 0.05, y * 0.1) * 6) * 0.1;
+        const depth = (y - HORIZON) / 30;
+        const v = n + ripple + (bayerAt(x, y) / 16 - 0.5) * 0.14 - depth * 0.14;
+        let m = M.SAND;
+        if (v > 0.84) m = M.SAND_LT;
+        else if (v < 0.5) m = M.SAND_DK;
+        const pd = pathDist(x, y);
+        if (pd < 2.4 + depth * 2.4) {
+          const pebble = noiseB(x * 0.7 + 3, y * 0.9) > 0.68;
+          m = pebble ? M.TRACK_DK : M.TRACK;
+        } else if (pd < 3.4 + depth * 2.4 && bayerAt(x, y) > 7) {
+          m = M.TRACK_DK;
+        }
+        matBuf[i] = m;
+      }
+    }
+    // 海底のふちの濃い線と、小石
+    const r = seeded(5);
+    for (let x = -ox; x < bw - ox; x++) {
+      if (r() < 0.6) put(x, HORIZON, M.SAND_DK);
+    }
+    for (let i = 0; i < (bw * bh) / 60; i++) {
+      const x = Math.floor(r() * bw) - ox;
+      const y = HORIZON + 2 + Math.floor(r() * (bh - oy - HORIZON));
+      if (pathDist(x, y) < 5) continue;
+      put(x, y, r() < 0.5 ? M.SAND_LT : M.SAND_DK);
+      if (r() < 0.5) put(x, y - 1, M.SAND_LT);
+    }
+  };
+
+  const paintOutpost = () => {
+    // 遠くの海嶺に見える、もうひとつの小さな基地
+    const cx = 100;
+    const y0 = Math.round(ridgeFar(cx)) + 2;
+    for (let dy = -7; dy <= 0; dy++) {
+      const half = Math.round(Math.sqrt(1 - (dy * dy) / 49) * 7);
+      for (let dx = -half; dx <= half; dx++) {
+        const x = cx + dx;
+        const y = y0 + dy;
+        if (y >= ridgeNear(x)) continue;
+        put(x, y, dx < -2 && dy < -2 ? M.DOME_HI : M.STEEL_DK);
+      }
+    }
+    rect(cx, y0 - 9, 1, 2, M.STEEL_DK);
+    farLamp = { x: cx, y: y0 - 10 };
+  };
+
+  const paintPipe = () => {
+    // 基地から出る配管と、その先の計測箱
+    for (let x = 84; x < 124; x++) {
+      put(x, 74, M.STEEL_LT);
+      put(x, 75, M.STEEL);
+      put(x, 76, M.STEEL);
+      put(x, 77, M.STEEL_DK);
+    }
+    for (let x = 88; x < 124; x += 12) {
+      rect(x, 73, 2, 6, M.BRASS);
+      put(x, 73, M.BRASS_LT);
+    }
+    for (const x of [104, 116]) {
+      rect(x, 78, 2, 7, M.STEEL_DK);
+      rect(x - 1, 85, 4, 1, M.STEEL);
+    }
+    rect(122, 71, 8, 14, M.STEEL);
+    rect(122, 71, 8, 1, M.STEEL_LT);
+    rect(122, 71, 1, 14, M.STEEL_LT);
+    rect(129, 72, 1, 13, M.STEEL_DK);
+    rect(124, 74, 4, 3, M.GLASS);
+    put(125, 75, M.GLASS_HI);
+    rect(124, 79, 4, 1, M.HAZARD);
+    rect(121, 85, 10, 1, M.STEEL_DK);
+    // 信号灯の箱
+    rect(92, 84, 1, 6, M.STEEL_DK);
+    rect(90, 80, 6, 4, M.DOME_LT);
+    rect(90, 80, 6, 1, M.DOME_HI);
+    rect(92, 79, 1, 1, M.STEEL_DK);
+  };
+
+  const paintReef = (cx, cy, rx, ry, seed) => {
+    const r = seeded(seed);
+    const blobs = Array.from({ length: 6 }, () => [cx + (r() - 0.5) * rx * 1.5, cy + (r() - 0.5) * ry, 3 + r() * (ry * 0.75)]);
+    for (let y = cy - ry - 3; y <= cy + ry + 1; y++) {
+      for (let x = cx - rx - 3; x <= cx + rx + 3; x++) {
+        let inside = false;
+        let shade = 0;
+        for (const [bx, by, br] of blobs) {
+          const d = Math.hypot(x - bx, (y - by) * 1.15);
+          if (d < br) {
+            inside = true;
+            shade = Math.max(shade, 1 - d / br);
+          }
+        }
+        if (!inside) continue;
+        const v = shade * 0.6 + (cy - y) / (ry * 2.4) + (bayerAt(x, y) / 16 - 0.5) * 0.3 + noiseB(x * 0.4, y * 0.5) * 0.25;
+        put(x, y, v > 0.82 ? M.KELP3 : v > 0.52 ? M.KELP2 : v > 0.24 ? M.KELP1 : M.KELP0);
+      }
+    }
+  };
+
+  const paintAnemones = (x0, x1, y0, y1, count, seed) => {
+    const r = seeded(seed);
+    for (let i = 0; i < count; i++) {
+      const x = Math.floor(mix(x0, x1, r()));
+      const y = Math.floor(mix(y0, y1, r()));
+      if (pathDist(x, y) < 4.5) continue;
+      put(x, y, M.STEM);
+      put(x, y - 1, M.STEM);
+      const m = r() < 0.55 ? M.ANEMONE_A : M.ANEMONE_C;
+      put(x, y - 2, m);
+      if (r() < 0.5) {
+        put(x - 1, y - 2, m);
+        put(x + 1, y - 2, m);
+        put(x, y - 3, m);
+      }
+      // 夜に光る
+      glowers.push(x, y - 2);
+    }
+  };
+
+  const paintVent = () => {
+    // 熱水の噴き出す、岩の煙突
+    const spire = (cx, top, base, w) => {
+      for (let y = top; y < base; y++) {
+        const t = (y - top) / (base - top);
+        const half = w * (0.45 + t * 0.75) + (noiseB(cx * 0.3, y * 0.4) - 0.5) * 2;
+        const l = Math.round(cx - half);
+        const r = Math.round(cx + half);
+        for (let x = l; x <= r; x++) {
+          const side = (x - l) / Math.max(r - l, 1);
+          const crust = noiseA(x * 0.6, y * 0.5) > 0.62;
+          put(x, y, side > 0.72 ? M.ROCK_DK : side < 0.24 || crust ? M.ROCK_LT : M.ROCK);
+        }
+      }
+    };
+    spire(172, 71, 88, 3);
+    spire(185, 69, 89, 3);
+    spire(178, 61, 88, 4);
+  };
+
+  const paintTrunk = () => {
+    // サンゴの幹。根もとは岩にしがみつく
+    const X = 143;
+    for (let y = 56; y < 90; y++) {
+      const flare = y > 83 ? (y - 83) * 0.8 : 0;
+      const up = y < 66 ? (66 - y) * 0.1 : 0;
+      const l = Math.round(X - flare - up);
+      const r = Math.round(X + 7 + flare * 0.9 + up);
+      for (let x = l; x <= r; x++) {
+        const t = (x - l) / Math.max(r - l, 1);
+        const grain = noiseB(x * 0.9, y * 0.14) > 0.55;
+        put(x, y, t > 0.84 ? M.BARK : t < 0.2 ? M.FAN1 : grain ? M.BARK_LT : M.BARK_MID);
+      }
+    }
+    // 根もとの石
+    rect(156, 87, 5, 2, M.ROCK);
+    rect(157, 86, 3, 1, M.ROCK_LT);
+    rect(124, 95, 4, 2, M.ROCK);
+    rect(125, 94, 2, 1, M.ROCK_LT);
+  };
+
+  const paintBase = () => {
+    const X0 = 38;
+    const X1 = 84;
+    const TOP = 53;
+    const BASE = 85;
+    const CX = 61;
+
+    // 排気管とアンテナ（ドームの奥）
+    rect(70, 29, 5, 14, M.STEEL);
+    rect(70, 29, 1, 14, M.STEEL_LT);
+    rect(74, 29, 1, 14, M.STEEL_DK);
+    rect(69, 27, 7, 2, M.STEEL_LT);
+    rect(69, 29, 7, 1, M.STEEL_DK);
+    rect(50, 18, 1, 20, M.STEEL_DK);
+    rect(48, 24, 5, 1, M.STEEL_DK);
+    rect(49, 21, 3, 1, M.STEEL_DK);
+
+    // 耐圧殻：鋼板の継ぎ目とリベット
+    rect(X0, TOP, X1 - X0, BASE - TOP, M.HULL);
+    for (let y = TOP + 8; y < BASE; y += 8) {
+      for (let x = X0; x < X1; x++) {
+        put(x, y, M.HULL_SEAM);
+        if ((x + 1) % 4 === 0) put(x, y - 1, M.HULL_SH);
+      }
+    }
+    for (let x = X0 + 7; x < X1; x += 14) {
+      const shift = (Math.floor(x / 14) & 1) * 4;
+      for (let y = TOP + shift; y < BASE; y += 1) if ((y - TOP) % 16 < 8) put(x, y, M.HULL_SEAM);
+    }
+    // 軒下の影。ディザで下へ薄くなる
+    for (let y = TOP; y < TOP + 6; y++) {
+      for (let x = X0; x < X1; x++) {
+        if (y < TOP + 3 || bayerAt(x, y) < (TOP + 6 - y) * 4) put(x, y, M.HULL_SH);
+      }
+    }
+    // 円筒の丸み：両端が陰る
+    for (let x = X1 - 6; x < X1; x++) {
+      for (let y = TOP; y < BASE; y++) if (bayerAt(x, y) < (x - (X1 - 6) + 1) * 3) put(x, y, M.HULL_SH);
+    }
+    for (let x = X0; x < X0 + 2; x++) {
+      for (let y = TOP; y < BASE; y++) if (bayerAt(x, y) < (X0 + 2 - x) * 5) put(x, y, M.HULL_SH);
+    }
+    // 注意の縞
+    for (let y = BASE - 7; y < BASE - 4; y++) {
+      for (let x = X0; x < X1; x++) put(x, y, (x + y) % 6 < 3 ? M.HAZARD : M.HAZARD_DK);
+    }
+    // 土台の輪と脚
+    rect(X0 - 1, BASE - 3, X1 - X0 + 2, 3, M.STEEL);
+    for (let x = X0 - 1; x < X1 + 1; x += 5) {
+      rect(x, BASE - 3, 4, 1, M.STEEL_LT);
+      put(x + 2, BASE - 2, M.STEEL_LT);
+    }
+    rect(X0 + 2, BASE, 4, 2, M.STEEL_DK);
+    rect(X0 - 2, BASE + 2, 12, 1, M.STEEL);
+    rect(X1 - 3, BASE, 3, 2, M.STEEL_DK);
+    rect(X1 - 5, BASE + 2, 8, 1, M.STEEL);
+
+    // 観測ドーム：半球に、経線と緯線
+    const RT = 33;
+    const HW = (X1 - X0) / 2 + 6;
+    for (let y = RT; y < TOP; y++) {
+      const t = (TOP - y) / (TOP - RT);
+      const half = Math.round(Math.sqrt(1 - t * t) * HW);
+      for (let x = CX - half; x <= CX + half; x++) {
+        const u = clamp((x - CX) / Math.max(half, 1), -1, 1);
+        const rib = Math.abs(Math.sin(Math.asin(u) * 7)) < 0.16;
+        const ring = (y - RT) % 6 === 0;
+        let m = M.DOME_LT;
+        if (rib || ring) m = M.DOME;
+        else if (u < -0.15 && u > -0.75 && t > 0.3 && bayerAt(x, y) < 11) m = M.DOME_HI;
+        else if (u > 0.45 && bayerAt(x, y) < (u - 0.45) * 30) m = M.DOME;
+        put(x, y, m);
+      }
+    }
+    // 軒の輪
+    for (let x = CX - HW; x <= CX + HW; x++) {
+      put(x, TOP, M.BRASS_DK);
+      if (x % 3 === 0) put(x, TOP + 1, M.BRASS_DK);
+    }
+
+    // エアロックのハッチ
+    rect(67, 66, 12, 19, M.STEEL_DK);
+    rect(68, 67, 10, 18, M.STEEL);
+    rect(68, 67, 1, 18, M.STEEL_LT);
+    put(67, 66, M.HULL);
+    put(78, 66, M.HULL);
+    rect(70, 68, 6, 3, M.GLASS);
+    put(71, 69, M.GLASS_HI);
+    put(72, 69, M.GLASS_HI);
+    // ハンドル
+    rect(71, 74, 5, 1, M.BRASS_LT);
+    rect(71, 78, 5, 1, M.BRASS);
+    rect(71, 74, 1, 5, M.BRASS_LT);
+    rect(75, 74, 1, 5, M.BRASS);
+    rect(73, 74, 1, 5, M.BRASS);
+    rect(71, 76, 5, 1, M.BRASS);
+    rect(66, 85, 14, 2, M.STEEL_LT);
+    rect(65, 87, 16, 1, M.STEEL);
+
+    // 丸窓の枠（窓の中は毎フレーム描く）
+    rect(44, 59, 18, 16, M.BRASS);
+    rect(44, 59, 18, 1, M.BRASS_LT);
+    rect(44, 59, 1, 16, M.BRASS_LT);
+    rect(44, 74, 18, 1, M.BRASS_DK);
+    rect(61, 59, 1, 16, M.BRASS_DK);
+    [3, 2, 1].forEach((n, j) => {
+      for (let i = 0; i < n; i++) {
+        put(44 + i, 59 + j, M.HULL);
+        put(61 - i, 59 + j, M.HULL);
+        put(44 + i, 74 - j, M.HULL);
+        put(61 - i, 74 - j, M.HULL);
+      }
+    });
+    // 外灯の腕木
+    put(64, 63, M.STEEL_DK);
+    put(65, 63, M.STEEL_DK);
+    // 殻についたフジツボ
+    const r = seeded(77);
+    for (let i = 0; i < 14; i++) {
+      const x = Math.floor(mix(X0, 66, r()));
+      const y = Math.floor(mix(BASE - 12, BASE - 8, r()));
+      put(x, y, r() < 0.5 ? M.KELP2 : M.HULL_SH);
+    }
+  };
+
+  const buildCanopy = () => {
+    // 大きなヤギ（扇のサンゴ）：幹から放射する枝の網。枝のあいだは水が透ける
+    canopy = [];
+    polyps = [];
+    const r = seeded(303);
+    const CX = 146;
+    const CY = 44;
+    const blobs = [[CX, CY, 21]];
+    for (let i = 0; i < 16; i++) {
+      const a = r() * Math.PI * 2;
+      const d = 14 + r() * 13;
+      blobs.push([CX + Math.cos(a) * d * 1.08, CY + Math.sin(a) * d * 0.82, 6 + r() * 7]);
+    }
+    for (let y = CY - 36; y <= CY + 32; y++) {
+      for (let x = CX - 42; x <= CX + 42; x++) {
+        let inside = false;
+        let best = 0;
+        for (const [bx, by, br] of blobs) {
+          const d = Math.hypot(x - bx, y - by);
+          if (d < br) {
+            inside = true;
+            best = Math.max(best, 1 - d / br);
+          }
+        }
+        if (!inside) continue;
+        const ang = Math.atan2(x - CX, 66 - y);
+        const far = Math.hypot(x - CX, 66 - y);
+        const ray = Math.sin(ang * 26 + noiseA(x * 0.12, y * 0.12) * 3.2);
+        const cross = Math.sin(far * 1.25 + ang * 3);
+        if (ray < -0.35 && cross < 0.55) continue;
+        const lightDir = ((CX - x) * 0.4 + (CY - y) * 0.75) / 26;
+        const clump = best * 0.5;
+        const grain = noiseB(x * 0.26 + 20, y * 0.3) * 0.7 + noiseA(x * 0.7, y * 0.7) * 0.3;
+        const v = lightDir * 0.34 + clump + grain + (bayerAt(x, y) / 16 - 0.5) * 0.16 - 0.3;
+        const m = v > 0.82 ? M.FAN3 : v > 0.52 ? M.FAN2 : v > 0.26 ? M.FAN1 : M.FAN0;
+        canopy.push(x, y, m);
+        if (r() < 0.045) polyps.push(x, y);
+      }
+    }
+  };
+
+  const buildKelp = () => {
+    kelp = [];
+    const r = seeded(414);
+    const plant = (x0, x1, n, minH, maxH) => {
+      for (let i = 0; i < n; i++) {
+        kelp.push({ x: Math.round(mix(x0, x1, r())), base: 84 + Math.floor(r() * 4), h: Math.round(mix(minH, maxH, r())), seed: r() * 6.283, tone: r() < 0.4 });
+      }
+    };
+    plant(2, 30, 7, 18, 44);
+    plant(-40, -2, 7, 16, 38);
+    plant(162, 168, 2, 10, 20);
+    plant(194, 236, 7, 16, 36);
+  };
+
+  const buildBase = () => {
+    matBuf.fill(0);
+    glowers = [];
+    paintGround();
+    paintOutpost();
+    paintPipe();
+    paintReef(22, 78, 16, 8, 61);
+    paintReef(176, 83, 14, 5, 62);
+    paintReef(-6, 81, 11, 6, 63);
+    paintReef(204, 81, 10, 5, 64);
+    paintVent();
+    paintTrunk();
+    paintBase();
+    paintAnemones(96, 126, 87, 92, 26, 91);
+    paintAnemones(14, 38, 86, 96, 16, 92);
+    paintAnemones(150, 205, 90, 106, 24, 93);
+    paintAnemones(-14, 14, 88, 104, 12, 95);
+    paintAnemones(40, 62, 90, 104, 12, 94);
+    baseBuf.set(matBuf);
+    buildCanopy();
+    buildKelp();
+
+    const r = seeded(808);
+    snow = [];
+    const count = Math.round((bw * bh) / 230);
+    for (let i = 0; i < count; i++) {
+      snow.push({ x: Math.floor(r() * bw) - ox, y: r() * bh, seed: r(), v: 1.2 + r() * 2.8, big: r() < 0.1, fore: r() < 0.16 });
+    }
+    // 水の色を時刻のかなめごとに描いておく
+    skyKeys = KEYS.map(([, , stops]) => {
+      const sky = new Uint8Array(bw * bh);
+      const n = stops.length - 1;
+      for (let py = 0; py < bh; py++) {
+        const pos = clamp((py - oy) / HORIZON) * n;
+        const a = Math.min(Math.floor(pos), n);
+        const b = Math.min(a + 1, n);
+        // 帯のあいだだけを、市松の点で埋める
+        const f = smoothstep(0.3, 0.7, pos - a) * 4;
+        for (let px = 0; px < bw; px++) {
+          const cell = ((py & 1) << 1) | (px & 1);
+          sky[py * bw + px] = f > [0, 2, 3, 1][cell] ? stops[b] : stops[a];
+        }
+      }
+      return sky;
+    });
+  };
+
+  // ---- 住人と世界の動き
+  const res = { x: 73, inside: false, face: 1, step: 0, doorOpen: 0, startle: 0, hop: 0, blink: 0, nextBlink: 2, page: 0, nextPage: 4, pageT: 0, hurry: 0, nextPuff: 1 };
+  // 流れていく濁りの層
+  const silts = [
+    { x: 8, y: 13, w: 44, h: 5, seed: 1, speed: 0.55 },
+    { x: 88, y: 24, w: 34, h: 4, seed: 2, speed: 0.8 },
+    { x: 150, y: 9, w: 52, h: 6, seed: 3, speed: 0.42 },
+    { x: 214, y: 30, w: 30, h: 3, seed: 4, speed: 1.05 },
+  ].map((layer) => {
+    const r = seeded(layer.seed * 977);
+    const blobs = Array.from({ length: 6 }, (_, i) => [layer.w * ((i + 0.5) / 6) + (r() - 0.5) * 3, layer.h * (0.45 + (r() - 0.5) * 0.35), layer.h * (0.3 + r() * 0.32)]);
+    const list = [];
+    for (let y = 0; y < layer.h + 3; y++) {
+      for (let x = -2; x < layer.w + 3; x++) {
+        let inside = false;
+        for (const [bx, by, br] of blobs) if (Math.hypot((x - bx) * 0.4, (y - by) * 1.25) < br) inside = true;
+        if (!inside) continue;
+        list.push(x, y, y > layer.h * 0.62 ? 1 : 0);
+      }
+    }
+    return { ...layer, list };
+  });
+  const smoke = [];
+  const zees = [];
+  const bubbles = [];
+  const fish = { t: -1, next: 8, y: 20, dir: 1 };
+  const squid = { t: -1, next: 14, x: 0, y: 0 };
+  const plankton = Array.from({ length: 8 }, (_, i) => ({ seed: i * 7.3 + 1, x: 150 + (i - 3) * 9, y: 88 + (i % 3) * 6 }));
+  const minnow = { x: 108, y: 84 };
+  let anim = 0;
+  let smokeAcc = 0;
+  let ventAcc = 0;
+  let zeeAcc = 0;
+  let thumbAcc = 0;
+  let lampFlick = 1;
+  let windowL = 0;
+  let lanternL = 0;
+  let shutter = 0;
+
+  const hourOf = (clock) => ((clock % 24) + 24) % 24;
+
+  const addBubble = (bx, by, size = 0) => {
+    if (bubbles.length < 90) bubbles.push({ x: bx, y: by, t: 0, seed: Math.random() * 6.283, size, rise: 9 + size * 4 + Math.random() * 6 });
+  };
+  const helmet = () => {
+    const seated = Math.abs(res.x - 131) < 1;
+    return seated ? [135, 78] : [res.x, 76];
+  };
+
+  // 時刻から、住人の予定を決める
+  const planFor = (h) => {
+    if (h >= 9.6 && h < 11) return { outside: true, x: 104, act: 'tend' };
+    if (h >= 11 && h < 16.2) return { outside: true, x: 131, act: 'read' };
+    if (h >= 16.2 && h < 17.2) return { outside: true, x: 88, act: 'stroll' };
+    return { outside: false, x: 73, act: 'in' };
+  };
+
+  const stepResident = (dt, h, speedHint) => {
+    const plan = planFor(h);
+    const want = plan.outside ? plan.x : 73;
+    if (calm) {
+      res.inside = !plan.outside;
+      res.x = want;
+      return plan;
+    }
+    res.startle = Math.max(0, res.startle - dt);
+    res.hop = res.startle > 0.55 ? Math.sin(((0.9 - res.startle) / 0.35) * Math.PI) * 3 : 0;
+    res.doorOpen = Math.max(0, res.doorOpen - dt);
+    if (res.startle > 0) return plan;
+
+    if (res.inside && plan.outside) {
+      res.inside = false;
+      res.x = 73;
+      res.doorOpen = 0.5;
+    }
+    if (!res.inside) {
+      const delta = want - res.x;
+      if (Math.abs(delta) > 0.5) {
+        const speed = 17 + clamp(speedHint, 0, 1) * 72 + (Math.abs(delta) > 34 ? 8 : 0);
+        const move = Math.min(Math.abs(delta), speed * dt);
+        res.x += Math.sign(delta) * move;
+        res.face = Math.sign(delta);
+        res.step += move * 0.28;
+        res.hurry = speedHint;
+      } else {
+        res.x = want;
+        res.step = 0;
+        if (!plan.outside) {
+          res.inside = true;
+          res.doorOpen = 0.45;
+        }
+      }
+    }
+    // まばたき、ページをめくる
+    res.nextBlink -= dt;
+    if (res.nextBlink <= 0) {
+      res.blink = 0.13;
+      res.nextBlink = 1.8 + Math.random() * 3.4;
+    }
+    res.blink = Math.max(0, res.blink - dt);
+    res.nextPage -= dt;
+    if (res.nextPage <= 0) {
+      res.pageT = 0.42;
+      res.nextPage = 3.6 + Math.random() * 3.2;
+    }
+    res.pageT = Math.max(0, res.pageT - dt);
+    return plan;
+  };
+
+  // 探査艇：太陽のかわりに、頭上を弧を描いて渡る。下へ探照灯を向ける
+  const drawSub = (h) => {
+    subLamp.on = false;
+    if (!(h > 5.2 && h < 19)) return;
+    const a = ((h - 6) / 12) * Math.PI;
+    const sx = Math.round(96 - Math.cos(a) * 102);
+    const bob = calm ? 0 : Math.round(Math.sin(anim * 0.7));
+    const sy = Math.round(HORIZON - 14 - Math.sin(a) * 58) + bob;
+    const low = 1 - clamp(Math.sin(a) * 1.6);
+    // 灯り（最初に塗った画素が勝つので、手前のものから置く）
+    for (let dx = 6; dx <= 8; dx++) {
+      putSky(sx + dx, sy + 6, M.SUB_LAMP);
+      if (get(sx + dx, sy + 6) === M.SUB_LAMP) emit(sx + dx, sy + 6, 170 + low * 200, 1);
+    }
+    // のぞき窓
+    for (const dx of [-5, 0, 5]) {
+      putSky(sx + dx, sy - 1, M.LIT_HI);
+      putSky(sx + dx + 1, sy - 1, M.LIT);
+      putSky(sx + dx, sy, M.LIT);
+      putSky(sx + dx + 1, sy, M.LIT_DK);
+    }
+    // 潜望鏡と司令塔
+    for (let dy = -11; dy <= -9; dy++) putSky(sx + 1, sy + dy, M.SUB_DK);
+    putSky(sx + 2, sy - 11, M.SUB_DK);
+    putSky(sx + 3, sy - 11, M.SUB_DK);
+    for (let dy = -8; dy <= -5; dy++) {
+      for (let dx = -3; dx <= 3; dx++) putSky(sx + dx, sy + dy, dy === -8 ? M.SUB_HI : dx === 3 ? M.SUB_DK : M.SUB);
+    }
+    // スクリューと尾びれ
+    const spin = calm ? 0 : Math.floor(anim * 12) % 2;
+    for (let dy = -3; dy <= 3; dy++) {
+      if ((dy & 1) === spin) putSky(sx - 13, sy + dy, M.SUB_DK);
+    }
+    for (let dy = -2; dy <= 2; dy++) putSky(sx - 12, sy + dy, M.SUB_DK);
+    // 船体：横長のだ円。上が明るく、下に濃い帯
+    for (let dy = -5; dy <= 5; dy++) {
+      for (let dx = -11; dx <= 11; dx++) {
+        if ((dx * dx) / 121 + (dy * dy) / 25 > 1) continue;
+        let m = M.SUB;
+        if (dy <= -3 && dx > -7 && dx < 5) m = M.SUB_HI;
+        else if (dy >= 3) m = M.SUB_DK;
+        else if (dy === 2 && (dx & 3) === 0) m = M.SUB_DK;
+        putSky(sx + dx, sy + dy, m);
+      }
+    }
+    for (let dx = -6; dx <= 8; dx++) putSky(sx + dx, sy + 6, M.SUB_DK);
+    // 航跡の泡
+    if (!calm) {
+      for (let i = 0; i < 4; i++) {
+        putSky(sx - 16 - i * 3, sy + Math.round(Math.sin(anim * 3 + i * 1.7) * 2), M.BUBBLE_DK);
+      }
+    }
+    subLamp.on = sy + 7 < HORIZON;
+    subLamp.x = sx + 7;
+    subLamp.y = sy + 7;
+    subLamp.s = smoothstep(5.2, 6.4, h) * (1 - smoothstep(17.6, 18.6, h));
+  };
+
+  // 大きなミズクラゲ：月のかわりに昇り、脈打ちながら光る
+  const drawJelly = (h) => {
+    const mh = h >= 17.6 ? h : h + 24;
+    if (!(mh > 17.6 && mh < 30.4)) return;
+    const a = ((mh - 18) / 12) * Math.PI;
+    const pulse = calm ? 0 : Math.sin(anim * 1.6);
+    const jx = Math.round(96 - Math.cos(a) * 102);
+    const jy = Math.round(HORIZON - 14 - Math.sin(a) * 54 - Math.max(pulse, 0) * 1.2);
+    const Rx = 9 - pulse * 0.9;
+    const Ry = 7 + pulse * 0.6;
+    // 傘
+    for (let dy = -Math.ceil(Ry); dy <= 0; dy++) {
+      for (let dx = -Math.ceil(Rx); dx <= Math.ceil(Rx); dx++) {
+        const d = Math.hypot(dx / Rx, dy / Ry);
+        if (d > 1) continue;
+        const px = jx + dx;
+        const py = jy + dy;
+        const organ = Math.abs(Math.hypot(Math.abs(dx) - 3, dy + 2) - 1.5) < 0.7;
+        if (d <= 0.84 && !organ && bayerAt(px, py) > 12) continue; // 透ける
+        putSky(px, py, d > 0.84 ? M.JELLY_RIM : organ || dy > -2 ? M.JELLY_DK : M.JELLY);
+        // 海嶺や基地に隠れている画素は、光らせない
+        const seen = get(px, py);
+        if (seen === M.JELLY || seen === M.JELLY_RIM || seen === M.JELLY_DK) emit(px, py, 14, 1);
+      }
+    }
+    // 触手
+    for (let i = 0; i < 6; i++) {
+      const tx = jx + (i - 2.5) * 3;
+      const len = 11 + (i & 1) * 5;
+      for (let s = 1; s <= len; s++) {
+        putSky(Math.round(tx + Math.sin(anim * 1.4 + s * 0.45 + i) * (s * 0.12 + 0.5)), jy + s, M.TENTACLE);
+      }
+    }
+    // まわりの、ごく弱い光の輪
+    for (let dy = -Math.ceil(Ry) - 3; dy <= 3; dy++) {
+      for (let dx = -Math.ceil(Rx) - 3; dx <= Math.ceil(Rx) + 3; dx++) {
+        const d = Math.hypot(dx / (Rx + 3), dy / (Ry + 3));
+        if (d <= 1 && bayerAt(jx + dx, jy + dy) < (1 - d) * 16) putSky(jx + dx, jy + dy, M.SNOW_DIM);
+      }
+    }
+  };
+
+  const drawSchool = (h) => {
+    // 魚の群れ：昼に、ときどき渡る
+    if (calm || h <= 7 || h >= 18.5 || fish.t < 0) return;
+    const flap = Math.floor(anim * 7) % 2;
+    const d = fish.dir;
+    for (let i = 0; i < 7; i++) {
+      const fx = Math.round((d > 0 ? -12 + fish.t * 26 : CORE_W + 12 - fish.t * 26) - d * ((i % 4) * 7 + (i >> 2) * 3));
+      const fy = fish.y + (i % 3) * 3 + (i >> 1) + Math.round(Math.sin(anim * 1.6 + i) * 0.6);
+      putSky(fx, fy, M.FISH);
+      putSky(fx - d, fy, M.FISH);
+      putSky(fx - d * 2, fy, M.FISH);
+      putSky(fx - d * 3, fy - flap, M.FISH);
+      putSky(fx - d * 3, fy + 1 - flap, M.FISH);
+    }
+  };
+
+  const drawSquid = (night) => {
+    // 光る小さなイカが、暗い水を一瞬で横切る
+    if (calm || night <= 0.9 || squid.t < 0) return;
+    const f = squid.t / 0.55;
+    for (let i = 0; i < 7; i++) {
+      const u = f * 42 - i * 2;
+      if (u > 0 && u < 42) putSky(Math.round(squid.x + u), Math.round(squid.y + u * 0.45), i < 2 ? M.GLOW_HI : M.GLOW);
+    }
+  };
+
+  const drawSnow = (night) => {
+    // マリンスノー：ゆっくり降る。暗いほどよく見える
+    const amount = 0.4 + night * 0.7;
+    for (const s of snow) {
+      if (s.fore || s.seed > amount) continue;
+      const sy = Math.floor((s.y + anim * s.v) % bh) - oy;
+      const sx = Math.round(s.x + Math.sin(anim * 0.35 + s.seed * 30) * 1.6);
+      const twinkle = calm ? 1 : Math.sin(anim * (1.3 + s.seed * 4.4) + s.seed * 40);
+      putSky(sx, sy, twinkle < 0.1 && !s.big ? M.SNOW_DIM : M.SNOW);
+      if (s.big && night > 0.5 && twinkle > 0.55) {
+        putSky(sx - 1, sy, M.SNOW_DIM);
+        putSky(sx + 1, sy, M.SNOW_DIM);
+        putSky(sx, sy - 1, M.SNOW_DIM);
+        putSky(sx, sy + 1, M.SNOW_DIM);
+      }
+    }
+  };
+
+  const drawBeam = () => {
+    // 探照灯の光の筋。水に散って、下へ薄くなる
+    if (!subLamp.on) return;
+    const depth = HORIZON + 2 - subLamp.y;
+    for (let j = 0; j < depth; j++) {
+      const half = 1.5 + j * 0.3;
+      const fall = 1 - j / (depth + 24);
+      const by = subLamp.y + j;
+      for (let bx = Math.floor(subLamp.x - half); bx <= subLamp.x + half; bx++) {
+        const edge = 1 - Math.abs(bx - subLamp.x) / (half + 1);
+        if (edge * fall * subLamp.s * 11 > bayerAt(bx, by)) putSky(bx, by, M.BEAM);
+      }
+    }
+  };
+
+  const drawSilt = () => {
+    for (const layer of silts) {
+      const span = CORE_W + 96;
+      const cx = ((layer.x + (calm ? 0 : anim * layer.speed) + 48) % span) - 48;
+      const x0 = Math.round(cx);
+      for (let i = 0; i < layer.list.length; i += 3) {
+        const px = x0 + layer.list[i];
+        const py = layer.y + layer.list[i + 1];
+        const under = layer.list[i + 2];
+        if (bayerAt(px, py) > (under ? 5 : 9)) continue;
+        putSky(px, py, under ? M.SILT_SH : M.SILT);
+      }
+    }
+  };
+
+  const drawSky = (h) => {
+    const night = clamp(smoothstep(18.2, 20.2, h) + (1 - smoothstep(4.6, 6.2, h)));
+    drawSub(h);
+    drawJelly(h);
+    drawSchool(h);
+    drawSquid(night);
+    drawSnow(night);
+    drawBeam();
+    drawSilt();
+  };
+
+  const drawShadows = (h) => {
+    if (h < 6.2 || h > 18.6) return;
+    const a = ((h - 6) / 12) * Math.PI;
+    const dir = -Math.cos(a); // 探査艇が左なら、影は右へ
+    const fade = smoothstep(6.2, 7.6, h) * (1 - smoothstep(17.4, 18.6, h));
+    const reach = 3 + Math.abs(dir) * 22;
+    const mark = (x, y, strength) => {
+      const px = x + ox;
+      const py = y + oy;
+      if (px < 0 || py < 0 || px >= bw || py >= bh) return;
+      const i = py * bw + px;
+      if (matBuf[i] !== 0 && strength * fade * 16 > bayerAt(x, y)) varBuf[i] = 1;
+    };
+    // サンゴの影
+    const tx = 146 + dir * reach * 0.8;
+    for (let y = 87; y < 101; y++) {
+      const t = (y - 87) / 14;
+      const half = 25 * Math.sqrt(1 - Math.pow(t * 2 - 1, 2)) * (1 + Math.abs(dir) * 0.3);
+      const cx = tx + (t - 0.5) * dir * 8;
+      for (let x = Math.round(cx - half); x <= cx + half; x++) mark(x, y, 1 - (Math.abs(x - cx) / (half + 1)) * 0.4);
+    }
+    // 基地の影
+    for (let y = 88; y < 95; y++) {
+      const t = (y - 88) / 7;
+      const shift = dir * reach * 0.8 * t;
+      for (let x = Math.round(36 + Math.min(shift, 0)); x <= 86 + Math.max(shift, 0); x++) mark(x, y, 1 - t * 0.5);
+    }
+  };
+
+  const drawWindow = (h) => {
+    // 丸窓の中：14×12
+    const WX = 46;
+    const WY = 61;
+    const WW = 14;
+    const WH = 12;
+    const lamp = h >= 19.6 && h < 22.9;
+    const cook = h >= 17.2 && h < 19.6;
+    const morning = h >= 7 && h < 9.6;
+    const asleep = h >= 22.9 || h < 6.5;
+
+    if (lamp || cook) {
+      const flick = lamp ? lampFlick : 0.6 + 0.08 * Math.sin(anim * 9);
+      const swing = lamp && !calm ? Math.round(Math.sin(anim * 0.9) * 0.7) : 0;
+      for (let y = 0; y < WH; y++) {
+        for (let x = 0; x < WW; x++) {
+          let m;
+          if (lamp) {
+            // 灯りの下に、広がる光の円すい
+            const cone = Math.abs(x - (4.5 + swing)) - (y - 2) * 0.62;
+            m = cone < 0 && y >= 3 ? M.LIT_HI : cone < 2.2 ? M.LIT : M.LIT_DK;
+          } else {
+            m = Math.hypot(x - 6.5, y - 8) < 5 && bayerAt(x, y) < 8 ? M.LIT : M.LIT_DK;
+          }
+          if (y >= WH - 1) m = M.LIT_DK;
+          put(WX + x, WY + y, m);
+          emit(WX + x, WY + y, (m === M.LIT_HI ? 255 : m === M.LIT ? 210 : 130) * flick, 0);
+        }
+      }
+      if (lamp) {
+        // 天井から下がる灯り：コードと、かさと、電球
+        const lx = WX + 4 + swing;
+        put(lx, WY, M.SIL);
+        put(lx, WY + 1, M.SIL);
+        rect(lx - 2, WY + 2, 5, 1, M.SIL);
+        rect(lx - 1, WY + 3, 3, 1, M.LIT_HI);
+        // 机と、開いた本
+        rect(WX + 1, WY + 10, 9, 1, M.SIL);
+        rect(WX + 2, WY + 11, 1, 1, M.SIL);
+        rect(WX + 8, WY + 11, 1, 1, M.SIL);
+        const pageUp = res.pageT > 0 && !calm;
+        rect(WX + 4, WY + 9, 3, 1, M.SIL);
+        if (pageUp) put(WX + 5, WY + 8, M.SIL);
+        // 机に向かう人影。ときどき顔を上げる。まだ外にいるあいだは、誰もいない
+        if (res.inside) {
+          const startled = res.startle > 0;
+          const look = startled || (!calm && Math.sin(anim * 0.46) > 0.72);
+          const nod = !calm && !look && Math.sin(anim * 1.7) > 0.86 ? 1 : 0;
+          const hy = WY + 3 + nod - (startled ? 1 : 0);
+          const hx = WX + 8;
+          // 頭
+          rect(hx, hy + (look ? 0 : 1), 4, 3, M.SIL);
+          put(hx + 1, hy + (look ? -1 : 0), M.SIL);
+          put(hx + 2, hy + (look ? -1 : 0), M.SIL);
+          if (!look) put(hx - 1, hy + 2, M.SIL);
+          // 肩と背
+          rect(WX + 8, WY + 7, 5, 3, M.SIL);
+          rect(WX + 9, WY + 10, 4, 2, M.SIL);
+          // 机へのばした腕
+          rect(WX + 6, WY + 8, 3, 1, M.SIL);
+        }
+      } else {
+        // 夕方：ギャレーを行き来する人影と、湯気
+        const walk = calm ? 0 : Math.sin(anim * 0.8) * 3;
+        if (res.inside) blit(SPR.sil, Math.round(WX + 3 + walk), WY + 5, false, M.SIL);
+        if (!calm) {
+          for (let i = 0; i < 3; i++) {
+            const s = (anim * 0.9 + i * 0.33) % 1;
+            put(WX + 11 + Math.round(Math.sin(s * 8 + i)), WY + 7 - Math.round(s * 6), M.LIT_HI);
+          }
+        }
+        rect(WX + 10, WY + 8, 4, 1, M.SIL);
+      }
+    } else if (morning) {
+      // 朝：シャッターを開けて、伸びをする
+      rect(WX, WY, WW, WH, M.ROOM);
+      for (let y = 0; y < 2; y++) for (let x = 0; x < WW; x++) put(WX + x, WY + y, M.GLASS_HI);
+      let bust = SPR.bust;
+      if (!calm) {
+        const c = (anim % 5.4) / 5.4;
+        if (c > 0.16 && c < 0.24) bust = SPR.bustHalf;
+        else if (c >= 0.24 && c < 0.5) bust = SPR.bustUp;
+        else if (c >= 0.5 && c < 0.58) bust = SPR.bustHalf;
+        else if (res.blink > 0) bust = SPR.bustBlink;
+      }
+      const dy = res.startle > 0 ? -1 : 0;
+      if (res.inside) blit(bust, WX + 3, WY + 4 + dy);
+    } else {
+      // 昼間と夜中：暗いガラス。斜めの映り込み
+      rect(WX, WY, WW, WH, M.GLASS);
+      for (let i = 0; i < 6; i++) {
+        put(WX + 2 + i, WY + 7 - i, M.GLASS_HI);
+        if (i < 4) put(WX + 6 + i, WY + 8 - i, M.GLASS_HI);
+      }
+    }
+
+    // 耐圧シャッター：眠る時間は閉じ、朝に開く
+    const closed = asleep ? 1 : 0;
+    shutter += calm ? closed - shutter : clamp(closed - shutter, -0.09, 0.09);
+    const leaf = Math.round(shutter * 7);
+    const drawLeaf = (x0, w) => {
+      for (let i = 0; i < w; i++) {
+        for (let y = 0; y < 14; y++) put(x0 + i, 60 + y, y % 2 === 0 ? M.STEEL : M.STEEL_LT);
+      }
+    };
+    // 開いているシャッターは窓の両わきに、閉じると窓の上に
+    const open = 4 - Math.min(4, leaf);
+    if (open > 0) {
+      drawLeaf(44 - open, open);
+      drawLeaf(62, open);
+    }
+    if (leaf > 0) {
+      drawLeaf(46, leaf);
+      drawLeaf(60 - leaf, leaf);
+    }
+
+    // 窓の四隅を枠で隠して、丸くする
+    for (const [row, n] of [[0, 3], [1, 1], [10, 1], [11, 3]]) {
+      for (let i = 0; i < n; i++) {
+        put(WX + i, WY + row, M.BRASS);
+        put(WX + WW - 1 - i, WY + row, M.BRASS);
+      }
+    }
+
+    return { lamp, cook, asleep };
+  };
+
+  const drawDoor = () => {
+    if (res.doorOpen > 0) {
+      rect(68, 67, 10, 18, M.SIL);
+      rect(68, 67, 2, 18, M.STEEL_LT);
+    }
+  };
+
+  const drawResident = (plan) => {
+    if (res.inside) return;
+    const base = 89;
+    const dy = -Math.round(res.hop);
+    const startled = res.startle > 0;
+    const moving = Math.abs((plan.outside ? plan.x : 73) - res.x) > 0.5;
+    if (!moving && plan.act === 'read' && Math.abs(res.x - 131) < 1) {
+      // サンゴにもたれて、防水の本を読む
+      const up = startled;
+      const spr = up ? SPR.seatUp : res.blink > 0 ? SPR.seatBlink : SPR.seat;
+      const x = 131;
+      const y = base - 10 + dy;
+      blit(spr, x, y);
+      // 本
+      const bx = x - 1;
+      const by = y + 5;
+      if (!up) {
+        if (res.pageT > 0.28) {
+          rect(bx, by, 4, 3, M.BOOK);
+          rect(bx + 1, by - 1, 2, 1, M.BOOK_DK);
+        } else if (res.pageT > 0.14) {
+          rect(bx + 1, by - 2, 2, 5, M.BOOK);
+        } else {
+          rect(bx, by, 4, 3, M.BOOK);
+          rect(bx + 3, by, 1, 3, M.BOOK_DK);
+          put(bx + 1, by + 1, M.BOOK_DK);
+        }
+      } else {
+        rect(bx, by + 1, 4, 2, M.BOOK_DK);
+      }
+      // つま先が小さく動く
+      if (!calm && Math.sin(anim * 1.1) > 0.8) put(x + 1, y + 9, M.BOOT);
+      if (startled) {
+        rect(x + 5, y - 7, 1, 4, M.MARK);
+        put(x + 5, y - 2, M.MARK);
+      }
+      return;
+    }
+    if (!moving && plan.act === 'tend') {
+      const bob = !calm && Math.sin(anim * 2.2) > 0;
+      blit(bob ? SPR.crouch : SPR.stand, Math.round(res.x) - 3, bob ? base - 10 : base - 12, false);
+      return;
+    }
+    let spr = SPR.stand;
+    if (startled) spr = SPR.up;
+    else if (moving) spr = SPR.walk[Math.floor(res.step) % 4];
+    else if (res.blink > 0) spr = SPR.blink;
+    blit(spr, Math.round(res.x) - 3, base - 12 + dy, res.face < 0);
+    if (startled) {
+      rect(Math.round(res.x), base - 19 + dy, 1, 4, M.MARK);
+      put(Math.round(res.x), base - 14 + dy, M.MARK);
+    }
+  };
+
+  // 流れ：上ほど大きく、段ごとにずれて揺れる
+  const swayAt = (y) => (calm ? 0 : Math.round(Math.sin(anim * 0.9 + y * 0.11) * (1.15 - (y - 10) * 0.012)));
+
+  const drawCanopy = (h) => {
+    for (let i = 0; i < canopy.length; i += 3) {
+      const y = canopy[i + 1];
+      put(canopy[i] + swayAt(y), y, canopy[i + 2]);
+    }
+    // 夜：サンゴのポリプに、光の波が下から上へ走る。イソギンチャクも光る
+    const night = clamp(smoothstep(18.6, 20.4, h) + (1 - smoothstep(4.4, 6, h)));
+    if (night < 0.03) return;
+    for (let i = 0; i < polyps.length; i += 2) {
+      const px = polyps[i];
+      const py = polyps[i + 1];
+      const v = (calm ? 0.7 : 0.5 + 0.5 * Math.sin(anim * 1.3 + py * 0.22 + px * 0.05)) * night;
+      if (v < 0.35) continue;
+      const sx = px + swayAt(py);
+      put(sx, py, v > 0.75 ? M.GLOW_HI : M.GLOW);
+      emit(sx, py, 90 * v);
+    }
+    for (let i = 0; i < glowers.length; i += 2) {
+      const px = glowers[i];
+      const py = glowers[i + 1];
+      const v = (calm ? 0.7 : 0.5 + 0.5 * Math.sin(anim * 0.8 + px * 0.4 + py * 0.3)) * night;
+      if (v < 0.4) continue;
+      put(px, py, M.GLOW);
+      emit(px, py, 60 * v);
+    }
+  };
+
+  const drawKelp = () => {
+    // 海藻：根もとは動かず、先ほど大きく流れになびく
+    for (const s of kelp) {
+      for (let j = 0; j < s.h; j++) {
+        const u = j / s.h;
+        const bend = (calm ? 0 : Math.sin(anim * 0.85 + j * 0.16 + s.seed) * u * u * 5) + u * 1.5;
+        const kx = Math.round(s.x + bend);
+        const ky = s.base - j;
+        put(kx, ky, s.tone ? M.KELP2 : M.KELP1);
+        if (j > 2 && j % 3 === 0) {
+          const side = (j / 3) & 1 ? 1 : -1;
+          put(kx + side, ky, s.tone ? M.KELP3 : M.KELP2);
+          put(kx + side * 2, ky - 1, s.tone ? M.KELP2 : M.KELP1);
+        }
+      }
+    }
+  };
+
+  const shedBubbles = (dt, speed) => {
+    // つまみを速く動かすと、レンズの後ろに泡が立つ
+    if (calm || speed < 0.22) {
+      thumbAcc = 0;
+      return;
+    }
+    thumbAcc += dt * speed * 24;
+    while (thumbAcc >= 1) {
+      thumbAcc -= 1;
+      const back = velocity > 0 ? -1 : 1;
+      const wx = (shape.W / 2 + (x - 0.5) * shape.travel + back * shape.r0 * 0.7 - shape.ox) / k - ox;
+      const wy = (shape.H / 2 + (Math.random() - 0.5) * shape.r0 * 1.3 - (shape.H - shape.oy)) / k - oy;
+      addBubble(wx, wy, Math.random() < 0.3 ? 1 : 0);
+    }
+  };
+
+  const drawParticles = (h, dt) => {
+    // 排気の泡：朝と夕方に、基地の排気管から
+    const venting = (h >= 17.2 && h < 19.8) || (h >= 7 && h < 8.2);
+    if (!calm && venting) {
+      smokeAcc += dt * (h >= 17 ? 3.2 : 1.4);
+      while (smokeAcc >= 1) {
+        smokeAcc -= 1;
+        addBubble(71 + Math.random() * 3, 26, Math.random() < 0.25 ? 1 : 0);
+      }
+    }
+    if (calm && venting) {
+      for (let i = 0; i < 5; i++) put(72 + (i & 1) * 2, 24 - i * 4, M.BUBBLE);
+    }
+
+    // 潜水士の吐く泡
+    if (!calm && !res.inside) {
+      res.nextPuff -= dt;
+      if (res.nextPuff <= 0) {
+        res.nextPuff = 1.6 + Math.random() * 2.2;
+        const [hx, hy] = helmet();
+        const n = 2 + Math.floor(Math.random() * 2);
+        for (let i = 0; i < n; i++) addBubble(hx + (Math.random() - 0.5) * 2, hy - i * 3, i === 0 ? 1 : 0);
+      }
+    }
+
+    // サンゴからも、ときどき小さな泡
+    if (!calm && Math.random() < dt * 0.35) addBubble(124 + Math.random() * 44, 54 + Math.random() * 14);
+
+    // 熱水の煙：黒く立ちのぼり、流れにほどける
+    if (!calm) {
+      ventAcc += dt * 5;
+      while (ventAcc >= 1) {
+        ventAcc -= 1;
+        const second = Math.random() < 0.35;
+        smoke.push({ x: (second ? 184 : 177) + Math.random() * 2, y: second ? 66 : 58, t: 0, seed: Math.random() * 10 });
+      }
+    } else {
+      for (let i = 0; i < 6; i++) rect(177 + i, 56 - i * 5, 2 + (i >> 1), 3, M.SMOKE);
+    }
+    for (let i = smoke.length - 1; i >= 0; i--) {
+      const s = smoke[i];
+      s.t += dt;
+      s.y -= dt * (11 - s.t * 0.7);
+      s.x += dt * (2.2 + Math.sin(s.t * 1.7 + s.seed) * 2.6);
+      if (s.t > 7 || s.y < -oy - 6) {
+        smoke.splice(i, 1);
+        continue;
+      }
+      const size = Math.min(4, 1 + Math.floor(s.t * 0.55));
+      const thin = s.t * 1.9;
+      for (let dy = 0; dy < size; dy++) {
+        for (let dx = 0; dx < size; dx++) {
+          const sx = Math.round(s.x) + dx;
+          const sy = Math.round(s.y) + dy;
+          if (bayerAt(sx, sy) < 16 - thin * 1.3) put(sx, sy, s.t > 2.6 ? M.SMOKE_DK : M.SMOKE);
+        }
+      }
+    }
+
+    // 眠りの Z
+    if (!calm && (h >= 23.4 || h < 6)) {
+      zeeAcc += dt * 0.62;
+      while (zeeAcc >= 1) {
+        zeeAcc -= 1;
+        zees.push({ x: 60, y: 58, t: 0 });
+      }
+    }
+    for (let i = zees.length - 1; i >= 0; i--) {
+      const z = zees[i];
+      z.t += dt;
+      z.y -= dt * 4;
+      z.x += dt * (1.2 + Math.sin(z.t * 2) * 2);
+      if (z.t > 3 || (h >= 6 && h < 23)) {
+        zees.splice(i, 1);
+        continue;
+      }
+      const zx = Math.round(z.x);
+      const zy = Math.round(z.y);
+      const big = z.t > 1.2;
+      const n = big ? 3 : 2;
+      rect(zx, zy, n, 1, M.ZZZ);
+      put(zx + n - 2, zy + 1, M.ZZZ);
+      if (big) put(zx, zy + 2, M.ZZZ);
+      rect(zx, zy + (big ? 3 : 2), n, 1, M.ZZZ);
+    }
+
+    // 発光プランクトン
+    const night = clamp(smoothstep(19.4, 20.8, h) + (1 - smoothstep(3.6, 5, h)));
+    if (night > 0.3 && !calm) {
+      for (const f of plankton) {
+        const wx = f.x + Math.sin(anim * 0.33 + f.seed) * 14 + Math.sin(anim * 0.9 + f.seed * 2) * 3;
+        const wy = f.y + Math.sin(anim * 0.47 + f.seed * 1.4) * 5;
+        const pulse = Math.sin(anim * 1.4 + f.seed * 3);
+        if (pulse < 0.1) continue;
+        put(Math.round(wx), Math.round(wy), M.PLANKTON);
+        emit(Math.round(wx), Math.round(wy), 170 * pulse);
+      }
+    }
+
+    // 小魚：昼のあいだ、イソギンチャクのまわりを泳ぐ
+    if (!calm && h > 8 && h < 17) {
+      const before = minnow.x;
+      minnow.x = 108 + Math.sin(anim * 0.31) * 15 + Math.sin(anim * 1.1) * 2;
+      minnow.y = 82 + Math.sin(anim * 0.72) * 5;
+      const face = minnow.x >= before ? 1 : -1;
+      const fx = Math.round(minnow.x);
+      const fy = Math.round(minnow.y);
+      put(fx, fy, M.MINNOW);
+      put(fx - face, fy, M.MINNOW);
+      put(fx - face * 2, fy - (Math.floor(anim * 6) % 2), M.MINNOW_DK);
+    }
+
+    // 手前を降るマリンスノー
+    const amount = 0.4 + clamp(smoothstep(18.2, 20.2, h) + (1 - smoothstep(4.6, 6.2, h))) * 0.7;
+    for (const s of snow) {
+      if (!s.fore || s.seed > amount) continue;
+      put(Math.round(s.x + Math.sin(anim * 0.35 + s.seed * 30) * 1.6), Math.floor((s.y + anim * s.v) % bh) - oy, M.SNOW);
+    }
+
+    // 泡：ゆれながら昇る。大きいものは輪に見える
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      const b = bubbles[i];
+      b.t += dt;
+      b.y -= dt * b.rise;
+      b.x += Math.sin(b.t * 4 + b.seed) * dt * 5;
+      if (b.y < -oy - 3 || b.t > 7) {
+        bubbles.splice(i, 1);
+        continue;
+      }
+      const bx = Math.round(b.x);
+      const by = Math.round(b.y);
+      if (b.size > 0) {
+        put(bx - 1, by, M.BUBBLE);
+        put(bx, by - 1, M.BUBBLE);
+        put(bx + 1, by, M.BUBBLE_DK);
+        put(bx, by + 1, M.BUBBLE_DK);
+      } else {
+        put(bx, by, M.BUBBLE);
+      }
+    }
+  };
+
+  const drawLights = (state, h) => {
+    // 灯りの強さ
+    const targetWin = state.lamp ? 1 : state.cook ? 0.46 : 0;
+    const targetLan = h >= 18.4 && h < 22.9 ? 1 : 0;
+    windowL += (targetWin - windowL) * (calm ? 1 : 0.28);
+    lanternL += (targetLan - lanternL) * (calm ? 1 : 0.28);
+
+    // 殻の外灯
+    if (lanternL > 0.02) {
+      const flick = calm ? 1 : 0.94 + 0.06 * Math.sin(anim * 11) * Math.sin(anim * 3.7);
+      rect(64, 64, 3, 1, M.STEEL_DK);
+      rect(64, 65, 3, 3, M.LIT_HI);
+      rect(64, 68, 3, 1, M.STEEL_DK);
+      for (let y = 65; y < 68; y++) for (let lx = 64; lx < 67; lx++) emit(lx, y, 255 * lanternL * flick, 0);
+    } else {
+      rect(64, 64, 3, 1, M.STEEL_DK);
+      rect(64, 65, 3, 3, M.GLASS);
+      rect(64, 68, 3, 1, M.STEEL_DK);
+    }
+
+    // ドームの小窓
+    for (let sx = 41; sx <= 81; sx += 8) {
+      const lit = lanternL > 0.3;
+      put(sx, 47, lit ? M.LIT : M.GLASS);
+      put(sx + 1, 47, lit ? M.LIT_DK : M.GLASS_HI);
+      if (lit) emit(sx, 47, 110 * lanternL, 0);
+    }
+
+    // 点滅する標識灯：アンテナの先、信号灯の箱、遠くの基地
+    const blinker = (bx, by, period, phase, weight) => {
+      const v = calm ? 0.7 : Math.pow(Math.max(0, Math.sin(((anim + phase) / period) * 6.283)), 6);
+      put(bx, by, v > 0.12 ? M.LIT_HI : M.BRASS_DK);
+      if (v > 0.12) emit(bx, by, weight * v);
+    };
+    blinker(50, 17, 2.6, 0, 240);
+    blinker(93, 79, 3.4, 1.1, 180);
+    blinker(farLamp.x, farLamp.y, 4.2, 2.3, 130);
+
+    // 熱水の口：いつも赤く、夜ほど海底を染める
+    const ember = calm ? 1 : 0.8 + 0.2 * Math.sin(anim * 7) * Math.sin(anim * 2.9);
+    rect(177, 60, 3, 1, M.EMBER);
+    rect(184, 68, 3, 1, M.EMBER);
+    for (let i = 0; i < 3; i++) {
+      emit(177 + i, 60, 170 * ember);
+      emit(184 + i, 68, 120 * ember);
+    }
+
+    const pool = (cx, cy, rx, ry, L, kind = 2) => {
+      if (L <= 0.01) return;
+      for (let y = Math.max(cy - ry, -oy); y <= cy + ry; y++) {
+        for (let lx = cx - rx; lx <= cx + rx; lx++) {
+          const px = lx + ox;
+          const py = y + oy;
+          if (px < 0 || py < 0 || px >= bw || py >= bh) continue;
+          const i = py * bw + px;
+          const m = matBuf[i];
+          if (m === 0 || m === M.SIL || m === M.LIT || m === M.LIT_HI || m === M.LIT_DK) continue;
+          const d = Math.hypot((lx - cx) / rx, (y - cy) / ry);
+          const v = (1 - d) * L * 1.5;
+          if (v * 16 > bayerAt(lx, y)) varBuf[i] = kind;
+        }
+      }
+    };
+    // 探照灯が海底に作る、白い光のたまり
+    if (subLamp.on) pool(subLamp.x, 92, 26, 9, subLamp.s * 0.7, 3);
+    // 熱水の口のまわり
+    const dark = clamp(smoothstep(18, 20, h) + (1 - smoothstep(5, 7, h)));
+    pool(178, 89, 15, 6, dark * 0.42);
+    // 窓から地面へ落ちる光と、壁を照らす光
+    pool(53, 92, 26, 12, windowL * 0.95);
+    pool(53, 67, 17, 10, windowL * 0.36);
+    pool(65, 69, 11, 13, lanternL * 0.5);
+    pool(65, 90, 19, 7, lanternL * 0.6);
+  };
+
+  // ---- 世界を1枚描く
+  let keyA = 0;
+  let keyB = 1;
+  let keyP = 0;
+  const pickKeys = (h) => {
+    for (let i = 0; i < KEYS.length - 1; i++) {
+      if (h >= KEYS[i][0] && h < KEYS[i + 1][0]) {
+        keyA = i;
+        keyB = i + 1;
+        keyP = clamp(((h - KEYS[i][0]) / (KEYS[i + 1][0] - KEYS[i][0]) - 0.32) / 0.36);
+        return;
+      }
+    }
+    keyA = 0;
+    keyB = 1;
+    keyP = 0;
+  };
+
+  const renderWorld = (clock, dt, speed) => {
+    const h = hourOf(clock);
+    if (!calm) anim += dt;
+    matBuf.set(baseBuf);
+    varBuf.fill(0);
+    emitList.length = 0;
+    for (const c of sources) {
+      c.w = 0;
+      c.x = 0;
+      c.y = 0;
+    }
+    lampFlick = calm ? 1 : 0.95 + 0.05 * Math.sin(anim * 13) * Math.sin(anim * 5.3);
+
+    if (!calm) {
+      fish.next -= dt;
+      if (fish.t >= 0) {
+        fish.t += dt;
+        if (fish.t > 9) fish.t = -1;
+      } else if (fish.next <= 0) {
+        fish.t = 0;
+        fish.next = 12 + Math.random() * 14;
+        fish.y = 10 + Math.random() * 24;
+        fish.dir = Math.random() < 0.5 ? 1 : -1;
+      }
+      squid.next -= dt;
+      if (squid.t >= 0) {
+        squid.t += dt;
+        if (squid.t > 0.6) squid.t = -1;
+      } else if (squid.next <= 0) {
+        squid.t = 0;
+        squid.next = 9 + Math.random() * 16;
+        squid.x = 10 + Math.random() * 130;
+        squid.y = 2 + Math.random() * 20;
+      }
+    }
+
+    const plan = stepResident(dt, h, speed);
+    drawSky(h);
+    drawShadows(h);
+    const state = drawWindow(h);
+    drawDoor();
+    drawLights(state, h);
+    drawResident(plan);
+    drawCanopy(h);
+    drawKelp();
+    shedBubbles(dt, speed);
+    drawParticles(h, dt);
+
+    // ---- 材質 → パレット。時刻のかなめのあいだは、ディザで置き換える
+    pickKeys(h);
+    const ta = table[keyA];
+    const tb = table[keyB];
+    const sa = skyKeys[keyA];
+    const sb = skyKeys[keyB];
+    const p = keyP * 16;
+    const n = bw * bh;
+    for (let i = 0; i < n; i++) {
+      const m = matBuf[i];
+      const useB = thrA[i] < p;
+      const idx = m === 0 ? (useB ? sb[i] : sa[i]) : (useB ? tb : ta)[varBuf[i] * NM + m];
+      pixels[i] = palette32[idx];
+    }
+  };
+
+  // ---- 光の場：世界の光る画素を格子に集めて、ぼかす
+  const GRID_W = 72;
+  let GRID_H = 44;
+  let glowRaw = new Float32Array(1);
+  let glowNearBuf = new Float32Array(1);
+  let glowFarBuf = new Float32Array(1);
+  let glowTemp = new Float32Array(1);
+
+  const boxBlur = (src, dst, w, h, r) => {
+    const size = r * 2 + 1;
+    for (let y = 0; y < h; y++) {
+      const row = y * w * 4;
+      for (let c = 0; c < 3; c++) {
+        let sum = 0;
+        for (let i = -r; i <= r; i++) sum += src[row + clamp(i, 0, w - 1) * 4 + c];
+        for (let i = 0; i < w; i++) {
+          dst[row + i * 4 + c] = sum / size;
+          sum += src[row + clamp(i + r + 1, 0, w - 1) * 4 + c] - src[row + clamp(i - r, 0, w - 1) * 4 + c];
+        }
+      }
+    }
+    for (let i = 0; i < w; i++) {
+      for (let c = 0; c < 3; c++) {
+        let sum = 0;
+        for (let y = -r; y <= r; y++) sum += dst[clamp(y, 0, h - 1) * w * 4 + i * 4 + c];
+        for (let y = 0; y < h; y++) {
+          src[y * w * 4 + i * 4 + c] = sum / size;
+          sum += dst[clamp(y + r + 1, 0, h - 1) * w * 4 + i * 4 + c] - dst[clamp(y - r, 0, h - 1) * w * 4 + i * 4 + c];
+        }
+      }
+    }
+  };
+
+  // ---- WebGL
+  let gl = null;
+  try {
+    gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false, powerPreference: 'high-performance' });
+  } catch {
+    gl = null;
+  }
+  let program = null;
+  const loc = {};
+  let vao = null;
+  let quad = null;
+  let texWorld = null;
+  let texNear = null;
+
+  const compile = (type, source) => {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, source);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) || 'shader');
+    return s;
+  };
+  const setupGl = () => {
+    if (!gl) return false;
+    try {
+      program = gl.createProgram();
+      const v = compile(gl.VERTEX_SHADER, VERT);
+      const f = compile(gl.FRAGMENT_SHADER, FRAG);
+      gl.attachShader(program, v);
+      gl.attachShader(program, f);
+      gl.bindAttribLocation(program, 0, 'aPos');
+      gl.linkProgram(program);
+      gl.deleteShader(v);
+      gl.deleteShader(f);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) || 'link');
+    } catch (error) {
+      console.warn('toggle-daylight: シェーダーを作れないので、2D で描く', error);
+      return false;
+    }
+    gl.useProgram(program);
+    for (const name of ['uWorld', 'uGlowNear', 'uRes', 'uPill', 'uOrigin', 'uWorldSize', 'uGlowSize', 'uLens', 'uBezel', 'uK', 'uNight', 'uLift', 'uSeam', 'uShellDay', 'uShellNight', 'uInk', 'uLight', 'uHiNight', 'uLoNight', 'uHomeCol', 'uSkyCol', 'uHomePos', 'uSkyPos']) {
+      loc[name] = gl.getUniformLocation(program, name);
+    }
+    vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    quad = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    const makeTex = () => {
+      const t = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      return t;
+    };
+    texWorld = makeTex();
+    texNear = makeTex();
+    gl.uniform1i(loc.uWorld, 0);
+    gl.uniform1i(loc.uGlowNear, 1);
+    gl.disable(gl.BLEND);
+    return true;
+  };
+  let ready = setupGl();
+  let contextLost = false;
+  let ctx2d = null;
+  let lowCanvas = null;
+  if (!ready) {
+    // WebGL を取った canvas からは 2D を取れないので、作り直す
+    if (gl) {
+      const fresh = canvas.cloneNode(false);
+      canvas.replaceWith(fresh);
+      canvas = fresh;
+    }
+    ctx2d = canvas.getContext('2d');
+  }
+
+  // ---- 形と大きさ
+  const shape = { W: 1, H: 1, cssW: 1, cssH: 1, dpr: 1, pillW: 1, pillH: 1, bezel: 1, winW: 1, winH: 1, r0: 1, travel: 1, travelCss: 1, ox: 0, oy: 0 };
+  let renderScale = 1;
+  let thumbSeam = 1;
+
+  const measure = () => {
+    const box = root.getBoundingClientRect();
+    const dpr = Math.min(2, devicePixelRatio || 1) * renderScale;
+    const W = Math.max(2, Math.round(box.width * dpr));
+    const H = Math.max(2, Math.round(box.height * dpr));
+    const changed = W !== shape.W || H !== shape.H;
+    shape.W = W;
+    shape.H = H;
+    shape.cssW = box.width;
+    shape.cssH = box.height;
+    shape.dpr = dpr;
+    // 丸の大きさ：根の中に、1 : 1.85 で置く。舷窓らしく、枠は少し厚い
+    shape.pillH = H / 1.32;
+    shape.pillW = shape.pillH * PILL_RATIO;
+    shape.bezel = shape.pillH * 0.056;
+    shape.winW = shape.pillW - shape.bezel * 2;
+    shape.winH = shape.pillH - shape.bezel * 2;
+    const gap = shape.pillH * 0.032;
+    shape.r0 = shape.winH / 2 - gap;
+    shape.travel = shape.winW - (shape.r0 + gap) * 2;
+    shape.travelCss = shape.travel / dpr;
+
+    // 画素の格子に合わせる（半端な位置だと、全体がにじむ）
+    canvas.style.width = `${W / dpr}px`;
+    canvas.style.height = `${H / dpr}px`;
+    const fx = (box.left * dpr) % 1;
+    const fy = (box.top * dpr) % 1;
+    canvas.style.transform = `translate(${-fx / dpr}px, ${-fy / dpr}px)`;
+
+    if (!changed) return false;
+    canvas.width = W;
+    canvas.height = H;
+
+    // 整数倍を高さで決める。切れるのが 12% までなら大きい方。横は景色が両わきへ広がる
+    const ratio = shape.winH / CORE_H;
+    let kk = Math.max(1, Math.floor(ratio));
+    if (((kk + 1) * CORE_H) / shape.winH <= 1.12) kk += 1;
+    k = kk;
+    const needW = Math.ceil(shape.winW / k) + MARGIN * 2;
+    const needH = Math.ceil(shape.winH / k) + MARGIN * 2;
+    bw = needW + (needW & 1);
+    bh = needH + (needH & 1);
+    ox = (bw - CORE_W) >> 1;
+    oy = (bh - CORE_H) >> 1;
+    matBuf = new Uint8Array(bw * bh);
+    baseBuf = new Uint8Array(bw * bh);
+    varBuf = new Uint8Array(bw * bh);
+    pixels = new Uint32Array(bw * bh);
+    thrA = new Uint8Array(bw * bh);
+    for (let y = 0; y < bh; y++) {
+      for (let i = 0; i < bw; i++) {
+        // 時刻の置き換えは、水の市松と重ならないよう、位置をずらす
+        thrA[y * bw + i] = bayerAt(i + 1, y + 2);
+      }
+    }
+    buildBase();
+
+    // 世界の左上の、画面の画素での位置（必ず整数）
+    shape.ox = Math.floor(W / 2 - (bw * k) / 2);
+    shape.oy = Math.floor(H / 2 + (bh * k) / 2);
+    thumbSeam = Math.max(1, Math.round(k * 0.055));
+
+    GRID_H = Math.max(8, Math.round((GRID_W * H) / W));
+    const size = GRID_W * GRID_H * 4;
+    glowRaw = new Float32Array(size);
+    glowNearBuf = new Float32Array(size);
+    glowFarBuf = new Float32Array(size);
+    glowTemp = new Float32Array(size);
+
+    if (ready) {
+      gl.viewport(0, 0, W, H);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, texWorld);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, bw, bh, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, texNear);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, GRID_W, GRID_H, 0, gl.RGBA, gl.FLOAT, null);
+    } else {
+      lowCanvas = new OffscreenCanvas(bw, bh);
+    }
+    return true;
+  };
+
+  const uploadWorld = () => {
+    // 光の場
+    glowRaw.fill(0);
+    for (let e = 0; e < emitList.length; e += 2) {
+      const i = emitList[e];
+      const w = emitList[e + 1] / 255;
+      const px = i % bw;
+      const py = (i - px) / bw;
+      const fx = ((shape.ox + (px + 0.5) * k) / shape.W) * GRID_W;
+      const fy = ((shape.H - shape.oy + (py + 0.5) * k) / shape.H) * GRID_H;
+      const gx = clamp(Math.floor(fx), 0, GRID_W - 1);
+      const gy = clamp(Math.floor(fy), 0, GRID_H - 1);
+      const c = pixels[i];
+      const at = (gy * GRID_W + gx) * 4;
+      glowRaw[at] += (c & 255) * w * 0.0007;
+      glowRaw[at + 1] += ((c >>> 8) & 255) * w * 0.0007;
+      glowRaw[at + 2] += ((c >>> 16) & 255) * w * 0.0007;
+    }
+    glowNearBuf.set(glowRaw);
+    boxBlur(glowNearBuf, glowTemp, GRID_W, GRID_H, 1);
+    boxBlur(glowNearBuf, glowTemp, GRID_W, GRID_H, 1);
+    // 芯のにじみに、広いにじみを足す
+    glowFarBuf.set(glowRaw);
+    boxBlur(glowFarBuf, glowTemp, GRID_W, GRID_H, 3);
+    boxBlur(glowFarBuf, glowTemp, GRID_W, GRID_H, 3);
+    for (let i = 0; i < glowNearBuf.length; i++) glowNearBuf[i] += glowFarBuf[i] * 0.55;
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, texWorld);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, bw, bh, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(pixels.buffer));
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, texNear);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, GRID_W, GRID_H, gl.RGBA, gl.FLOAT, glowNearBuf);
+  };
+
+  // ---- つまみの状態
+  let x = 0; // 0 = 昼、1 = 夜
+  let velocity = 0;
+  let target = 0;
+  let moving = false;
+  let checked = false;
+  let stretch = 0;
+  let stretchV = 0;
+  let lift = 0;
+  let liftTarget = 0;
+  let hurry = 0;
+
+  // 時間の流れ：右へは昼から夜へ。右端から戻るときは、夜明けを通って次の昼へ
+  let branch = 'pm';
+  let amStart = CLOCK_NIGHT;
+  let nightClock = CLOCK_NIGHT;
+  const clockOf = () => {
+    if (branch === 'am') return mix(36, amStart, x);
+    if (x >= 1) return nightClock;
+    return CLOCK_DAY + (CLOCK_NIGHT - CLOCK_DAY) * x;
+  };
+  const beginTravel = () => {
+    if (x <= 0.0005) branch = 'pm';
+    else if (x >= 0.9995) {
+      branch = 'am';
+      amStart = nightClock;
+    }
+  };
+
+  const setStatus = (text) => {
+    if (statusEl.textContent !== text) statusEl.textContent = text;
+  };
+  const phaseName = (h) => (h < 5 || h >= 20 ? '基地は消灯中' : h < 7 ? '点灯の準備' : h < 10 ? '朝の照明' : h < 16.5 ? '昼の照明' : '夕方の照明');
+
+  const commit = (value) => {
+    const night = value >= 1;
+    x = night ? 1 : 0;
+    velocity = 0;
+    moving = false;
+    if (night) {
+      nightClock = branch === 'am' ? amStart : CLOCK_NIGHT;
+      branch = 'pm';
+    } else {
+      branch = 'pm';
+    }
+    if (checked !== night) {
+      checked = night;
+      button.setAttribute('aria-checked', String(night));
+      root.dispatchEvent(new CustomEvent('daylight:change', { bubbles: true, composed: true, detail: { night } }));
+    }
+    setStatus(night ? '基地は消灯中' : '昼の照明');
+  };
+
+  // ---- 描く
+  const drawGl = (night) => {
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(program);
+    gl.bindVertexArray(vao);
+    gl.uniform2f(loc.uRes, shape.W, shape.H);
+    gl.uniform2f(loc.uPill, shape.pillW / 2, shape.pillH / 2);
+    gl.uniform2f(loc.uOrigin, shape.ox, shape.oy);
+    gl.uniform2f(loc.uWorldSize, bw, bh);
+    gl.uniform2f(loc.uGlowSize, GRID_W, GRID_H);
+    gl.uniform1f(loc.uBezel, shape.bezel);
+    gl.uniform1f(loc.uK, k);
+    gl.uniform1f(loc.uNight, night);
+    gl.uniform1f(loc.uLift, lift);
+    gl.uniform1f(loc.uSeam, thumbSeam);
+
+    // レンズの形：動くと伸び、離すと弾んで戻る
+    const s = clamp(stretch, -0.5, 1.2);
+    const r = shape.r0 * (1 + 0.012 * lift);
+    const halfX = r * (1 + 0.2 * s);
+    const halfY = r * (1 - 0.075 * s);
+    const lim = shape.winW / 2 - (shape.winH / 2 - shape.r0) - halfX;
+    const raw = (x - 0.5) * shape.travel;
+    const cx = clamp(raw, -lim, lim);
+    gl.uniform4f(loc.uLens, cx, 0, halfX, halfY);
+
+    // 枠は真鍮。夜は、同じ色相のまま暗くなる
+    gl.uniform3fv(loc.uShellDay, unit(A1));
+    gl.uniform3fv(loc.uShellNight, unit(A0).map((v) => v * 0.3));
+    gl.uniform3fv(loc.uInk, unit(I0));
+    gl.uniform3fv(loc.uLight, unit(C3));
+    gl.uniform3fv(loc.uHiNight, unit(I3));
+    gl.uniform3fv(loc.uLoNight, unit(I0));
+    // 光る画素の重心と強さ。人影が窓を隠せば弱くなる
+    const homeW = sources[0].w;
+    const home = unit(A2);
+    const homeI = (homeW / 255 / 150) * 1.05;
+    const hx = homeW > 0 ? shape.ox + (sources[0].x / homeW + 0.5) * k - shape.W / 2 : 0;
+    const hy = homeW > 0 ? shape.oy - (sources[0].y / homeW + 0.5) * k - shape.H / 2 : 0;
+    gl.uniform2f(loc.uHomePos, hx, hy);
+    gl.uniform3f(loc.uHomeCol, home[0] * homeI, home[1] * homeI, home[2] * homeI);
+    const skyW = sources[1].w;
+    // 探査艇の灯りは暖かく、クラゲの光は青緑に
+    const warm = unit(A3);
+    const cool = unit(G3);
+    const skyU = warm.map((v, i) => mix(v, cool[i], night));
+    const skyI = (skyW / 255 / 110) * 0.55;
+    const sx = skyW > 0 ? shape.ox + (sources[1].x / skyW + 0.5) * k - shape.W / 2 : 0;
+    const sy = skyW > 0 ? shape.oy - (sources[1].y / skyW + 0.5) * k - shape.H / 2 : 0;
+    gl.uniform2f(loc.uSkyPos, sx, sy);
+    gl.uniform3f(loc.uSkyCol, skyU[0] * skyI, skyU[1] * skyI, skyU[2] * skyI);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  };
+
+  const draw2d = () => {
+    // WebGL が使えないとき：世界だけを整数倍で写し、丸く切って、つまみを置く
+    const g = ctx2d;
+    const low = lowCanvas.getContext('2d');
+    low.putImageData(new ImageData(new Uint8ClampedArray(pixels.buffer), bw, bh), 0, 0);
+    g.clearRect(0, 0, shape.W, shape.H);
+    const px = (shape.W - shape.pillW) / 2;
+    const py = (shape.H - shape.pillH) / 2;
+    g.save();
+    g.beginPath();
+    g.roundRect(px, py, shape.pillW, shape.pillH, shape.pillH / 2);
+    g.clip();
+    g.imageSmoothingEnabled = false;
+    g.drawImage(lowCanvas, shape.ox, shape.H - shape.oy, bw * k, bh * k);
+    g.restore();
+    const cx = shape.W / 2 + (x - 0.5) * shape.travel;
+    const light = unit(C3).map((v) => Math.round(v * 255));
+    g.fillStyle = `rgb(${light[0]} ${light[1]} ${light[2]} / 0.5)`;
+    g.beginPath();
+    g.arc(cx, shape.H / 2, shape.r0, 0, Math.PI * 2);
+    g.fill();
+  };
+
+  // ---- 時間を進める
+  let raf = 0;
+  let last = 0;
+  let visible = true;
+  let worldAcc = 1;
+  let dirty = true;
+  let slow = 0;
+  let good = 0;
+  let frames = 0;
+  let lastWorldClock = -1;
+  let drag = null;
+
+  const nightAmount = (h) => clamp(smoothstep(17.4, 20.2, h) + (1 - smoothstep(4.8, 7.2, h)));
+
+  const adapt = (dt) => {
+    // どうしても遅い機械では、細かさを落とす。ピクセルは整数倍のまま
+    if (++frames < 40) return;
+    if (dt > 0.0225) slow++;
+    else good++;
+    if (slow + good < 50) return;
+    if (slow > 30 && renderScale > 0.5) {
+      renderScale = Math.max(0.5, renderScale - 0.25);
+      measure();
+      dirty = true;
+      lastWorldClock = -1;
+    }
+    slow = 0;
+    good = 0;
+  };
+
+  const tick = (ms) => {
+    raf = 0;
+    const t = ms / 1000;
+    const dt = last ? Math.min(0.05, t - last) : 1 / 60;
+    last = t;
+
+    if (!calm) adapt(dt);
+
+    // ---- つまみ
+    if (drag) {
+      const before = x;
+      x += (clamp(drag.want) - x) * (1 - Math.exp(-dt * 34));
+      velocity = (x - before) / Math.max(dt, 1 / 240);
+      dirty = true;
+    } else if (moving) {
+      // なめらかに減速して吸い付く
+      const omega = calm ? 16 : 9.5;
+      const accel = omega * omega * (target - x) - 2 * omega * velocity;
+      velocity += accel * dt;
+      x += velocity * dt;
+      dirty = true;
+      if (Math.abs(target - x) < 0.0015 && Math.abs(velocity) < 0.03) {
+        x = target;
+        if (x <= 0 || x >= 1) {
+          if (!calm) stretchV -= 3.2;
+          commit(x);
+        } else {
+          velocity = 0;
+          moving = false;
+        }
+      }
+      x = clamp(x);
+    } else {
+      velocity = 0;
+    }
+
+    // ---- レンズの弾み
+    if (!calm) {
+      const goal = clamp(Math.abs(velocity) * 0.42);
+      stretchV += (170 * (goal - stretch) - 11 * stretchV) * dt;
+      stretch += stretchV * dt;
+      lift += (liftTarget - lift) * (1 - Math.exp(-dt * 14));
+      if (Math.abs(stretch) > 0.002 || Math.abs(stretchV) > 0.01 || Math.abs(liftTarget - lift) > 0.002) dirty = true;
+    } else {
+      stretch = 0;
+      stretchV = 0;
+      lift = liftTarget;
+    }
+
+    // ---- 右端では、時間が静かに進み、やがて灯りを消して眠る
+    if (!calm && x >= 1 && !moving && !drag && nightClock < CLOCK_SLEEP) {
+      nightClock = Math.min(CLOCK_SLEEP, nightClock + (dt * (CLOCK_SLEEP - CLOCK_NIGHT)) / NIGHT_CREEP);
+    }
+
+    const clock = clockOf();
+    hurry = Math.max(hurry - dt * 1.4, clamp(Math.abs(velocity) * 0.6));
+
+    // ---- 世界は 30 コマで動く
+    worldAcc += dt;
+    const worldStep = calm ? Math.abs(clock - lastWorldClock) > 1e-4 || dirty : worldAcc >= 1 / WORLD_HZ;
+    if (worldStep) {
+      renderWorld(clock, Math.min(worldAcc, 0.1), hurry);
+      worldAcc = 0;
+      lastWorldClock = clock;
+      if (ready && !contextLost) uploadWorld();
+      dirty = true;
+    }
+
+    if (dirty) {
+      const night = nightAmount(hourOf(clock));
+      // 世界の暗さ（0 = 昼、1 = 夜）。使い手はこの値で、ページの地を合わせられる
+      root.style.setProperty('--night', night.toFixed(3));
+      if (ready && !contextLost) drawGl(night);
+      else if (ctx2d) draw2d();
+      dirty = false;
+    }
+
+    // 動きを減らす設定で止まっているときは、次の操作まで描かない
+    const idleCalm = calm && !moving && !drag;
+    if (visible && !idleCalm) raf = requestAnimationFrame(tick);
+  };
+
+  function wake() {
+    if (!raf && visible) {
+      last = 0;
+      raf = requestAnimationFrame(tick);
+    }
+  }
+
+  // ---- 速く動かすと、潜水士が驚いて頭上を見上げ、泡を吐く
+  let startleCool = 0;
+  const startle = () => {
+    if (calm || performance.now() < startleCool) return;
+    startleCool = performance.now() + 1500;
+    res.startle = 0.9;
+    if (!res.inside) {
+      const [hx, hy] = helmet();
+      for (let i = 0; i < 6; i++) addBubble(hx + (Math.random() - 0.5) * 4, hy - i * 2, i % 2);
+    }
+  };
+
+  // ---- 入力
+  let suppressClick = 0;
+  on(button, 'pointerdown', (event) => {
+    if (event.button !== 0) return;
+    beginTravel();
+    moving = false;
+    drag = { id: event.pointerId, start: event.clientX, from: x, want: x, moved: false, lastX: event.clientX, lastT: performance.now(), speed: 0 };
+    liftTarget = 1;
+    try {
+      button.setPointerCapture(event.pointerId);
+    } catch {
+      /* 取れなくても、動きは受けられる */
+    }
+    wake();
+  });
+  on(button, 'pointermove', (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    const dx = event.clientX - drag.start;
+    if (Math.abs(dx) > 3) drag.moved = true;
+    drag.want = drag.from + dx / Math.max(shape.travelCss, 1);
+    const nowMs = performance.now();
+    const dtMs = Math.max(nowMs - drag.lastT, 4);
+    const speed = (event.clientX - drag.lastX) / Math.max(shape.travelCss, 1) / (dtMs / 1000);
+    drag.speed = drag.speed * 0.6 + speed * 0.4;
+    drag.lastX = event.clientX;
+    drag.lastT = nowMs;
+    if (Math.abs(drag.speed) > 3.4) startle();
+    wake();
+  });
+  const release = (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    const wasMoved = drag.moved;
+    const speed = drag.speed;
+    drag = null;
+    liftTarget = 0;
+    if (wasMoved) {
+      suppressClick = performance.now() + 300;
+      // 近い方の端へ。勢いも少し数える
+      target = x + speed * 0.09 >= 0.5 ? 1 : 0;
+      velocity = clamp(speed, -3, 3);
+      moving = true;
+    }
+    wake();
+  };
+  on(button, 'pointerup', release);
+  on(button, 'pointercancel', release);
+  on(button, 'lostpointercapture', release);
+
+  const toggle = () => {
+    beginTravel();
+    target = (moving ? target >= 0.5 : x >= 0.5) ? 0 : 1;
+    moving = true;
+    wake();
+  };
+  on(button, 'click', () => {
+    if (performance.now() < suppressClick) return;
+    toggle();
+  });
+
+  const STEP = 0.04;
+  on(button, 'keydown', (event) => {
+    let dir = 0;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') dir = 1;
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') dir = -1;
+    if (!dir) return;
+    event.preventDefault();
+    beginTravel();
+    const from = moving ? target : x;
+    target = clamp(from + dir * STEP);
+    moving = true;
+    setStatus(phaseName(hourOf(branch === 'am' ? mix(36, amStart, target) : CLOCK_DAY + (CLOCK_NIGHT - CLOCK_DAY) * target)));
+    wake();
+  });
+
+  // ---- 見えていないときは止める
+  const io = new IntersectionObserver((entries) => {
+    visible = entries.some((e) => e.isIntersecting);
+    if (visible) {
+      dirty = true;
+      wake();
+    } else if (raf) {
+      cancelAnimationFrame(raf);
+      raf = 0;
+    }
+  });
+  io.observe(root);
+
+  const ro = new ResizeObserver(() => {
+    measure();
+    dirty = true;
+    lastWorldClock = -1;
+    wake();
+  });
+  ro.observe(root);
+
+  const applyCalm = () => {
+    calm = motionQuery.matches;
+    dirty = true;
+    lastWorldClock = -1;
+    wake();
+  };
+  on(motionQuery, 'change', applyCalm);
+  on(schemeQuery, 'change', () => {
+    readPalette();
+    dirty = true;
+    lastWorldClock = -1;
+    wake();
+  });
+  // GPU を失っても止まらず、戻ってきたら作り直す
+  on(canvas, 'webglcontextlost', (event) => {
+    event.preventDefault();
+    contextLost = true;
+  });
+  on(canvas, 'webglcontextrestored', () => {
+    contextLost = false;
+    ready = setupGl();
+    shape.W = 0;
+    measure();
+    dirty = true;
+    lastWorldClock = -1;
+    wake();
+  });
+
+  // ---- 組み立て
+  readPalette();
+  measure();
+  res.x = 131;
+  res.inside = false;
+  // 最初の絵を、はじめのフレームまでに用意する
+  renderWorld(clockOf(), 0, 0);
+  if (ready) uploadWorld();
+  wake();
+
+  return () => {
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0;
+    visible = false;
+    io.disconnect();
+    ro.disconnect();
+    for (const off of cleanups) off();
+    if (gl && ready) {
+      gl.deleteProgram(program);
+      gl.deleteBuffer(quad);
+      gl.deleteVertexArray(vao);
+      gl.deleteTexture(texWorld);
+      gl.deleteTexture(texNear);
+      const lose = gl.getExtension('WEBGL_lose_context');
+      if (lose) lose.loseContext();
+    }
+  };
+}

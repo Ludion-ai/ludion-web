@@ -1,0 +1,13 @@
+// www.ludion.ai → https://ludion.ai の転送だけをする Worker（worker.ts の先頭に理由）。
+// 本番へは、apps/web で npm run deploy:www。DNS の行は Cloudflare が作る。
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  "name": "ludion-www-redirect",
+  "main": "./worker.ts",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  // 何も残さない（worker.ts の先頭。docs/tasks/T022.md「3」）
+  "observability": { "enabled": false },
+  "routes": [{ "pattern": "www.ludion.ai", "custom_domain": true }]
+}

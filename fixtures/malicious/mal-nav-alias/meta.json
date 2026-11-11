@@ -1,0 +1,15 @@
+{
+  "id": "mal-nav-alias",
+  "title": "Malicious: Sends Input By Moving Its Frame",
+  "type": "component",
+  "platform": null,
+  "category": "Components",
+  "subtype": "Malicious",
+  "tags": [],
+  "creator": "fixture",
+  "license": "MIT",
+  "made_with": "ai-assisted",
+  "version": "1",
+  "published_at": "2026-11-09",
+  "pin_order": null
+}

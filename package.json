@@ -1,0 +1,23 @@
+{
+  "name": "ludion",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @ludion/web",
+    "build": "npm run build -w @ludion/web",
+    "deploy": "npm run deploy -w @ludion/web",
+    "seed:thumbs": "node seed/make-thumbs.mjs",
+    "seed:dev": "npm run seed:dev -w @ludion/web",
+    "shots": "npm run shots -w @ludion/web",
+    "test": "npm run test --workspaces --if-present && npm run test:skill",
+    "test:skill": "node --test skills/test/ludion.test.mjs",
+    "lcp": "npm run lcp -w @ludion/web"
+  },
+  "devDependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "three": "^0.187.0"
+  }
+}

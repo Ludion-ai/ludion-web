@@ -1,0 +1,16 @@
+次の UI のコードをもとに、新しい UI を作ってください。
+
+変えたいこと：雪の夜の山小屋に
+
+守ること：
+- 1つの HTML ファイルにまとめ、ブラウザで開けばそのまま動くようにする。
+- 元のコードの形を保つ。一番外の要素は1つにし、data-ld-part の属性を残す。その後に <style> を1つ、<script type="module"> を1つ置く。<script> の中では function mount(root) と、最後の mount(...) の呼び出しを残す。
+- CSS のセレクタは、すべて一番外の要素（[data-ld-part="…"]）の下に置く。JS は root の中だけを触る。
+- 1行目のクレジット行（<!-- UI by @Lattice_Node — ludion.ai/p/toggle-daylight (MIT) -->）は消さずに残し、その次の行に「Remixed by （あなたの名前）」を足す。
+- 外へ通信しない（外のファイル、フォント、画像を読まない）。
+- 元の触り心地（押したときの反応、動きのなめらかさ）は保つ。
+
+元のコード：次の URL から取得してください。
+https://ludion.ai/p/toggle-daylight/code
+
+できあがったら、使い手に「この HTML を https://ludion.ai/new?from=toggle-daylight に貼ると、Ludion に載せられます」と1行で伝えてください。

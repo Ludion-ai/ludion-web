@@ -1,0 +1,98 @@
+/* UI by @Lattice_Node — ludion.ai/p/toggle-daylight (MIT) */
+[data-ld-part="toggle-tokyo-alley"] {
+  /* 固定しないトークン。世界の約20色は、この5色を明るさ違いで並べて作る */
+  --_bg: var(--ld-bg, #f1e7d6);      /* 日に焼けたモルタル */
+  --_surface: var(--ld-surface, #5a9a7c); /* 緑青のトタン、鉢植え */
+  --_fg: var(--ld-fg, #191c3a);      /* 夜の藍 */
+  --_muted: var(--ld-muted, #6f9ac4);  /* 空、ブロック塀、アスファルト */
+  --_accent: var(--ld-accent, #e8622c); /* 赤提灯 */
+  --_radius: var(--ld-radius, 9999px);
+  --_font: var(--ld-font, system-ui, sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 8px 24px rgb(25 28 58 / .2));
+  --_motion: var(--ld-motion, 200ms);
+
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  /* どの枠にも収まる。横長の丸（1 : 1.85）のまわりに、影と漏れる光の余白を含めた比率 */
+  width: min(100%, calc((100vh - 64px) * 1.6439));
+  aspect-ratio: 1.6439;
+  font-family: var(--_font);
+  color: var(--_fg);
+}
+
+/* ページの地。世界の暗さ（--night）に合わせて、昼の地から夜の藍へ移る */
+[data-ld-part="toggle-tokyo-alley"]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: color-mix(in oklab, var(--_bg), var(--_fg) calc(var(--night, 0) * 100%));
+}
+
+/* 色を読むための見えない目印 */
+[data-ld-part="toggle-tokyo-alley"] .probe {
+  display: none;
+}
+
+[data-ld-part="toggle-tokyo-alley"] .vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+[data-ld-part="toggle-tokyo-alley"] .scene {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  /* 小数の表示倍率でも、ブラウザに補間させない。ピクセルをにじませないため */
+  image-rendering: pixelated;
+}
+
+/* 本物のスイッチ。絵は canvas が描き、ここは押す場所だけ */
+[data-ld-part="toggle-tokyo-alley"] .hit {
+  position: absolute;
+  top: 12.121%;
+  left: 7.373%;
+  width: 85.253%;
+  height: 75.758%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--_radius);
+  background: transparent;
+  cursor: grab;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+[data-ld-part="toggle-tokyo-alley"] .hit:active {
+  cursor: grabbing;
+}
+
+[data-ld-part="toggle-tokyo-alley"] .hit:focus {
+  outline: none;
+}
+
+[data-ld-part="toggle-tokyo-alley"] .hit:focus-visible {
+  outline: 2px solid var(--_accent);
+  outline-offset: calc(var(--_space) * .5);
+  transition: outline-offset var(--_motion) ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ld-part="toggle-tokyo-alley"] .hit:focus-visible {
+    transition: none;
+  }
+}

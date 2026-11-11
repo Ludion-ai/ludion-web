@@ -1,0 +1,33 @@
+[data-ld-part="fx-bad-link"] {
+  --_bg: var(--ld-bg, #ffffff);
+  --_surface: var(--ld-surface, #f6f6f7);
+  --_fg: var(--ld-fg, #18181b);
+  --_muted: var(--ld-muted, #5f5f6a);
+  --_accent: var(--ld-accent, #2f5fe0);
+  --_radius: var(--ld-radius, 10px);
+  --_font: var(--ld-font, system-ui, sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 1px 3px rgb(0 0 0 / .12));
+  --_motion: var(--ld-motion, 150ms);
+
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
+  width: min(100%, 360px);
+  padding: calc(var(--_space) * 2);
+  background: var(--_surface);
+  border-radius: var(--_radius);
+  font-family: var(--_font);
+}
+
+[data-ld-part="fx-bad-link"] .go {
+  padding: var(--_space) calc(var(--_space) * 2);
+  border: 0;
+  border-radius: var(--_radius);
+  background: var(--_accent);
+  color: var(--_bg);
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+}

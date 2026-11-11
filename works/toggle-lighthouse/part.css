@@ -1,0 +1,95 @@
+/* ページの地。スイッチが書き出す --night（0 = 昼、1 = 夜）に合わせて、浜の朝もやから夜の海の色へ移る */
+
+
+/* UI by @Lattice_Node — ludion.ai/p/toggle-daylight (MIT) */
+/* Remixed by Claude — 海辺の灯台 */
+[data-ld-part="toggle-lighthouse"] {
+  /* 固定しないトークン。世界の約28色は、この7色を明るさ違いで並べて作る */
+  --_bg: var(--ld-bg, #f5ecd9);
+  --_surface: var(--ld-surface, #8fa063);
+  --_fg: var(--ld-fg, #1b2146);
+  --_muted: var(--ld-muted, #7f97b3);
+  --_accent: var(--ld-accent, #efa02c);
+  /* 公式の10色の外。色の字にせず赤・緑・青の数で持つ。描画が rgb() に戻す */
+  --_sea: 46 141 156;
+  --_signal: 207 75 59;
+  --_radius: var(--ld-radius, 9999px);
+  --_font: var(--ld-font, system-ui, sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 8px 24px rgb(27 33 70 / .2));
+  --_motion: var(--ld-motion, 200ms);
+
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  /* どの枠にも収まる。横長の丸（1 : 1.85）のまわりに、影と漏れる光の余白を含めた比率 */
+  width: min(100%, calc((100vh - 128px) * 1.6439));
+  aspect-ratio: 1.6439;
+  font-family: var(--_font);
+  color: var(--_fg);
+}
+
+/* 色を読むための見えない目印 */
+[data-ld-part="toggle-lighthouse"] .probe {
+  display: none;
+}
+
+[data-ld-part="toggle-lighthouse"] .vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+[data-ld-part="toggle-lighthouse"] .scene {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  /* 小数の表示倍率でも、ブラウザに補間させない。ピクセルをにじませないため */
+  image-rendering: pixelated;
+}
+
+/* 本物のスイッチ。絵は canvas が描き、ここは押す場所だけ */
+[data-ld-part="toggle-lighthouse"] .hit {
+  position: absolute;
+  top: 12.121%;
+  left: 7.373%;
+  width: 85.253%;
+  height: 75.758%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--_radius);
+  background: transparent;
+  cursor: grab;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+[data-ld-part="toggle-lighthouse"] .hit:active {
+  cursor: grabbing;
+}
+
+[data-ld-part="toggle-lighthouse"] .hit:focus {
+  outline: none;
+}
+
+[data-ld-part="toggle-lighthouse"] .hit:focus-visible {
+  outline: 2px solid var(--_accent);
+  outline-offset: calc(var(--_space) * .5);
+  transition: outline-offset var(--_motion) ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ld-part="toggle-lighthouse"] .hit:focus-visible {
+    transition: none;
+  }
+}

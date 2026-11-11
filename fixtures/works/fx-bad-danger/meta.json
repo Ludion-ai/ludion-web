@@ -1,0 +1,15 @@
+{
+  "id": "fx-bad-danger",
+  "title": "Broken: Danger Not Declared",
+  "type": "component",
+  "platform": null,
+  "category": "Components",
+  "subtype": "Alert",
+  "tags": [],
+  "creator": "fixture",
+  "license": "MIT",
+  "made_with": "ai-assisted",
+  "version": "1",
+  "published_at": "2026-11-08",
+  "pin_order": null
+}

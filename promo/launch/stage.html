@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Ludion launch stage</title>
+<style>
+@font-face { font-family: 'LDNoto'; src: url('/assets/fonts/NotoSansJP[wght].ttf') format('truetype'); font-weight: 100 900; }
+@font-face { font-family: 'LDMono'; src: url('/assets/fonts/NotoSansMono[wdth,wght].ttf') format('truetype'); font-weight: 100 900; }
+@font-face { font-family: 'LDInter'; src: url('/vendor/inter.woff2') format('woff2'); font-weight: 100 900; }
+html, body { margin: 0; background: #fff; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+<script>
+// 起動の途中で落ちたときも、launch.mjs に知らせる
+const ldReport = (message) => fetch('/log', { method: 'POST', body: String(message) });
+window.addEventListener('error', (e) => ldReport(e.message + ' @' + e.filename + ':' + e.lineno));
+window.addEventListener('unhandledrejection', (e) => ldReport(e.reason && e.reason.stack ? e.reason.stack : e.reason));
+</script>
+<script type="module" src="/stage.js"></script>
+</body>
+</html>

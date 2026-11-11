@@ -1,0 +1,15 @@
+{
+  "id": "button-ticket",
+  "title": "Ticket Keys",
+  "type": "component",
+  "platform": null,
+  "category": "Components",
+  "subtype": "Button",
+  "tags": [],
+  "creator": "Lattice_Node",
+  "license": "MIT",
+  "made_with": "ai-assisted",
+  "version": "3",
+  "published_at": "2026-11-08",
+  "pin_order": null
+}

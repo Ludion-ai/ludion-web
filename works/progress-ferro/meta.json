@@ -1,0 +1,15 @@
+{
+  "id": "progress-ferro",
+  "title": "磁性流体の進み具合",
+  "type": "component",
+  "platform": null,
+  "category": "Components",
+  "subtype": "Progress Bar",
+  "tags": ["experimental", "motion"],
+  "creator": "Lattice_Node",
+  "license": "MIT",
+  "made_with": "ai-assisted",
+  "version": "2",
+  "published_at": "2026-11-08",
+  "pin_order": null
+}

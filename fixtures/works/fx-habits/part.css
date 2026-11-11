@@ -1,0 +1,192 @@
+[data-ld-part="fx-habits"] {
+  --_bg: var(--ld-bg, #101114);
+  --_surface: var(--ld-surface, #1b1d22);
+  --_fg: var(--ld-fg, #f4f4f6);
+  --_muted: var(--ld-muted, #a3a6ae);
+  --_accent: var(--ld-accent, #34d399);
+  --_radius: var(--ld-radius, 20px);
+  --_font: var(--ld-font, system-ui, sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 10px 30px rgb(0 0 0 / .35));
+  --_motion: var(--ld-motion, 200ms);
+
+  display: block;
+  min-height: 100vh;
+  background: var(--_bg);
+  color: var(--_fg);
+  font-family: var(--_font);
+}
+
+[data-ld-part="fx-habits"] .screen {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  max-width: 480px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: calc(var(--_space) * 3) calc(var(--_space) * 2.5) 0;
+}
+
+[data-ld-part="fx-habits"] .top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+[data-ld-part="fx-habits"] .date {
+  margin: 0;
+  font-size: 13px;
+  color: var(--_muted);
+}
+
+[data-ld-part="fx-habits"] h1 {
+  margin: 2px 0 0;
+  font-size: 32px;
+  letter-spacing: -0.03em;
+}
+
+[data-ld-part="fx-habits"] .avatar {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--_surface);
+  font-weight: 700;
+}
+
+[data-ld-part="fx-habits"] .ring-card {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--_space) * 2.5);
+  margin-top: calc(var(--_space) * 3);
+  padding: calc(var(--_space) * 2.5);
+  border-radius: var(--_radius);
+  background: var(--_surface);
+  box-shadow: var(--_shadow);
+}
+
+[data-ld-part="fx-habits"] .ring {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  background: conic-gradient(var(--_accent) 0 67%, color-mix(in oklab, var(--_muted) 22%, transparent) 0);
+}
+
+[data-ld-part="fx-habits"] .ring span {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  box-sizing: border-box;
+  padding-top: 22px;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--_surface);
+  font-size: 15px;
+  color: var(--_muted);
+}
+
+[data-ld-part="fx-habits"] .ring b {
+  font-size: 22px;
+  color: var(--_fg);
+}
+
+[data-ld-part="fx-habits"] .ring-text h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+[data-ld-part="fx-habits"] .ring-text p {
+  margin: calc(var(--_space) * 0.5) 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--_muted);
+}
+
+[data-ld-part="fx-habits"] .section-title {
+  margin: calc(var(--_space) * 3.5) 0 calc(var(--_space) * 1.5);
+  font-size: 15px;
+  color: var(--_muted);
+  font-weight: 600;
+}
+
+[data-ld-part="fx-habits"] .habits {
+  display: grid;
+  gap: var(--_space);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-ld-part="fx-habits"] .habits li {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--_space) * 1.5);
+  padding: calc(var(--_space) * 1.5) calc(var(--_space) * 2);
+  border-radius: calc(var(--_radius) * 0.7);
+  background: var(--_surface);
+}
+
+[data-ld-part="fx-habits"] .dot {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid color-mix(in oklab, var(--_muted) 60%, transparent);
+}
+
+[data-ld-part="fx-habits"] .done .dot {
+  border-color: var(--_accent);
+  background: var(--_accent);
+  box-shadow: inset 0 0 0 4px var(--_surface);
+}
+
+[data-ld-part="fx-habits"] .name {
+  display: grid;
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+[data-ld-part="fx-habits"] .name small {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--_muted);
+}
+
+[data-ld-part="fx-habits"] .state {
+  font-size: 13px;
+  color: var(--_muted);
+}
+
+[data-ld-part="fx-habits"] .done .state {
+  color: var(--_accent);
+}
+
+[data-ld-part="fx-habits"] .tabs {
+  display: flex;
+  justify-content: space-around;
+  margin: auto calc(var(--_space) * -2.5) 0;
+  padding: calc(var(--_space) * 1.5) 0 calc(var(--_space) * 3);
+  border-top: 1px solid color-mix(in oklab, var(--_muted) 18%, transparent);
+  background: var(--_bg);
+}
+
+[data-ld-part="fx-habits"] .tab {
+  padding: var(--_space) calc(var(--_space) * 2);
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--_muted);
+  text-decoration: none;
+}
+
+[data-ld-part="fx-habits"] .tab.active {
+  background: color-mix(in oklab, var(--_accent) 16%, transparent);
+  color: var(--_accent);
+}

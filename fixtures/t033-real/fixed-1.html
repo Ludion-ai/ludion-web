@@ -1,0 +1,170 @@
+<div data-ld-part="my-ui">
+  <div class="stage">
+    <button class="ripple-btn" type="button">押してみて</button>
+    <p class="count" aria-live="polite"></p>
+  </div>
+</div>
+<style>
+[data-ld-part="my-ui"] {
+  --_bg: var(--ld-bg, #f4f1ea);
+  --_fg: var(--ld-fg, #1f2a2e);
+  --_muted: var(--ld-muted, #6b7478);
+  --_accent: var(--ld-accent, #1f5f6b);
+  --_radius: var(--ld-radius, 14px);
+  --_font: var(--ld-font, system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif);
+  --_space: var(--ld-space, 16px);
+  --_shadow: var(--ld-shadow, 0 6px 18px -8px rgba(0, 0, 0, 0.45));
+  --_motion: var(--ld-motion, 200ms);
+
+  --_accent-hover: #194e58;
+  --_accent-fg: #ffffff;
+  --_ripple: rgba(255, 255, 255, 0.45);
+  --_ring: #e0a43a;
+  --_shadow-active: 0 3px 10px -6px rgba(0, 0, 0, 0.5);
+
+  box-sizing: border-box;
+  margin: 0;
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: var(--_space);
+  background: var(--_bg);
+  color: var(--_fg);
+  font-family: var(--_font);
+}
+@media (prefers-color-scheme: dark) {
+  [data-ld-part="my-ui"]:not([data-theme="light"]) {
+    --_bg: var(--ld-bg, #12181b);
+    --_fg: var(--ld-fg, #e6ecee);
+    --_muted: var(--ld-muted, #94a0a5);
+    --_accent: var(--ld-accent, #3fa3b3);
+    --_accent-hover: #4fb5c5;
+    --_accent-fg: #0b1214;
+    --_ripple: rgba(255, 255, 255, 0.5);
+    --_ring: #f0b955;
+  }
+}
+[data-ld-part="my-ui"][data-theme="dark"] {
+  --_bg: var(--ld-bg, #12181b);
+  --_fg: var(--ld-fg, #e6ecee);
+  --_muted: var(--ld-muted, #94a0a5);
+  --_accent: var(--ld-accent, #3fa3b3);
+  --_accent-hover: #4fb5c5;
+  --_accent-fg: #0b1214;
+  --_ripple: rgba(255, 255, 255, 0.5);
+  --_ring: #f0b955;
+}
+
+[data-ld-part="my-ui"] *,
+[data-ld-part="my-ui"] *::before,
+[data-ld-part="my-ui"] *::after { box-sizing: border-box; }
+
+[data-ld-part="my-ui"] .stage {
+  display: grid;
+  gap: calc(var(--_space) * 1.25);
+  justify-items: center;
+  text-align: center;
+}
+
+[data-ld-part="my-ui"] .ripple-btn {
+  position: relative;
+  overflow: hidden;          /* 波紋をボタンの形で切り抜く */
+  isolation: isolate;
+  border: 0;
+  border-radius: var(--_radius);
+  padding: calc(var(--_space) * 1.125) calc(var(--_space) * 2.75);
+  margin: 0;
+  font: inherit;
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--_accent-fg);
+  background: var(--_accent);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  box-shadow: var(--_shadow);
+  transition:
+    background-color var(--_motion),
+    transform calc(var(--_motion) * 0.6),
+    box-shadow var(--_motion);
+}
+[data-ld-part="my-ui"] .ripple-btn:hover { background: var(--_accent-hover); }
+[data-ld-part="my-ui"] .ripple-btn:active { transform: scale(0.97); box-shadow: var(--_shadow-active); }
+[data-ld-part="my-ui"] .ripple-btn:focus-visible { outline: 3px solid var(--_ring); outline-offset: 3px; }
+
+[data-ld-part="my-ui"] .ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--_ripple);
+  pointer-events: none;
+  transform: scale(0);
+  animation: ld-my-ui-ripple calc(var(--_motion) * 3.25) cubic-bezier(0.2, 0.6, 0.3, 1) forwards;
+  z-index: -1;
+}
+@keyframes ld-my-ui-ripple {
+  to { transform: scale(1); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-ld-part="my-ui"] .ripple { animation-duration: 1ms; }
+  [data-ld-part="my-ui"] .ripple-btn { transition-duration: 1ms; }
+}
+
+[data-ld-part="my-ui"] .count {
+  margin: 0;
+  color: var(--_muted);
+  font-size: 0.9rem;
+  min-height: 1.4em;
+}
+</style>
+<script type="module">
+function mount(root) {
+  const btn = root.querySelector('.ripple-btn');
+  const countEl = root.querySelector('.count');
+  const ac = new AbortController();
+  const { signal } = ac;
+  let count = 0;
+  let pointerTriggered = false;
+
+  // (x, y) はボタン内の座標。そこから一番遠い角まで届く円を作る
+  function spawnRipple(x, y) {
+    const rect = btn.getBoundingClientRect();
+    const radius = Math.hypot(
+      Math.max(x, rect.width - x),
+      Math.max(y, rect.height - y)
+    );
+    btn.insertAdjacentHTML('beforeend', '<span class="ripple"></span>');
+    const ripple = btn.lastElementChild;
+    ripple.style.width = ripple.style.height = radius * 2 + 'px';
+    ripple.style.left = x - radius + 'px';
+    ripple.style.top = y - radius + 'px';
+    ripple.addEventListener('animationend', () => ripple.remove(), { once: true, signal });
+  }
+
+  // マウス・タッチ：押した位置から広がる
+  btn.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    const rect = btn.getBoundingClientRect();
+    spawnRipple(e.clientX - rect.left, e.clientY - rect.top);
+    pointerTriggered = true;
+  }, { signal });
+
+  // キーボード（Enter / Space）：中央から広がる
+  btn.addEventListener('click', () => {
+    if (!pointerTriggered) {
+      const rect = btn.getBoundingClientRect();
+      spawnRipple(rect.width / 2, rect.height / 2);
+    }
+    pointerTriggered = false;
+    count++;
+    countEl.textContent = count + ' 回押しました';
+  }, { signal });
+
+  return () => {
+    ac.abort();
+    btn.querySelectorAll('.ripple').forEach((el) => el.remove());
+  };
+}
+mount(document.querySelector('[data-ld-part="my-ui"]'));
+</script>

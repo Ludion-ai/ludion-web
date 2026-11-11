@@ -1,0 +1,44 @@
+[data-ld-part="fx-bad-motion"] {
+  --_bg: var(--ld-bg, #ffffff);
+  --_surface: var(--ld-surface, #f6f6f7);
+  --_fg: var(--ld-fg, #18181b);
+  --_muted: var(--ld-muted, #5f5f6a);
+  --_accent: var(--ld-accent, #2f5fe0);
+  --_radius: var(--ld-radius, 10px);
+  --_font: var(--ld-font, system-ui, sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 1px 3px rgb(0 0 0 / .12));
+  --_motion: var(--ld-motion, 150ms);
+
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--_space) * 1.5);
+  width: min(100%, 360px);
+  padding: calc(var(--_space) * 2);
+  background: var(--_surface);
+  border-radius: var(--_radius);
+  font-family: var(--_font);
+  color: var(--_fg);
+}
+
+/* わざと壊した：tags に motion があるのに、prefers-reduced-motion: reduce に対応していない */
+[data-ld-part="fx-bad-motion"] .dot {
+  width: calc(var(--_space) * 2);
+  height: calc(var(--_space) * 2);
+  border-radius: 50%;
+  background: var(--_accent);
+  animation: fx-bad-motion-pulse calc(var(--_motion) * 6) ease-in-out infinite;
+}
+
+[data-ld-part="fx-bad-motion"] .caption {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+@keyframes fx-bad-motion-pulse {
+  from { transform: translateY(0); }
+  50% { transform: translateY(calc(var(--_space) * -1)); }
+  to { transform: translateY(0); }
+}

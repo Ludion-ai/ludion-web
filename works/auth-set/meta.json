@@ -1,0 +1,15 @@
+{
+  "id": "auth-set",
+  "title": "Sign-in Set",
+  "type": "component",
+  "platform": null,
+  "category": "Components",
+  "subtype": "Form",
+  "tags": [],
+  "creator": "Lattice_Node",
+  "license": "MIT",
+  "made_with": "ai-assisted",
+  "version": "2",
+  "published_at": "2026-11-08",
+  "pin_order": null
+}

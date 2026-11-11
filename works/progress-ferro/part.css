@@ -1,0 +1,167 @@
+[data-ld-part="progress-ferro"] {
+  /* 固定しないトークン。流体の黒は --_fg の色相、光は --_bg の色相、薄い膜の色は --_accent から作る */
+  --_bg: var(--ld-bg, #efede8);
+  --_surface: var(--ld-surface, #d5dbd8);
+  --_fg: var(--ld-fg, #0d0d10);
+  --_muted: var(--ld-muted, #5c5a55);
+  --_accent: var(--ld-accent, #9c4a16);
+  --_radius: var(--ld-radius, 9999px);
+  --_font: var(--ld-font, "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", system-ui, sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 12px 32px rgb(13 13 16 / .18));
+  --_motion: var(--ld-motion, 200ms);
+
+  /* どの枠にも収まる。管、床の映り込み、文字の段を含めた比率 */
+  --ratio: 2.9;
+
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  container-type: inline-size;
+  width: min(100%, calc((100vh - 64px) * var(--ratio)));
+  aspect-ratio: var(--ratio);
+  font-family: var(--_font);
+  color: var(--_fg);
+}
+
+/* 中くらいの枠では、左右に少し余白を残す。サムネイルと OG で、管の全体が中央に収まるように */
+@media (max-width: 900px) {
+  [data-ld-part="progress-ferro"] {
+    --ratio: 2.4;
+    width: min(94%, calc((100vh - 64px) * var(--ratio)));
+  }
+}
+
+@media (max-width: 560px) {
+  [data-ld-part="progress-ferro"] {
+    --ratio: 1.7;
+    width: min(100%, calc((100vh - 64px) * var(--ratio)));
+  }
+}
+
+/* 色を読むための見えない目印 */
+[data-ld-part="progress-ferro"] .probe {
+  display: none;
+}
+
+[data-ld-part="progress-ferro"] .scene {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* 本物の進み具合。絵は canvas が描き、ここは管の場所だけを持つ */
+[data-ld-part="progress-ferro"] .bar {
+  position: absolute;
+  border-radius: var(--_radius);
+}
+
+[data-ld-part="progress-ferro"] .bar:focus {
+  outline: none;
+}
+
+[data-ld-part="progress-ferro"][data-done] .bar {
+  cursor: pointer;
+}
+
+[data-ld-part="progress-ferro"] .readout {
+  position: absolute;
+  right: 2.4cqw;
+  bottom: 0;
+  left: 2.4cqw;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+[data-ld-part="progress-ferro"] .state {
+  grid-area: 1 / 1;
+  margin: 0;
+  font-size: max(14px, 1.62cqw);
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: .06em;
+}
+
+[data-ld-part="progress-ferro"] .value {
+  grid-area: 1 / 2;
+  justify-self: end;
+  margin: 0;
+  font-size: max(30px, 5.4cqw);
+  font-weight: 200;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: -.02em;
+  transition: opacity var(--_motion) ease;
+}
+
+[data-ld-part="progress-ferro"] .unit {
+  margin-left: calc(var(--_space) * .5);
+  color: var(--_muted);
+  font-size: .46em;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+[data-ld-part="progress-ferro"] .again {
+  grid-area: 1 / 2;
+  justify-self: end;
+  display: inline-grid;
+  place-items: center;
+  min-width: 7.4em;
+  min-height: max(44px, 3.2em);
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--_fg);
+  border-radius: var(--_radius);
+  background: transparent;
+  color: var(--_fg);
+  font: inherit;
+  font-size: max(14px, 1.46cqw);
+  font-weight: 500;
+  letter-spacing: .08em;
+  cursor: pointer;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity var(--_motion) ease, background-color var(--_motion) ease, color var(--_motion) ease;
+}
+
+[data-ld-part="progress-ferro"] .again:hover {
+  background: var(--_fg);
+  color: var(--_bg);
+}
+
+[data-ld-part="progress-ferro"] .again:focus {
+  outline: none;
+}
+
+[data-ld-part="progress-ferro"] .again:focus-visible {
+  outline: 2px solid var(--_accent);
+  outline-offset: calc(var(--_space) * .375);
+}
+
+[data-ld-part="progress-ferro"][data-done] .value {
+  visibility: hidden;
+  opacity: 0;
+}
+
+[data-ld-part="progress-ferro"][data-done] .again {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* WebGL が使えないとき：ふつうの棒で同じことを伝える */
+[data-ld-part="progress-ferro"][data-flat] .bar {
+  border: 1px solid var(--_muted);
+  background: linear-gradient(to right, var(--_fg) calc(var(--p, 0) * 100%), transparent 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ld-part="progress-ferro"] .value,
+  [data-ld-part="progress-ferro"] .again {
+    transition: none;
+  }
+}

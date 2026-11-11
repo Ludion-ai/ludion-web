@@ -1,0 +1,21 @@
+{
+  "name": "@ludion/rules",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "描画しなくても確かめられる検査の規則（形とトークンの純度）。ld と Worker の両方が使う。Node の API を使わない。",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "tsc -p . && playwright test"
+  },
+  "dependencies": {
+    "@ludion/render": "*",
+    "parse5": "^8.1.1",
+    "postcss": "^8.5.32"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1"
+  }
+}

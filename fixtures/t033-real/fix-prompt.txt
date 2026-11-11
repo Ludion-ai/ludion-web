@@ -1,0 +1,28 @@
+次の UI のコードを、Ludion（UI の作品を集めたサイト）に置ける形に直してください。見た目と動きは変えないでください。
+出力は、次の形の1つの HTML にしてください（コードブロック1つ）。<!doctype>、<html>、<head>、<body> では包みません。
+
+<div data-ld-part="my-ui">
+  …中身…
+</div>
+<style>
+[data-ld-part="my-ui"] { … }
+</style>
+<script type="module">
+function mount(root) {
+  …
+  return () => { /* 片付け */ };
+}
+mount(document.querySelector('[data-ld-part="my-ui"]'));
+</script>
+
+決まり：
+1. 一番外の要素を1つだけにし、data-ld-part="my-ui" を付ける。すべての中身をその中に入れる。その中では <script>、<style>、<iframe>、<template>、<link>、<meta> とイベント属性（onclick など）を使わない。
+2. <style> は1つ。すべてのセレクタを [data-ld-part="my-ui"] の下に置く。body や html や :root を直に指さない。根の変数は [data-ld-part="my-ui"] に書く。
+3. <script type="module"> は1つで、動きがあるときだけ。function mount(root) { …; return () => { /* 片付け */ }; } の形にし、最後の行で mount(document.querySelector('[data-ld-part="my-ui"]')); と呼ぶ。document を使うのは、この最後の行だけ。ほかは root の中だけを触る。グローバル変数を作らない。片付けの関数で requestAnimationFrame と listener を止める。
+4. 外へ通信しない：fetch、XMLHttpRequest、WebSocket、eval、外の画像、外の CSS を使わない。画像は data: で入れるか、CSS か SVG で描く。書体は Google Fonts だけ読み込める。
+5. ページを移らない：location への代入、window.open、top、parent を使わない。リンクは href="#" にする。
+6. 実在の会社のロゴ、商標、製品名を入れない。ロゴの場所は空の枠か架空の名前にする。外部ログインのボタンは文字だけにする。
+7. 動きがあるなら prefers-reduced-motion: reduce で止めるか最小限にする。見えていないときは描画を止める。
+8. できれば、色、角丸、書体、余白、影、動きの速さを、根で --_bg: var(--ld-bg, 値); の形の変数にして使う。名前は bg、surface、fg、muted、accent、radius、font、space、shadow、motion の10個。本体では var(--_accent) のように内部の変数だけを使う。
+
+直すコード：

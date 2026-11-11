@@ -1,0 +1,165 @@
+[data-ld-part="check-origami"] {
+  /* 固定しないトークン。机は --_bg、紙の表は --_surface、紙の裏は --_accent */
+  --_bg: var(--ld-bg, #2a3550);
+  --_surface: var(--ld-surface, #f3ecdd);
+  --_fg: var(--ld-fg, #f6f0e4);
+  --_muted: var(--ld-muted, #a3abbd);
+  --_accent: var(--ld-accent, #d8432c);
+  --_radius: var(--ld-radius, 6px);
+  --_font: var(--ld-font, "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", system-ui, sans-serif);
+  --_space: var(--ld-space, 8px);
+  --_shadow: var(--ld-shadow, 0 8px 24px rgb(12 16 28 / .3));
+  --_motion: var(--ld-motion, 200ms);
+
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  container-type: inline-size;
+  /* どの枠にも収まる */
+  width: min(100%, calc((100vh - 64px) * 1.6));
+  aspect-ratio: 1.6;
+  overflow: hidden;
+  border-radius: var(--_radius);
+  background: var(--_bg);
+  font-family: var(--_font);
+  color: var(--_fg);
+}
+
+[data-ld-part="check-origami"] .scene {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* 色を読むための見えない目印 */
+[data-ld-part="check-origami"] .probe {
+  display: none;
+}
+
+[data-ld-part="check-origami"] .vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+[data-ld-part="check-origami"] .list {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+[data-ld-part="check-origami"] .row {
+  position: relative;
+  display: grid;
+  /* 左の余白、紙、間、文字 */
+  grid-template-columns: 20% 20% 3% minmax(0, 1fr);
+  align-items: center;
+  min-height: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 本物のチェックボックス。絵は canvas が描き、ここは押す場所だけ */
+[data-ld-part="check-origami"] .box {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* 紙を置く場所の印。JS が中心を読む */
+[data-ld-part="check-origami"] .spot {
+  grid-column: 2;
+  display: block;
+  height: 100%;
+  pointer-events: none;
+}
+
+[data-ld-part="check-origami"] .text {
+  grid-column: 4;
+  position: relative;
+  justify-self: start;
+  max-width: 100%;
+  font-size: 3.5cqw;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: .08em;
+  pointer-events: none;
+  transition: color calc(var(--_motion) * 2) ease;
+}
+
+/* 文字に引く細い線 */
+[data-ld-part="check-origami"] .strike {
+  position: absolute;
+  top: 54%;
+  right: -.18em;
+  left: -.18em;
+  height: max(1px, .045em);
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  transition: transform calc(var(--_motion) * 1.5) cubic-bezier(.3, 0, .2, 1);
+}
+
+[data-ld-part="check-origami"] .box:checked ~ .text {
+  color: color-mix(in oklab, var(--_fg) 72%, var(--_bg));
+  transition-delay: calc(var(--_motion) * 4);
+}
+
+/* 線は、鶴ができあがるころに引き終わる */
+[data-ld-part="check-origami"] .box:checked ~ .text .strike {
+  transform: scaleX(1);
+  transition-delay: calc(var(--_motion) * 3.6);
+}
+
+[data-ld-part="check-origami"] .box:focus-visible ~ .text {
+  border-radius: var(--_radius);
+  outline: 2px solid var(--_fg);
+  outline-offset: calc(var(--_space) * .75);
+}
+
+@media (max-width: 640px) {
+  [data-ld-part="check-origami"] {
+    width: 100%;
+    aspect-ratio: .9;
+  }
+  [data-ld-part="check-origami"] .row {
+    grid-template-columns: 0 44% 0 minmax(0, 1fr);
+  }
+  [data-ld-part="check-origami"] .text {
+    font-size: 5.4cqw;
+    letter-spacing: .04em;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ld-part="check-origami"] .text,
+  [data-ld-part="check-origami"] .strike {
+    transition: none;
+  }
+  [data-ld-part="check-origami"] .box:checked ~ .text,
+  [data-ld-part="check-origami"] .box:checked ~ .text .strike {
+    transition: none;
+    transition-delay: 0s;
+  }
+}

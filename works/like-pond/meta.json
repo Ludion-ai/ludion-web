@@ -1,0 +1,15 @@
+{
+  "id": "like-pond",
+  "title": "水面のいいね",
+  "type": "component",
+  "platform": null,
+  "category": "Components",
+  "subtype": "Like Button",
+  "tags": ["experimental", "motion"],
+  "creator": "Lattice_Node",
+  "license": "MIT",
+  "made_with": "ai-assisted",
+  "version": "2",
+  "published_at": "2026-11-08",
+  "pin_order": null
+}

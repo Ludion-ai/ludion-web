@@ -1,0 +1,149 @@
+<div data-ld-part="auth-set">
+  <!-- Sign in -->
+  <section class="screen" data-screen="sign-in" aria-labelledby="as-signin-title">
+    <div class="pad">
+      <header class="head">
+        <h2 class="title" id="as-signin-title" tabindex="-1">Sign in</h2>
+        <p class="lead">Welcome back. Enter your details to continue.</p>
+      </header>
+      <div class="providers">
+        <p class="caption">Continue with</p>
+        <div class="provider-row">
+          <button class="provider" type="button"><span class="icon-slot" aria-hidden="true"></span><span class="vh">Continue with </span>GitHub</button>
+          <button class="provider" type="button"><span class="icon-slot" aria-hidden="true"></span><span class="vh">Continue with </span>Google</button>
+          <button class="provider" type="button"><span class="icon-slot" aria-hidden="true"></span><span class="vh">Sign in with a </span>Passkey</button>
+        </div>
+      </div>
+    </div>
+
+    <form class="form" data-form="sign-in" novalidate>
+      <div class="pad fields">
+        <div class="field">
+          <label class="label" for="as-signin-email"><span class="num" aria-hidden="true">01</span>Email</label>
+          <input class="input" id="as-signin-email" name="email" type="email" autocomplete="email" inputmode="email" spellcheck="false" required data-validate="email" aria-describedby="as-signin-email-error">
+          <p class="error" id="as-signin-email-error" hidden></p>
+        </div>
+        <div class="field">
+          <div class="label-row">
+            <label class="label" for="as-signin-password"><span class="num" aria-hidden="true">02</span>Password</label>
+            <button class="link small" type="button" data-go="reset">Forgot password?</button>
+          </div>
+          <div class="control">
+            <input class="input has-reveal" id="as-signin-password" name="password" type="password" autocomplete="current-password" required data-validate="password" aria-describedby="as-signin-password-error as-signin-password-caps">
+            <button class="reveal" type="button" aria-controls="as-signin-password"><span class="reveal-text">Show</span><span class="vh"> password</span></button>
+          </div>
+          <p class="caps" id="as-signin-password-caps" hidden>Caps Lock is on</p>
+          <p class="error" id="as-signin-password-error" hidden></p>
+        </div>
+        <p class="aside">New here? <button class="link" type="button" data-go="sign-up">Create account</button></p>
+      </div>
+      <button class="submit" type="submit" data-busy="Signing in…"><span class="submit-text">Sign in</span><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h17M14 6l6 6-6 6"/></svg></button>
+    </form>
+  </section>
+
+  <!-- Create account -->
+  <section class="screen" data-screen="sign-up" aria-labelledby="as-signup-title" hidden>
+    <div class="pad">
+      <header class="head">
+        <h2 class="title" id="as-signup-title" tabindex="-1">Create account</h2>
+        <p class="lead">It takes less than a minute.</p>
+      </header>
+      <div class="providers">
+        <p class="caption">Continue with</p>
+        <div class="provider-row">
+          <button class="provider" type="button"><span class="icon-slot" aria-hidden="true"></span><span class="vh">Continue with </span>GitHub</button>
+          <button class="provider" type="button"><span class="icon-slot" aria-hidden="true"></span><span class="vh">Continue with </span>Google</button>
+        </div>
+      </div>
+    </div>
+
+    <form class="form" data-form="sign-up" novalidate>
+      <div class="pad fields">
+        <div class="field">
+          <label class="label" for="as-signup-email"><span class="num" aria-hidden="true">01</span>Email</label>
+          <input class="input" id="as-signup-email" name="email" type="email" autocomplete="email" inputmode="email" spellcheck="false" required data-validate="email" aria-describedby="as-signup-email-error">
+          <p class="error" id="as-signup-email-error" hidden></p>
+        </div>
+        <div class="field">
+          <label class="label" for="as-signup-password"><span class="num" aria-hidden="true">02</span>Password</label>
+          <div class="control">
+            <input class="input has-reveal" id="as-signup-password" name="password" type="password" autocomplete="new-password" required data-validate="new-password" aria-describedby="as-signup-password-error as-signup-password-caps as-signup-rules">
+            <button class="reveal" type="button" aria-controls="as-signup-password"><span class="reveal-text">Show</span><span class="vh"> password</span></button>
+          </div>
+          <p class="caps" id="as-signup-password-caps" hidden>Caps Lock is on</p>
+          <p class="error" id="as-signup-password-error" hidden></p>
+          <ul class="rules" id="as-signup-rules" aria-label="Password requirements">
+            <li class="rule" data-rule="length"><span class="vh" data-rule-state>Not yet: </span>8+ characters</li>
+            <li class="rule" data-rule="case"><span class="vh" data-rule-state>Not yet: </span>Upper &amp; lower case</li>
+            <li class="rule" data-rule="number"><span class="vh" data-rule-state>Not yet: </span>One number</li>
+          </ul>
+        </div>
+        <p class="aside">Already have an account? <button class="link" type="button" data-go="sign-in">Sign in</button></p>
+      </div>
+      <button class="submit" type="submit" data-busy="Creating account…"><span class="submit-text">Create account</span><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h17M14 6l6 6-6 6"/></svg></button>
+    </form>
+  </section>
+
+  <!-- Reset password -->
+  <section class="screen" data-screen="reset" aria-labelledby="as-reset-title" hidden>
+    <div class="pad">
+      <header class="head">
+        <h2 class="title" id="as-reset-title" tabindex="-1">Reset password</h2>
+        <p class="lead">Enter the email you signed up with. We’ll send you a link to choose a new password.</p>
+      </header>
+    </div>
+
+    <form class="form" data-form="reset" novalidate>
+      <div class="pad fields">
+        <div class="field">
+          <label class="label" for="as-reset-email"><span class="num" aria-hidden="true">01</span>Email</label>
+          <input class="input" id="as-reset-email" name="email" type="email" autocomplete="email" inputmode="email" spellcheck="false" required data-validate="email" aria-describedby="as-reset-email-error">
+          <p class="error" id="as-reset-email-error" hidden></p>
+        </div>
+        <p class="aside"><button class="link" type="button" data-go="sign-in">Back to sign in</button></p>
+      </div>
+      <button class="submit" type="submit" data-busy="Sending link…"><span class="submit-text">Send reset link</span><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h17M14 6l6 6-6 6"/></svg></button>
+    </form>
+
+    <div class="pad done" data-done tabindex="-1" hidden>
+      <p class="done-text"><span class="done-mark" aria-hidden="true"></span>If an account exists for <strong data-email>your email</strong>, a reset link is on its way. It expires in 30 minutes.</p>
+      <p class="aside"><button class="link" type="button" data-go="sign-in">Back to sign in</button></p>
+    </div>
+  </section>
+
+  <!-- Verify code -->
+  <section class="screen" data-screen="verify" aria-labelledby="as-verify-title" hidden>
+    <div class="pad">
+      <header class="head">
+        <h2 class="title" id="as-verify-title" tabindex="-1">Check your email</h2>
+        <p class="lead">We sent a 6-digit code to <strong data-email>your email</strong>.</p>
+      </header>
+    </div>
+
+    <form class="form" data-form="verify" novalidate>
+      <div class="pad fields">
+        <fieldset class="code-field">
+          <legend class="label"><span class="num" aria-hidden="true">01</span>Verification code</legend>
+          <div class="code" data-code>
+            <input class="digit" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" aria-label="Digit 1 of 6" aria-describedby="as-verify-error">
+            <input class="digit" type="text" inputmode="numeric" autocomplete="off" pattern="[0-9]*" aria-label="Digit 2 of 6" aria-describedby="as-verify-error">
+            <input class="digit" type="text" inputmode="numeric" autocomplete="off" pattern="[0-9]*" aria-label="Digit 3 of 6" aria-describedby="as-verify-error">
+            <input class="digit" type="text" inputmode="numeric" autocomplete="off" pattern="[0-9]*" aria-label="Digit 4 of 6" aria-describedby="as-verify-error">
+            <input class="digit" type="text" inputmode="numeric" autocomplete="off" pattern="[0-9]*" aria-label="Digit 5 of 6" aria-describedby="as-verify-error">
+            <input class="digit" type="text" inputmode="numeric" autocomplete="off" pattern="[0-9]*" aria-label="Digit 6 of 6" aria-describedby="as-verify-error">
+          </div>
+          <p class="error" id="as-verify-error" hidden></p>
+        </fieldset>
+        <p class="aside">Didn’t get it? <button class="link" type="button" data-resend>Resend code</button></p>
+        <p class="status" role="status" data-status></p>
+        <p class="aside"><button class="link" type="button" data-go="sign-in">Back to sign in</button></p>
+      </div>
+      <button class="submit" type="submit" data-busy="Verifying…"><span class="submit-text">Verify</span><svg class="arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h17M14 6l6 6-6 6"/></svg></button>
+    </form>
+
+    <div class="pad done" data-done tabindex="-1" hidden>
+      <p class="done-text"><span class="done-mark" aria-hidden="true"></span>You’re verified and signed in.</p>
+      <p class="aside"><button class="link" type="button" data-go="sign-in">Back to sign in</button></p>
+    </div>
+  </section>
+</div>

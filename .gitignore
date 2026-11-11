@@ -1,0 +1,21 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+captures/
+test-results/
+playwright-report/
+*.log
+# 作者のアバターの元の画像（ld creator add が creators/<handle>/avatar.webp を作る。元はコミットしない）
+/avatar.png
+/avatar.jpg
+/avatar.webp
+promo/out/
+# 本番の管理トークン（docs/tasks/T010.md「2」）。コミットしない
+.prod.vars
+# 秘密の値の置き場になりうる名前（PUB001。wrangler は .dev.vars.<env> と .env も読む）
+.dev.vars.*
+.prod.vars.*
+*.vars.json
+.env
+.env.*

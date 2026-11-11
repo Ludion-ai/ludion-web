@@ -1,0 +1,16 @@
+{
+  "name": "@ludion/render",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "作品を描画する共通部品。ld とサイトの両方が使う。Node の API を使わない（Worker でも動く）。",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "tsc -p . && playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1"
+  }
+}

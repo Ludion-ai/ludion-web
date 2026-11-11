@@ -1,0 +1,216 @@
+@import '@fontsource-variable/inter/wght.css';
+@import 'tailwindcss';
+
+/*
+ * 値の正本は SPEC.md の 2。ここはその写しで、コンポーネントには直接書かない。
+ * e2e/spec-sync.spec.ts が、SPEC.md と一致していることを確かめる。
+ * Tailwind の既定の色・角丸・影・文字の大きさは消して、ここにないものを使えないようにする。
+ */
+@theme {
+  --color-*: initial;
+  --color-site-bg: #ffffff;
+  --color-site-fg: #111114;
+  --color-site-fg-2: #6b6b76;
+  --color-site-fg-3: #4a4a55;
+  --color-site-line: #ececf0;
+  --color-site-line-2: #e4e4ea;
+  --color-site-field: #f4f4f6;
+  --color-site-key: #e9e9ee;
+  --color-site-hover: #f1f1f4;
+  --color-site-primary: #16161d;
+  --color-site-logo: #e5412a;
+  --color-site-tab: rgb(38 38 44 / .78);
+  --color-site-scrim: rgb(0 0 0 / .64);
+  --color-site-remix: #1d4ed8;
+
+  --radius-*: initial;
+  --radius-control: 12px;
+  --radius-card: 16px;
+  --radius-tab: 14px;
+  --radius-chip: 999px;
+  --radius-key: 6px;
+
+  --shadow-*: initial;
+  --shadow-card: 0 1px 2px rgb(16 16 24 / .04);
+  --shadow-menu: 0 8px 24px rgb(16 16 24 / .08);
+
+  --font-sans: 'Inter Variable', 'Hiragino Sans', 'Noto Sans JP', 'BIZ UDPGothic', 'Yu Gothic UI', system-ui, sans-serif;
+
+  --text-*: initial;
+  --text-logo: 20px;
+  --text-logo--line-height: 24px;
+  --text-title: 24px;
+  --text-title--line-height: 34px;
+  --text-subhead: 18px;
+  --text-subhead--line-height: 26px;
+  --text-meta: 13px;
+  --text-meta--line-height: 20px;
+  --text-body: 14px;
+  --text-body--line-height: 20px;
+  --text-small: 12px;
+  --text-small--line-height: 16px;
+  --text-key: 12px;
+  --text-key--line-height: 17px;
+  --text-input: 16px;
+  --text-input--line-height: 24px;
+
+  --tracking-*: initial;
+  --tracking-logo: -0.02em;
+
+  --spacing-header: 88px;
+  --spacing-sidebar: 68px;
+  --spacing-chip: 38px;
+}
+
+/*
+ * ダークモード（docs/tasks/T035.md「2」）。値の正本は SPEC.md の 2 の「ダーク」の列。e2e/spec-sync.spec.ts が一致を確かめる。
+ * 新しい名前は作らず、同じ名前の値だけを差し替える。data-theme は index.html が最初の描画の前に付ける。
+ * 作品の枠の中、サムネイル、OG 画像は変えない（作品は作者の色のまま）。
+ */
+:root {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --color-site-bg: #0f0f12;
+  --color-site-fg: #ededf0;
+  --color-site-fg-2: #8e8e99;
+  --color-site-fg-3: #b9b9c3;
+  --color-site-line: #26262c;
+  --color-site-line-2: #303037;
+  --color-site-field: #1c1c21;
+  --color-site-key: #2c2c33;
+  --color-site-hover: #24242a;
+  --color-site-primary: #ededf0;
+  --color-site-logo: #e5412a;
+  --color-site-tab: rgb(44 44 52 / .86);
+  --color-site-scrim: rgb(0 0 0 / .64);
+  --color-site-remix: #2a5ae6;
+}
+
+/* index.html が最初の描画の前に付ける */
+@custom-variant mac (&:is([data-mac] *));
+@custom-variant not-mac (&:is(:root:not([data-mac]) *));
+/* 濃い地（カードの暗がり、下のタブ、リミックスの帯）の上の文字は、ダークでも明るいまま。ダークでは site-bg が暗くなるので site-fg を使う */
+@custom-variant dark (&:is([data-theme='dark'] *));
+
+@layer base {
+  html {
+    /* 絞り込みでページが短くなっても、スクロールバーの出入りで列の幅が変わらないようにする */
+    overflow-y: scroll;
+  }
+
+  body {
+    background-color: var(--color-site-bg);
+    color: var(--color-site-fg);
+    font-family: var(--font-sans);
+    font-synthesis-weight: none;
+    -webkit-font-smoothing: antialiased;
+    /* サイトの文字は短いので、全体を字詰めにする。字間は足さない（詰めすぎになる） */
+    font-feature-settings: 'palt';
+    font-kerning: normal;
+    /* 小さい「ッ」や「ー」から行を始めない。かっこの前の空きを詰め、和文と英数字の間を少し空ける */
+    line-break: strict;
+    text-spacing-trim: trim-start;
+    text-autospace: normal;
+  }
+
+  /* 文節で折り返す。見出しは行の長さを揃え、1文字だけの行を作らない */
+  h1,
+  h2,
+  h3,
+  p {
+    word-break: auto-phrase;
+    overflow-wrap: break-word;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* コードは字詰めをしない。桁が揃わなくなる */
+  pre,
+  code {
+    font-feature-settings: normal;
+    text-autospace: no-autospace;
+    word-break: normal;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-site-primary);
+    outline-offset: 2px;
+  }
+
+  input[type='search']::-webkit-search-cancel-button {
+    appearance: none;
+  }
+
+  /* 位置が決まる前のカードは見せない。一瞬でも左上に重なって出ると、CLS になる */
+  [data-masonry]:not([style]) > article {
+    visibility: hidden;
+  }
+}
+
+/* カーソルを乗せたカードの下の方を暗くする。白い絵の上でも白い文字が読めるよう、文字の高さ（48px）までは同じ濃さ */
+@utility card-scrim {
+  background-image: linear-gradient(to top, var(--color-site-scrim) 52px, transparent);
+}
+
+/* カード左上の斜めの帯。角丸の中で切れる。影は付けない（SPEC.md 3） */
+@utility remix-ribbon {
+  position: absolute;
+  top: 18px;
+  left: -32px;
+  z-index: 1;
+  width: 118px;
+  transform: rotate(-45deg);
+  background-color: var(--color-site-remix);
+  color: var(--color-site-bg);
+
+  &:is([data-theme='dark'] *) {
+    color: var(--color-site-fg);
+  }
+  text-align: center;
+  font-size: var(--text-small);
+  line-height: var(--text-small--line-height);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+/* 「リミックス」のシートが出るときの動き。動きを減らす設定では、すぐに出す */
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+@utility sheet-in {
+  animation: sheet-in 160ms ease-out;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
