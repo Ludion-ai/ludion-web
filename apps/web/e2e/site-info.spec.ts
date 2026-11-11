@@ -74,6 +74,8 @@ test.describe('/terms、/privacy、/about', () => {
       'Google シグナルと広告のパーソナライズは切っています',
       'Cloudflare',
       '法令に基づく場合を除きます',
+      'Windows アプリ',
+      'アプリから Ludion へ、数、記録、PC の情報を送りません',
       '最終更新：',
     ]) {
       await expect(page.getByRole('main').getByText(text, { exact: false }).first(), text).toBeVisible();
