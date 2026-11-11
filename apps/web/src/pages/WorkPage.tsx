@@ -282,7 +282,8 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
               codeOpen ? '' : COLLAPSED_CODE
             }`}
           >
-            <code>{snippet}</code>
+            {/* この文字が「コピーされるコード」になる（ページの JSON には入れない。lib/codeText.ts の CODE_ATTRIBUTE） */}
+            <code data-ld-code="">{snippet}</code>
           </pre>
           <button
             type="button"

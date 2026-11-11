@@ -9,6 +9,7 @@ import frameGuard from 'virtual:ludion/frame-guard';
 import previewStart from 'virtual:ludion/preview-start';
 import type { PageData } from '../src/data/pages';
 import { localeOfPath, localizedPath } from '../src/i18n';
+import { survivesHtmlText } from '../src/lib/codeText';
 import type { Work } from '../src/data/works';
 import { canonicalUrl } from './cachePolicy';
 import type { Env } from './env';
@@ -22,6 +23,16 @@ const encoder = new TextEncoder();
 /** <script> の中に安全に置ける JSON。作品の題名は作り手が書くので、</script> で抜けられないようにする。 */
 function embedJson(value: unknown): string {
   return JSON.stringify(value).replace(/[<>&\u2028\u2029]/g, (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
+/**
+ * HTML に埋め込むページのデータ。作品のページの「コピーされるコード」は、コードの箱（<pre>）に同じ文字があるので入れない。
+ * ブラウザが箱の文字から戻す（src/main.tsx。PERF002「2」）。HTML の文字で戻らないコード（CR、NUL など）だけは入れる
+ */
+function pageJson(page: PageData): unknown {
+  if (page.kind !== 'work' || !survivesHtmlText(page.snippet)) return page;
+  const { snippet: _inPre, ...rest } = page;
+  return rest;
 }
 
 /** 前の文字列、React の流れ、後ろの文字列を、1本の流れにする。 */
@@ -118,7 +129,7 @@ export async function renderDocument(c: Context<{ Bindings: Env }>, options: Doc
   const app = await renderApp({ location: url.pathname + url.search, works, page });
   const data = [
     works ? `<script type="application/json" id="ld-works">${embedJson(works)}</script>` : '',
-    page ? `<script type="application/json" id="ld-page">${embedJson(page)}</script>` : '',
+    page ? `<script type="application/json" id="ld-page">${embedJson(pageJson(page))}</script>` : '',
   ].join('');
   // ヘッダーのスイッチ（docs/tasks/T035.md「3」）がどのページにも作品の枠を置くので、どのページにも入れる。枠より先に動くよう、#root の前に置く
   // 作品のページは、枠を読み始める関数も先に置く。呼ぶのは枠の入れ物の直後の台本（WorkPage.tsx。PERF002「1」）

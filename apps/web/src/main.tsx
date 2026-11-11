@@ -6,6 +6,7 @@ import type { PageData } from './data/pages';
 import { LocaleProvider } from './hooks/useCopy';
 import { localeOfPath, routerBasename } from './i18n';
 import { startAnalytics } from './lib/analytics';
+import { CODE_ATTRIBUTE } from './lib/codeText';
 import type { Work } from './data/works';
 import { PageDataProvider } from './hooks/usePageData';
 import { WorksProvider } from './hooks/useWorks';
@@ -27,7 +28,16 @@ function embedded<T>(id: string): T | null {
   return text ? (JSON.parse(text) as T) : null;
 }
 
-const pageData = embedded<PageData>('ld-page');
+/**
+ * 作品のページの「コピーされるコード」は JSON に入っていない（worker/ssr.ts。PERF002「2」）。
+ * Worker が描いたコードの箱の文字から戻す。載せる前に戻すので、React は同じ文字で載り、コピーも押した操作の中でそのまま書ける
+ */
+function withSnippet(page: PageData | null): PageData | null {
+  if (page?.kind !== 'work' || typeof page.snippet === 'string') return page;
+  return { ...page, snippet: document.querySelector(`[${CODE_ATTRIBUTE}]`)?.textContent ?? '' };
+}
+
+const pageData = withSnippet(embedded<PageData>('ld-page'));
 
 const app = (
   <StrictMode>
