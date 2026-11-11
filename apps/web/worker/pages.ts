@@ -10,7 +10,7 @@ import { isGoogleAvailable, isPasskeyAvailable } from './methods';
 import { safeNext } from './loginFlow';
 import { findMovedCreator, getApprovedWork, getCreator, getCreatorTotals, listApprovedWorks, listCreatorWorks } from './catalog';
 import type { Env } from './env';
-import { canPost, loadRevisionFiles } from './revisions';
+import { canPost, loadRevisionFiles, ownedWork } from './revisions';
 import { getSessionUser } from './session';
 import { renderDocument } from './ssr';
 
@@ -58,7 +58,15 @@ export async function renderWorkCode(c: PageContext): Promise<Response> {
 export async function renderWorkPage(c: PageContext): Promise<Response> {
   const db = c.env.DB;
   const loaded = await loadApprovedWork(c);
-  if (!loaded) return renderNotFound(c);
+  if (!loaded) {
+    // 公開していない作品は、持ち主にだけ、その下書きの画面（/new?work=）へ進める。AI の口が返す url（docs/tasks/T037.md「2」）。
+    // ほかの人には、ない作品と同じ 404。302 も 404 もキャッシュしない（cachePolicy.ts は 200 だけ）
+    const id = c.req.param('id') ?? '';
+    const user = /^[a-z0-9-]{1,60}$/.test(id) ? await getSessionUser(c) : null;
+    const own = user ? await ownedWork(db, id) : null;
+    if (user && own?.owner_id === user.id) return c.redirect(`${localizedPath(localeOfPath(c.req.path), '/new')}?work=${encodeURIComponent(id)}`);
+    return renderNotFound(c);
+  }
 
   const { work, creator, files, snippet } = loaded;
   // 作品のページから行き止まりをなくす（docs/tasks/T018.md「1」）。同じ作者が先で、それぞれ Popular の順

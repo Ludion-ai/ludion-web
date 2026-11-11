@@ -1,0 +1,12 @@
+# Ludion
+
+> Ludion is a place to keep UI works (screens and components) made by people. Every work is one HTML snippet under the MIT license, with the creator's credit line on the first line.
+
+## Put works for a person (API)
+
+- [API v1](https://ludion.ai/api/v1): How an AI puts a work on Ludion with the person's AI key (`Authorization: Bearer ld_…`), lists the person's works, and gets their code. Works put through the API are visible only to the person until they publish them on the site. Send `Accept-Language: ja` for Japanese.
+
+## Use a public work
+
+- `https://ludion.ai/p/<id>/code`: The code of a public work as plain text (one HTML snippet). Keep the credit line on the first line when you use or remix it. To remix, change only what you need and put the result with `from: "<id>"`.
+- `https://ludion.ai/p/<id>`: The work page.

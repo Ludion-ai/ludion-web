@@ -33,14 +33,19 @@ async function allowed(env: Env, binding: LimitBinding, ip: string, path: string
  * Cloudflare の外から来る要求はないので、本番では CF-Connecting-IP は必ずあり、送り手には書き換えられない。
  * 手元のサーバーでは、同じ値を付けて開発とテストが止まらないよう、自分の値を数えない。テストはほかの IP を付けて確かめる。
  * limitedPage：人が画面として開く道で、JSON の代わりに送る先。なければ、または null を返せば、JSON の 429。
+ * limitedBody：JSON の 429 に足す項目（AI の口は message と retry_at を付ける。worker/apiV1.ts）。
  */
-export const rateLimit = (binding: LimitBinding, limitedPage?: (c: Context<{ Bindings: Env }>) => string | null) =>
+export const rateLimit = (
+  binding: LimitBinding,
+  limitedPage?: (c: Context<{ Bindings: Env }>) => string | null,
+  limitedBody?: (c: Context<{ Bindings: Env }>, retryAfterSeconds: number) => Record<string, unknown>,
+) =>
   createMiddleware<{ Bindings: Env }>(async (c, next) => {
     const ip = c.req.header('CF-Connecting-IP');
     if (ip && !LOOPBACK.has(ip) && !(await allowed(c.env, binding, ip, c.req.path))) {
       const page = limitedPage?.(c);
       if (page) return c.redirect(page);
-      return c.json({ error: 'rate_limited' }, 429, { 'Retry-After': String(RETRY_AFTER_SECONDS) });
+      return c.json({ ...limitedBody?.(c, RETRY_AFTER_SECONDS), error: 'rate_limited' }, 429, { 'Retry-After': String(RETRY_AFTER_SECONDS) });
     }
     await next();
   });
