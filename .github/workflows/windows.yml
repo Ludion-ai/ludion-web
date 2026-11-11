@@ -63,6 +63,14 @@ jobs:
       - name: WACK（Windows App Certification Kit）
         shell: pwsh
         run: ./apps/windows/scripts/wack.ps1
+      - name: WACK の結果を残す
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wack-report-${{ steps.version.outputs.version }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: apps/windows/out/wack/report.xml
       - uses: actions/upload-artifact@v4
         with:
           name: ludion-windows-${{ steps.version.outputs.version }}
@@ -72,7 +80,6 @@ jobs:
             apps/windows/out/LudionSetup.exe
             apps/windows/out/LudionSetup.exe.sha256
             apps/windows/out/Ludion.msix
-            apps/windows/out/wack/report.xml
 
   release:
     name: 下書きの release

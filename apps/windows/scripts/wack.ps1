@@ -55,7 +55,8 @@ try {
   Remove-Item $signed, $cer -ErrorAction SilentlyContinue
 }
 
-# 結果を並べる。FAIL が1つでもあれば落とす（WARNING は出すだけ。Store も警告では止めない）
+# 結果を並べる。落とすのは、WACK の判定（OVERALL_RESULT）が PASS でないときと、必須の試験（OPTIONAL でない）の FAIL。
+# 任意の試験（OPTIONAL="TRUE"）の FAIL と WARNING は出すだけ（WACK の判定にも Store の審査にも入らない）
 $xml = [xml](Get-Content $report -Raw)
 $overall = $xml.REPORT.OVERALL_RESULT
 $failed = 0
@@ -63,11 +64,12 @@ foreach ($test in $xml.SelectNodes('//TEST')) {
   $result = $test.RESULT.'#cdata-section'
   if (-not $result) { $result = "$($test.RESULT)" }
   $result = $result.Trim()
-  if ($result -eq 'FAIL') { $failed++ }
-  Write-Host ("{0,-8} {1}" -f $result, $test.NAME)
+  $optional = $test.OPTIONAL -eq 'TRUE'
+  if ($result -eq 'FAIL' -and -not $optional) { $failed++ }
+  Write-Host ("{0,-8} {1}{2}" -f $result, $test.NAME, $(if ($optional) { '（任意）' } else { '' }))
   if ($result -ne 'PASS') {
     foreach ($m in $test.SelectNodes('.//MESSAGE')) { Write-Host "         $($m.TEXT)" }
   }
 }
 Write-Host "OVERALL_RESULT=$overall"
-if ($overall -eq 'FAIL' -or $failed -gt 0) { throw "WACK に落ちた（FAIL $failed）" }
+if ($overall -ne 'PASS' -or $failed -gt 0) { throw "WACK に落ちた（判定 $overall、必須の FAIL $failed）" }
