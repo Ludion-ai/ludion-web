@@ -54,7 +54,17 @@ internal sealed record Command(Command.Kind What, string? WorkId = null)
 /// </summary>
 internal sealed class SingleInstance : IDisposable
 {
-    private static readonly string Name = $"Ludion.Wallpaper.{Environment.UserName}";
+    // 開発の確かめで設定の置き場を替えたときは、入れたアプリとは別の1つとして動く
+    private static readonly string Name = $"Ludion.Wallpaper.{Environment.UserName}" + DevSuffix();
+
+    private static string DevSuffix()
+    {
+        if (Environment.GetEnvironmentVariable("LUDION_DATA_DIR") is not { Length: > 0 } dev) return "";
+        // 起動ごとに変わらない値（string.GetHashCode は起動ごとに変わる）
+        var hash = 2166136261u;
+        foreach (var ch in dev.ToLowerInvariant()) hash = (hash ^ ch) * 16777619u;
+        return $".dev{hash:x8}";
+    }
     private static readonly string MutexName = $@"Local\{Name}";
     private static readonly string PipeName = $"{Name}.{System.Diagnostics.Process.GetCurrentProcess().SessionId}";
 

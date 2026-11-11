@@ -41,7 +41,21 @@
   .note { margin: 48px 0; text-align: center; color: var(--fg-2); }
   .note button { margin-top: 12px; }
   .skeleton { aspect-ratio: 16 / 9; border-radius: 16px; background: var(--field); }
-  @media (prefers-reduced-motion: reduce) { .thumb img { transition: none; } }
+  /* 上の2つの切り替え（Ludion の壁紙のオンとオフ、Windows の起動で始める） */
+  .controls { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; margin: 16px 32px 0; }
+  .control { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; border: 1px solid var(--line-2); border-radius: 16px; background: var(--bg); }
+  .control strong { display: block; font-weight: 700; }
+  .control small { display: block; margin-top: 2px; color: var(--fg-2); font-size: 13px; }
+  .switch { position: relative; flex-shrink: 0; width: 52px; height: 30px; padding: 0; border: 0; border-radius: 999px; background: var(--line-2); cursor: pointer; transition: background 160ms ease; }
+  .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / .25); transition: transform 160ms ease; }
+  .switch[aria-checked="true"] { background: var(--logo); }
+  .switch[aria-checked="true"]::after { transform: translateX(22px); }
+  .switch:focus-visible, .link:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+  .state { flex-shrink: 0; min-width: 2.5em; color: var(--fg-2); font-size: 13px; font-weight: 700; text-align: right; }
+  .switch-box { display: flex; align-items: center; gap: 10px; }
+  .link { flex-shrink: 0; height: 36px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--bg); color: var(--fg); font: inherit; font-weight: 600; cursor: pointer; }
+  @media (max-width: 720px) { .controls { grid-template-columns: 1fr; } }
+  @media (prefers-reduced-motion: reduce) { .thumb img, .switch, .switch::after { transition: none; } }
 </style>
 </head>
 <body>
@@ -52,6 +66,16 @@
   </div>
   <button type="button" class="site" data-text="site"></button>
 </header>
+<section class="controls" hidden>
+  <div class="control" data-control="on">
+    <div><strong id="on-label" data-text="onLabel"></strong><small id="on-note"></small></div>
+    <div class="switch-box"><span class="state" id="on-state" aria-hidden="true"></span><button type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="on-label" aria-describedby="on-note" data-key="on"></button></div>
+  </div>
+  <div class="control" data-control="startup">
+    <div><strong id="startup-label" data-text="startupLabel"></strong><small id="startup-note" data-text="startupNote"></small></div>
+    <div class="switch-box" id="startup-box"><span class="state" id="startup-state" aria-hidden="true"></span><button type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="startup-label" aria-describedby="startup-note" data-key="startup"></button></div>
+  </div>
+</section>
 <main>
   <ul class="grid" aria-busy="true">
     <li><div class="skeleton"></div></li><li><div class="skeleton"></div></li><li><div class="skeleton"></div></li>
@@ -69,6 +93,15 @@
       empty: 'まだ壁紙がありません。',
       error: '一覧を読み込めませんでした。ネットにつながっているか確かめてください。',
       retry: 'もう一度',
+      onLabel: 'Ludion の壁紙',
+      onNoteOn: 'オン：選んだ壁紙をデスクトップに出しています。',
+      onNoteOff: 'オフ：元の Windows の壁紙に戻しています。Ludion は通知領域に残ります。',
+      startupLabel: 'Windows の起動で始める',
+      startupNote: 'PC をつけたとき、選んだ壁紙で始まります。',
+      startupSettings: 'Windows の設定で切り替える',
+      on: 'オン',
+      off: 'オフ',
+      chosen: '選んである（オフ）',
     },
     en: {
       heading: 'Choose a wallpaper',
@@ -79,6 +112,15 @@
       empty: 'No wallpapers yet.',
       error: 'Could not load the list. Check your internet connection.',
       retry: 'Try again',
+      onLabel: 'Ludion wallpaper',
+      onNoteOn: 'On: your chosen wallpaper is on the desktop.',
+      onNoteOff: 'Off: your usual Windows wallpaper is back. Ludion stays in the notification area.',
+      startupLabel: 'Start with Windows',
+      startupNote: 'When you turn on your PC, your wallpaper starts.',
+      startupSettings: 'Change in Windows Settings',
+      on: 'On',
+      off: 'Off',
+      chosen: 'Chosen (off)',
     },
   };
   const lang = document.documentElement.lang === 'ja' ? 'ja' : 'en';
@@ -90,6 +132,46 @@
 
   const grid = document.querySelector('.grid');
   const main = document.querySelector('main');
+
+  // 上の2つの切り替え。値はアプリが持つ。押したらアプリに頼み、アプリから届いた値で描き直す
+  let isOn = true;
+  const controls = document.querySelector('.controls');
+  const onSwitch = controls.querySelector('[data-key="on"]');
+  const startupSwitch = controls.querySelector('[data-key="startup"]');
+  for (const button of [onSwitch, startupSwitch]) {
+    button.addEventListener('click', () => {
+      const next = button.getAttribute('aria-checked') !== 'true';
+      setSwitch(button, next);
+      post({ type: 'set', key: button.dataset.key, value: next });
+    });
+  }
+  function setSwitch(button, value) {
+    button.setAttribute('aria-checked', String(value));
+    document.getElementById(`${button.dataset.key}-state`).textContent = value ? t.on : t.off;
+    if (button === onSwitch) {
+      isOn = value;
+      document.getElementById('on-note').textContent = value ? t.onNoteOn : t.onNoteOff;
+      for (const badge of grid.querySelectorAll('.badge')) badge.textContent = value ? t.current : t.chosen;
+    }
+  }
+  function applyState(data) {
+    controls.hidden = false;
+    setSwitch(onSwitch, data.on === true);
+    if (data.startupInWindowsSettings === true) {
+      // Store から入れたときは、Windows の「スタートアップ」の設定が受け持つ
+      const box = document.getElementById('startup-box');
+      if (!box.querySelector('.link')) {
+        const link = document.createElement('button');
+        link.type = 'button';
+        link.className = 'link';
+        link.textContent = t.startupSettings;
+        link.addEventListener('click', () => post({ type: 'set', key: 'startup', value: true }));
+        box.replaceChildren(link);
+      }
+    } else {
+      setSwitch(startupSwitch, data.startup === true);
+    }
+  }
 
   function note(text, retry) {
     grid.remove();
@@ -131,7 +213,7 @@
       if (work.id === current) {
         const badge = document.createElement('span');
         badge.className = 'badge';
-        badge.textContent = t.current;
+        badge.textContent = isOn ? t.current : t.chosen;
         thumb.append(badge);
       }
       const title = document.createElement('span');
@@ -143,6 +225,8 @@
       card.append(thumb, title, by);
       card.addEventListener('click', () => {
         post({ type: 'pick', id: work.id });
+        // 選ぶとオンになる（アプリが同じことをして、値を返してくる）
+        setSwitch(onSwitch, true);
         for (const other of grid.querySelectorAll('.card')) {
           other.removeAttribute('aria-current');
           other.querySelector('.badge')?.remove();
@@ -150,7 +234,7 @@
         card.setAttribute('aria-current', 'true');
         const badge = document.createElement('span');
         badge.className = 'badge';
-        badge.textContent = t.current;
+        badge.textContent = isOn ? t.current : t.chosen;
         thumb.append(badge);
       });
       item.append(card);
@@ -162,6 +246,7 @@
   window.chrome.webview.addEventListener('message', (event) => {
     const data = event.data;
     if (!data || typeof data !== 'object') return;
+    if (data.type === 'state') return applyState(data);
     if (data.type === 'error') return note(t.error, true);
     if (data.type !== 'works' || !Array.isArray(data.works)) return;
     const works = data.works.filter((w) => w && typeof w.id === 'string' && typeof w.title === 'string' && typeof w.thumb === 'string');

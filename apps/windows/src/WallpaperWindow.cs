@@ -87,12 +87,17 @@ internal sealed class WallpaperWindow : Form
             if (!Links.IsAllowedWallNavigation(e.Uri, workId)) e.Cancel = true;
         };
         core.NewWindowRequested += (_, e) => e.Handled = true;
+        if (DevClick is not null) core.FrameCreated += (_, e) => devFrame = e.Frame;
         core.DownloadStarting += (_, e) => e.Cancel = true;
         core.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
         core.NavigationCompleted += (_, e) =>
         {
             Log.Write($"wall {Screen.DeviceName} {workId} loaded={e.IsSuccess} status={e.HttpStatusCode}");
-            if (e.IsSuccess) return;
+            if (e.IsSuccess)
+            {
+                if (DevClick is { } point) _ = DevClickAsync(core, point);
+                return;
+            }
             // ない作品（取り下げた作品も）：読み直さず、アプリに知らせる
             if (e.HttpStatusCode == 404) NotFound?.Invoke(workId);
             else ScheduleRetry();
@@ -137,9 +142,60 @@ internal sealed class WallpaperWindow : Form
         if (host is not null) Desktop.Place(Handle, host, screen.Bounds);
     }
 
+    /// <summary>開発の確かめのときだけ：デスクトップに付けず、画面の外の窓のまま動かす（使っている人のデスクトップを変えない）。</summary>
+    public static bool NoDesktop { get; } = Environment.GetEnvironmentVariable("LUDION_NO_DESKTOP") == "1";
+
+    /// <summary>開発の確かめのときだけ：読み込みの後、窓の中のこの点を押す（「x,y」。本物のクリックと同じ道で渡す）。</summary>
+    private static Point? DevClick { get; } =
+        Environment.GetEnvironmentVariable("LUDION_DEV_CLICK") is { } value && value.Split(',') is [var x, var y]
+        && int.TryParse(x, out var px) && int.TryParse(y, out var py) ? new Point(px, py) : null;
+
+    private CoreWebView2Frame? devFrame;
+
+    private async Task DevClickAsync(CoreWebView2 core, Point client)
+    {
+        await Task.Delay(4000);
+        // 作品の枠の中で、届いた押し下げが本物の操作か（isTrusted）と、枠の「ユーザーの操作」の印を見る
+        const string listen = "window.__ldTrusted = 'none'; addEventListener('pointerdown', e => { window.__ldTrusted = String(e.isTrusted); }, true); 'ok'";
+        const string read = "JSON.stringify({ trusted: window.__ldTrusted, active: navigator.userActivation.hasBeenActive })";
+        if (devFrame is not null) await devFrame.ExecuteScriptAsync(listen);
+        var before = devFrame is null ? "no frame" : await devFrame.ExecuteScriptAsync(read);
+        var at = PointToScreen(client);
+        DesktopInput.Post(this, DesktopInput.WM_MOUSEMOVE, 0, at);
+        DesktopInput.Post(this, DesktopInput.WM_LBUTTONDOWN, DesktopInput.MK_LBUTTON, at);
+        await Task.Delay(80);
+        DesktopInput.Post(this, DesktopInput.WM_LBUTTONUP, 0, at);
+        await Task.Delay(1500);
+        var after = devFrame is null ? "no frame" : await devFrame.ExecuteScriptAsync(read);
+        Log.Write($"dev click {client} target={Native.Describe(InputWindow())} activation before={before} after={after}");
+    }
+
+    private IntPtr input;
+
+    /// <summary>
+    /// Chromium がマウスを受ける窓。WebView2 の中の Chrome_WidgetWin_1（その下の Chrome_RenderWidgetHostHWND は
+    /// 押しても下に通る窓なので、送り先にしない）。読み込み直しで作り直されるので、そのつど確かめる。
+    /// </summary>
+    public IntPtr InputWindow()
+    {
+        if (input != IntPtr.Zero && Native.IsWindow(input) && Native.IsChild(Handle, input)) return input;
+        IntPtr best = IntPtr.Zero, fallback = IntPtr.Zero;
+        Native.EnumChildWindows(Handle, (child, _) =>
+        {
+            var cls = Native.ClassName(child);
+            if (!cls.StartsWith("Chrome_WidgetWin", StringComparison.Ordinal) || (Native.ExStyle(child) & Native.WS_EX_TRANSPARENT) != 0) return true;
+            if (cls == "Chrome_WidgetWin_1") best = child;
+            else fallback = child;
+            return true;
+        }, IntPtr.Zero);
+        input = best != IntPtr.Zero ? best : fallback;
+        return input;
+    }
+
     /// <summary>アイコンの後ろに付ける。explorer が立ち直って親が消えていたら、付け直す。</summary>
     public void Attach()
     {
+        if (NoDesktop) return;
         if (host is not null && Desktop.IsAlive(host, Handle)) return;
         host = Desktop.Find();
         if (host is null)

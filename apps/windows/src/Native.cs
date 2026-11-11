@@ -58,6 +58,14 @@ internal static partial class Native
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
 
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool EnumChildWindows(IntPtr parent, EnumWindowsProc callback, IntPtr lParam);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool IsChild(IntPtr parent, IntPtr hWnd);
+
     [LibraryImport("user32.dll", SetLastError = true)]
     public static partial IntPtr SetParent(IntPtr child, IntPtr newParent);
 
