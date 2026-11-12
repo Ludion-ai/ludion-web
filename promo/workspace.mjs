@@ -197,7 +197,7 @@ const lastJson = (text) => JSON.parse(text.slice(text.lastIndexOf('{'), text.las
 
 // ---- PC の守り：ほかの試験（Playwright など）や動画の書き出しが動いている間は、描かない。0 になるまで待つ
 function busyCount() {
-  const pattern = 'playwright.*test|@playwright.test.cli|vitest|\\s--test(\\s|$)|promo[\\/][\\w-]+\\.mjs';
+  const pattern = 'playwright.*test|@playwright.test.cli|vitest|\\s--test(\\s|$)|promo[\\\\/][\\w-]+\\.mjs';
   if (process.platform === 'win32') {
     const script = `$n = (Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.ProcessId -ne ${process.pid} -and $_.CommandLine -match '${pattern}' } | Measure-Object).Count; $f = (Get-Process ffmpeg -ErrorAction SilentlyContinue | Measure-Object).Count; "$($n + $f)"`;
     const r = spawnSync('powershell', ['-NoProfile', '-Command', script], { encoding: 'utf8' });
