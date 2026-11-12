@@ -1,6 +1,6 @@
 // 文書の作品（DOC001）：文書をそのまま動かす枠と、コピーされるコード。
 import { expect, test } from '@playwright/test';
-import { DPR_SCRIPT, FRAME_CSP, LOADED_SCRIPT, STORAGE_SCRIPT, ALLOW_MOTION_SCRIPT, buildCopySnippet, buildDocumentFrameHtml, buildDocumentSnippet, doctypeEnd, isHtmlDocument, stripDocumentCredits } from '../src/index.ts';
+import { CAPTURE_SCRIPT, DPR_SCRIPT, FRAME_CSP, LOADED_SCRIPT, STORAGE_SCRIPT, ALLOW_MOTION_SCRIPT, buildCopySnippet, buildDocumentFrameHtml, buildDocumentSnippet, doctypeEnd, isHtmlDocument, stripDocumentCredits } from '../src/index.ts';
 import type { Creator, Work } from '../src/index.ts';
 
 const DOC = `<!doctype html>
@@ -59,6 +59,73 @@ test.describe('枠', () => {
     const frame = buildDocumentFrameHtml(doc).replace('<script>', '<script>window.__ldFirst=1;</script><script>');
     await page.setContent(frame);
     expect(await page.evaluate(() => (window as unknown as { __order: unknown[] }).__order)).toEqual(['number', 'CSS1Compat']);
+  });
+});
+
+test.describe('撮る仕掛け（DOC002）', () => {
+  test('既定では足さない（今の枠の HTML のまま）。capture のときだけ、差し込みの最後に足す', () => {
+    expect(buildDocumentFrameHtml(DOC, { capture: false })).toBe(buildDocumentFrameHtml(DOC));
+    expect(buildDocumentFrameHtml(DOC, { motion: true, capture: false })).toBe(buildDocumentFrameHtml(DOC, { motion: true }));
+    expect(buildDocumentFrameHtml(DOC, { capture: true })).toBe(`<!doctype html>${INSERT}<script>${CAPTURE_SCRIPT}</script>${DOC.slice('<!doctype html>'.length)}`);
+    expect(buildDocumentFrameHtml(DOC, { motion: true, capture: true })).toBe(
+      `<!doctype html>${INSERT}<script>${ALLOW_MOTION_SCRIPT}</script><script>${CAPTURE_SCRIPT}</script>${DOC.slice('<!doctype html>'.length)}`,
+    );
+  });
+
+  test('<script> の中に置ける（閉じタグを含まない）。JS として読める', () => {
+    expect(CAPTURE_SCRIPT).not.toMatch(/<\/script/i);
+    expect(() => new Function(CAPTURE_SCRIPT)).not.toThrow();
+  });
+
+  // 試しのページは枠ではないので、parent は自分自身。自分に頼み、自分に返ってくる
+  const ask = (page: import('@playwright/test').Page) =>
+    page.evaluate(
+      () =>
+        new Promise<{ ok: boolean; url?: string; reason?: string; width?: number; height?: number }>((resolve) => {
+          addEventListener('message', async (event) => {
+            const data = event.data as { type?: string; ok: boolean; url?: string; reason?: string };
+            if (data?.type !== 'ld-thumb-captured') return;
+            if (!data.ok || !data.url) return resolve(data);
+            const img = new Image();
+            img.src = data.url;
+            await img.decode();
+            resolve({ ...data, width: img.naturalWidth, height: img.naturalHeight });
+          });
+          postMessage({ type: 'ld-thumb-capture' }, '*');
+        }),
+    );
+
+  test('ブラウザで：文書の今の絵（入力の値、canvas）を、枠の大きさの PNG にする', async ({ page }) => {
+    await page.setViewportSize({ width: 640, height: 400 });
+    const doc = `<!doctype html><html><head><style>body{margin:0;background:#123456}canvas{position:absolute;left:10px;top:10px}</style></head>
+<body><input id="i" value="a"><canvas id="c" width="50" height="50"></canvas>
+<script>document.getElementById('i').value='typed';const g=document.getElementById('c').getContext('2d');g.fillStyle='#ff0000';g.fillRect(0,0,50,50);</script></body></html>`;
+    await page.setContent(buildDocumentFrameHtml(doc, { capture: true }));
+    const result = await ask(page);
+    expect(result).toMatchObject({ ok: true, width: 640, height: 400 });
+    expect(result.url!.startsWith('data:image/png;base64,')).toBe(true);
+    // canvas の赤と、背景の色が写っている
+    const pixels = await page.evaluate(async (url) => {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const g = c.getContext('2d')!;
+      g.drawImage(img, 0, 0);
+      return [Array.from(g.getImageData(30, 30, 1, 1).data), Array.from(g.getImageData(600, 380, 1, 1).data)];
+    }, result.url!);
+    expect(pixels[0].slice(0, 3)).toEqual([255, 0, 0]);
+    expect(pixels[1].slice(0, 3)).toEqual([0x12, 0x34, 0x56]);
+  });
+
+  test('ブラウザで：白紙と、Shadow DOM の中があるものは、撮れなかったと返す', async ({ page }) => {
+    await page.setContent(buildDocumentFrameHtml('<!doctype html><html><body></body></html>', { capture: true }));
+    expect(await ask(page)).toMatchObject({ ok: false, reason: 'blank' });
+    const shadow = `<!doctype html><html><body><div id="h"></div><script>document.getElementById('h').attachShadow({mode:'open'}).innerHTML='<p>inside</p>'</script></body></html>`;
+    await page.setContent(buildDocumentFrameHtml(shadow, { capture: true }));
+    expect(await ask(page)).toMatchObject({ ok: false, reason: 'shadow' });
   });
 });
 

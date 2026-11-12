@@ -128,7 +128,7 @@ export const operatorMaySee = (revision: Pick<RevisionRow, 'status'> & { work_st
  * 公開前の版を見てよいか：持ち主と運営だけ（docs/tasks/T021.md「下書きの見え方」）。ほかの人には、あることも教えない。
  * 自分だけの作品の版は、持ち主だけ（運営は審査に出された版だけ。operatorMaySee）。
  */
-export async function readableRevision(db: D1Database, revisionId: string, user: SessionUser | null): Promise<RevisionRow | null> {
+export async function readableRevision(db: D1Database, revisionId: string, user: SessionUser | null): Promise<(RevisionRow & { owner_id: string | null }) | null> {
   if (!user || !REVISION_ID.test(revisionId)) return null;
   const revision = await ownedRevision(db, revisionId);
   return revision && (revision.owner_id === user.id || (user.isOperator && operatorMaySee(revision))) ? revision : null;
