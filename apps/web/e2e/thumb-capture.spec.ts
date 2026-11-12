@@ -527,6 +527,43 @@ test.describe('サムネイルを自動で撮る（THUMB001）', () => {
     await expect(row.getByRole('button', { name: `${title}に画像を付ける` })).toBeVisible();
   });
 
+  test('人が撮る「画像を付ける」は、契約の形の部品でも枠から撮れる（WebGL の絵も写る）。canvas が写らないブラウザでは、写っていない絵を見せずにファイルを選ぶ道を出す', async ({ page, browserName }) => {
+    test.setTimeout(90_000);
+    const owner = await person('manualgl');
+    const title = unique('Manual GL ');
+    const id = await putDocument(owner.visitor, glPart(unique('manual-gl-'), title));
+    const before = await editable(owner.visitor, id);
+    await skipAuto(page, before.revision.id);
+    await openAs(page, owner.visitor, '/account/works');
+    const hasWebgl = await page.evaluate(() => document.createElement('canvas').getContext('webgl') !== null);
+    const row = page.locator(`[data-own-work="${id}"]`);
+    await row.getByRole('button', { name: `${title}に画像を付ける` }).click();
+    const dialog = page.getByRole('dialog', { name: '画像を付ける' });
+    const take = dialog.getByRole('button', { name: 'この絵にする' });
+    await expect(take).toBeEnabled();
+    await take.click();
+    const preview = dialog.locator('img[data-thumb-preview]');
+    const fallback = dialog.locator('[data-thumb-fallback]');
+    await expect(preview.or(fallback)).toBeVisible();
+    if (await fallback.isVisible()) {
+      // canvas が写らなかった（WebKit だけ。ほかのブラウザでは、撮った絵を人が見る）
+      expect(browserName).toBe('webkit');
+      await expect(fallback.getByLabel('画像のファイルを選ぶ')).toBeVisible();
+      await expect(preview).toHaveCount(0);
+      return;
+    }
+    // 見せた絵は枠の全部（1280×800。人が撮るときは切り出さない）。WebGL で描いた2色（橙と青）が写っている
+    const colors = await colorShares(preview, [ORANGE, BLUE]);
+    expect(colors.size).toEqual([1280, 800]);
+    if (hasWebgl) {
+      expect(colors.shares[0], JSON.stringify(colors)).toBeGreaterThan(0.02);
+      expect(colors.shares[1], JSON.stringify(colors)).toBeGreaterThan(0.02);
+    }
+    await dialog.getByRole('button', { name: 'この絵を送る' }).click();
+    await expect(dialog).toBeHidden();
+    expect((await editable(owner.visitor, id)).revision).toMatchObject({ status: 'private', thumb_w: 800, thumb_h: 500 });
+  });
+
   test('WebKit では自動で撮らない（canvas が写らないことがあるため）。頭文字のまま、枠を読まず、版も増えない。人が付ける道は残る', async ({ page, browserName }) => {
     test.skip(browserName !== 'webkit', 'WebKit だけの確かめ');
     const owner = await person('autowebkit');

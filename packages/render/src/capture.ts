@@ -130,7 +130,8 @@ const snapshot = (canvas) => {
   }
 };
 // 控えた canvas の絵が、撮った絵（out。view を scale 倍したもの）の同じ場所（r）に写っているか。
-// 'flat'：canvas が1色（読めないときも）。'shown'：写っている。'missing'：写っていない
+// 'flat'：canvas が1色（読めないときも）。'shown'：写っている。'missing'：写っていない。
+// 'sparse'：絵はあるが、地の色と違う点が少なくて確かめられない（小さな粒だけなど）。写っていなくても絵はほとんど変わらないので、通す
 const canvasShown = (snap, r, out, view, scale) => {
   if (!snap) return 'flat';
   const { w, h, a } = snap;
@@ -152,7 +153,7 @@ const canvasShown = (snap, r, out, view, scale) => {
   const m = groundKey === -1 ? null : [ground[1] / ground[0], ground[2] / ground[0], ground[3] / ground[0]];
   const far = (p, q) => Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Math.abs(p[2] - q[2]));
   const b = out.getContext('2d').getImageData(0, 0, out.width, out.height).data;
-  const step = Math.max(1, Math.round(Math.sqrt((w * h) / 4000)));
+  const step = Math.max(1, Math.round(Math.sqrt((w * h) / 20000)));
   let marks = 0;
   let hits = 0;
   for (let y = 0; y < h; y += step) {
@@ -179,7 +180,7 @@ const canvasShown = (snap, r, out, view, scale) => {
       if (best <= 64 && (!m || best < far(q, m))) hits += 1;
     }
   }
-  if (marks < 24) return 'flat';
+  if (marks < 24) return 'sparse';
   return hits >= marks * 0.5 ? 'shown' : 'missing';
 };
 

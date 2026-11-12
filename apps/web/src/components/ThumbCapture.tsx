@@ -1,6 +1,7 @@
 import { X } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { useCopy } from '../hooks/useCopy';
+import { canAutoCapture } from '../lib/autoThumb';
 import { BOX_CLASS, FRAME_CLASS, FRAME_SIZES, frameScale } from '../lib/frame';
 import { CAPTURE_READY, CAPTURE_REQUEST, CAPTURE_RESULT, captureToBlob, normalizeThumb, uploadThumb } from '../lib/post';
 import { SANDBOX } from './FramePreview';
@@ -145,7 +146,8 @@ export function ThumbCapture({ workId, title, frameUrl, onDone, onClose }: { wor
     resultTimer.current = setTimeout(() => {
       if (phaseRef.current === 'taking') showFallback('other');
     }, RESULT_WAIT_MS);
-    target.postMessage({ type: CAPTURE_REQUEST }, '*');
+    // canvas が絵に写らないことがあるブラウザ（WebKit。THUMB001）では、写っていない絵を見せずに、ファイルを選ぶ道を出す
+    target.postMessage({ type: CAPTURE_REQUEST, strict: !canAutoCapture() }, '*');
   };
 
   const retake = () => {
