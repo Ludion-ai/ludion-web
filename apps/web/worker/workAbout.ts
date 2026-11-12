@@ -9,15 +9,8 @@ import type { AboutSpot, WorkAbout, WorkLineage, WorkVersion } from '../src/data
 const AROUND = 2;
 /** 見せる1行の長さの上限（1行に詰めたコードで、ページが大きくならないように） */
 const MAX_LINE = 160;
-/** 「この作品について」に出す技術のまとまり（動きと保存は、ファイルの木の側で見せる） */
-const SHOWN_GROUPS = new Set(['draw', 'sound', 'input', 'care', 'a11y', 'external']);
-
-/**
- * ld upload が置いた版か。管理 API（worker/admin.ts）の置き場は works/<id>/<version>、投稿と AI の口の置き場は revisions/<版の id>/…。
- * ld upload は、ld check（アクセシビリティの検査 axe を含む）が通らない作品を送らない（packages/ld/src/cli.ts）。
- * 検査の結果そのものは持っていない（置き場の形から決めている）。
- */
-export const isCheckedPrefix = (prefix: string) => prefix.startsWith('works/');
+/** 「この作品について」に出す技術のまとまり */
+const SHOWN_GROUPS = new Set(['draw', 'motion', 'sound', 'input', 'care', 'a11y', 'storage', 'external']);
 
 function fileLines(files: OutlineInput): Map<string, string[]> {
   const map = new Map<string, string[]>();
@@ -31,11 +24,8 @@ function fileLines(files: OutlineInput): Map<string, string[]> {
   return map;
 }
 
-/**
- * 地図と版のファイルから「この作品について」を作る。checked：ld upload が ld check（形、純度、配置、アクセシビリティ、通信）を
- * 通して置いた版か（管理 API の置き場の版。worker/admin.ts）。
- */
-export function buildAbout(outline: Outline, files: OutlineInput, checked: boolean): WorkAbout {
+/** 地図と版のファイルから「この作品について」を作る。コードから読んだ事実だけ。 */
+export function buildAbout(outline: Outline, files: OutlineInput): WorkAbout {
   const lines = fileLines(files);
   const spot = (file: string, line: number): AboutSpot | null => {
     const all = lines.get(file);
@@ -81,7 +71,6 @@ export function buildAbout(outline: Outline, files: OutlineInput, checked: boole
         ...(tech.hosts ? { hosts: tech.hosts } : {}),
         spot: techSpot(tech),
       })),
-    checked,
   };
 }
 

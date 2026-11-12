@@ -36,9 +36,8 @@ const PREVIEW_START_CALL = { __html: 'window.__ldStartPreview&&window.__ldStartP
 const whiteButton =
   'inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-control border border-site-line-2 bg-site-bg text-body font-semibold text-site-fg hover:bg-site-hover';
 
-/** 頭のボタン（1024px以上）。高さ36px。白い方は、いいねとしおりと同じ色 */
-const HEAD_BUTTON = 'inline-flex h-9 items-center justify-center gap-1.5 rounded-control border px-3.5 text-small font-semibold';
-const HEAD_WHITE = 'border-site-line-2 bg-site-bg text-site-fg hover:bg-site-hover';
+/** 頭の右の「新しい版を置く」（持ち主だけ。1024px以上）。高さ36px */
+const HEAD_BUTTON = 'inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-control border px-3.5 text-small font-semibold';
 
 /** 頭の札（状態、版、種類） */
 const BADGE = 'inline-flex h-6 shrink-0 items-center gap-1 rounded-chip border border-site-line-2 px-2 text-small text-site-fg-3';
@@ -169,8 +168,8 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
 
   // 幅で置き場所が変わるので、2つ描いて CSS で片方だけ見せる（読み込みの後にずれないように）。
   // 壁紙の作品だけ、「リミックス」の横に「壁紙にする」を置く（WALL001「2」）。
-  // wrapClass があれば、2つを横に並べて幅を分ける（1023px以下）。なければ、頭のほかのボタンと同じ列に並べる
-  const remixButton = (buttonClass: string, wrapClass?: string) => {
+  // 2つを横に並べて幅を分ける
+  const remixButton = (buttonClass: string, wrapClass: string) => {
     const buttons = (
       <>
         <button type="button" aria-haspopup="dialog" onClick={openRemix} className={buttonClass}>
@@ -185,7 +184,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
         )}
       </>
     );
-    return wrapClass === undefined ? buttons : <div className={`flex gap-3 ${wrapClass}`}>{buttons}</div>;
+    return <div className={`flex gap-3 ${wrapClass}`}>{buttons}</div>;
   };
 
   const views = copy.count(work.views);
@@ -237,6 +236,16 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
       {shareMessage || copy.work.share}
     </button>
   );
+  /** 状態と版の札 */
+  const stateBadges = (className: string) => (
+    <>
+      <span data-work-state={state} className={`${BADGE} ${className}`}>
+        <StateIcon size={12} strokeWidth={2} aria-hidden="true" />
+        {copy.account.works.state[state]}
+      </span>
+      <span className={`${BADGE} ${className}`}>{copy.work.version(work.version)}</span>
+    </>
+  );
   const panelProps = (id: TabId) => ({
     id: `${tabsId}-panel-${id}`,
     role: 'tabpanel' as const,
@@ -249,7 +258,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
     <>
       {/* 頭：@作者 / 題、状態、版、種類。右に今のボタン。数は下に小さく1行（WS003「1」） */}
       <header data-work-head="" className="md:mt-[27px]">
-        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 lg:min-h-9">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
             <img
               src={creator.avatar_url ?? undefined}
@@ -265,134 +274,121 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
             <span aria-hidden="true" className="text-subhead text-site-fg-2 max-md:hidden">
               /
             </span>
-            {/* 767px以下：1行目に @作者 と札、題は次の行（枠を最初の画面に収めるため、頭を低くする） */}
-            <h1 className="min-w-0 text-title font-bold text-site-fg wrap-anywhere max-md:order-last max-md:basis-full">{work.title}</h1>
-            <span data-work-state={state} className={BADGE}>
-              <StateIcon size={12} strokeWidth={2} aria-hidden="true" />
-              {copy.account.works.state[state]}
-            </span>
-            <span className={BADGE}>{copy.work.version(work.version)}</span>
+            {/* 767px以下：1行目に @作者 と札、題は次の行（枠を最初の画面に収めるため、頭を低くする）。
+                札は幅ごとに描き分ける（CSS の order で動かさない。HTML の順と見た目の順を同じにする） */}
+            {stateBadges('md:hidden')}
+            <h1 className="min-w-0 text-title font-bold text-site-fg wrap-anywhere max-md:basis-full">{work.title}</h1>
+            {stateBadges('max-md:hidden')}
             {/* 種類の札は、767px以下では数の行に出す（頭を2行に収めて、枠を最初の画面に入れるため） */}
             <span className={`${BADGE} max-md:hidden`}>{copy.work.meta(work.category, work.subtype)}</span>
           </div>
-          {/* 1024px以上：右にボタン。持ち主の「新しい版を置く」は左の端に足す（後から出ても、ほかのボタンが動かない） */}
-          <div data-work-actions="" className="flex flex-wrap justify-end gap-2 max-lg:hidden">
-            {isOwner && (
-              <a href={newVersionPath} className={`${HEAD_BUTTON} border-site-primary bg-site-primary text-site-bg`}>
-                <Upload size={16} strokeWidth={2} aria-hidden="true" />
-                {copy.work.newVersion}
-              </a>
-            )}
-            {!isPrivate && (
-              <>
-                {likeButton(`${HEAD_BUTTON} ${HEAD_WHITE}`)}
-                {saveButton(`${HEAD_BUTTON} ${HEAD_WHITE}`)}
-                {remixButton(`${HEAD_BUTTON} ${HEAD_WHITE}`)}
-                {shareButton(`${HEAD_BUTTON} ${HEAD_WHITE}`)}
-              </>
-            )}
-          </div>
+          {/* 持ち主の「新しい版を置く」（1024px以上）。公開の作品では読み込みの後に出るので、出てもほかが動かない、頭の行の右の端に置く */}
+          {isOwner && (
+            <a href={newVersionPath} data-work-new-version="" className={`${HEAD_BUTTON} border-site-primary bg-site-primary text-site-bg max-lg:hidden`}>
+              <Upload size={16} strokeWidth={2} aria-hidden="true" />
+              {copy.work.newVersion}
+            </a>
+          )}
         </div>
-
-        <p role="status" className="sr-only">
-          {shareMessage}
-        </p>
       </header>
 
       {/*
-        タブと本体。1024px以上：タブの下に2段（左に動く作品、右にタブの中身）。1023px以下：動く作品 → ボタン → タブ → 中身（WORKSPACE「8」）。
-        動く作品は、どのタブでも出したまま（タブを替えても枠を作り直さない）。タブの中身は、選んでいない物を隠すだけ（コードの箱は、いつも HTML にある）
+        本体。HTML の順と見た目の順は、どの幅でも同じ：頭 → 動く作品 → ボタン → 数の行 → タブ → タブの中身（キーの Tab と読み上げの順が、見た目の順になる）。
+        1024px以上は2列で、左に動く作品、右にボタンから下。1023px以下は1列（WORKSPACE「8」）。CSS の order で見た目だけを動かさない。
+        動く作品はタブの外にあり、どのタブでも出したまま（タブを替えても枠を作り直さない）。タブの中身は、選んでいない物を隠すだけ（コードの箱は、いつも HTML にある）
       */}
-      <div className="mt-3 grid grid-cols-1 gap-x-8 lg:mt-2 lg:grid-cols-[minmax(0,65fr)_minmax(0,35fr)]">
-        {/* 数は小さく1行。1024px以上は頭のすぐ下、1023px以下は枠とボタンの下（枠を最初の画面に収めるため） */}
-        <div data-work-counts="" className="order-3 mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-small text-site-fg-3 lg:order-none lg:col-span-2 lg:mt-0">
-          <a href={localizedPath(locale, `/c/${handle}`)} className="rounded-key font-semibold text-site-fg hover:underline">
-            {creator.name}
-          </a>
-          {creator.kind === 'label' && <span className="text-meta text-site-fg-2">{copy.work.label}</span>}
-          {creator.x_url && <XLink href={creator.x_url} />}
-          <span className={`${BADGE} md:hidden`}>{copy.work.meta(work.category, work.subtype)}</span>
-          <span className="flex items-center gap-1">
-            <Eye size={16} strokeWidth={1.75} aria-hidden="true" />
-            <span aria-hidden="true">{views}</span>
-            <span className="sr-only">{copy.work.views(views)}</span>
-          </span>
-          <span className="flex items-center gap-1">
-            <Copy size={16} strokeWidth={1.75} aria-hidden="true" />
-            <span aria-hidden="true" data-testid="copy-count">
-              {copyCount}
-            </span>
-            <span className="sr-only">{copy.work.copies(copyCount)}</span>
-          </span>
-          {!isPrivate && (
-            <span className="flex items-center gap-1">
-              <Heart size={16} strokeWidth={1.75} aria-hidden="true" />
-              <span aria-hidden="true">{likes}</span>
-              <span className="sr-only">{copy.work.likes(likes)}</span>
-            </span>
-          )}
-        </div>
-        {(source || isPrivate) && (
-          <div className="order-3 mt-3 lg:order-none lg:col-span-2 lg:mt-2">
-        {source && <SourceBand source={source} />}
-        {isPrivate && (
-          <p data-private-notice="" role="note" className="mt-2 rounded-control bg-site-field px-3 py-2.5 text-small">
-            <span className="font-semibold">{copy.work.privateNotice}</span>{' '}
-            <a href={localizedPath(locale, '/account/works')} className="underline">
-              {copy.work.privateToWorks}
-            </a>
-          </p>
-        )}
-          </div>
-        )}
-        <div role="tablist" aria-label={copy.work.tabs.label} onKeyDown={onTabKey} className="order-4 mt-3 flex gap-1 overflow-x-auto border-b border-site-line lg:order-none lg:col-span-2 lg:mb-5">
-          {tabs.map(({ id: tabId, label, icon: Icon, count }) => (
-            <button
-              key={tabId}
-              id={`${tabsId}-tab-${tabId}`}
-              type="button"
-              role="tab"
-              aria-selected={shownTab === tabId}
-              aria-controls={`${tabsId}-panel-${tabId}`}
-              tabIndex={shownTab === tabId ? 0 : -1}
-              onClick={() => setTab(tabId)}
-              className={`-mb-px inline-flex h-11 shrink-0 items-center gap-2 border-b-2 px-3.5 text-body font-semibold max-md:flex-1 max-md:justify-center ${
-                shownTab === tabId ? 'border-site-fg text-site-fg' : 'border-transparent text-site-fg-2 hover:text-site-fg'
-              }`}
-            >
-              <Icon size={16} strokeWidth={1.75} aria-hidden="true" className="max-md:hidden" />
-              {label}
-              {count !== undefined && count > 0 && <span className="rounded-chip bg-site-key px-1.5 text-small font-normal text-site-fg-3">{count}</span>}
-            </button>
-          ))}
-        </div>
-
-        <div className="order-1 min-w-0 lg:order-none">
+      <div className="mt-3 grid grid-cols-1 gap-x-8 lg:grid-cols-[minmax(0,65fr)_minmax(0,35fr)]">
+        <div data-work-stage="" className="min-w-0">
           <FramePreview key={work.id} work={work} background={background} frames={page.private?.frames ?? null} />
           {/* 枠を、HTML が届き終わるのを待たずに読み始める（PERF002「1」）。Worker の HTML でだけ動く（React が後から作った script は動かない） */}
           <script dangerouslySetInnerHTML={PREVIEW_START_CALL} />
         </div>
 
-        {/* 1023px以下：ボタンは枠のすぐ下に置く。浮かせない（作品の枠に重なるため。docs/tasks/FIX-remix-button.md）。「リミックス」を1行目に（最初の画面に入れるため） */}
-        {!isPrivate && (
-          <div className="order-2 lg:hidden">
-            {remixButton(whiteButton, 'mt-3')}
-            <div className="mt-3 flex gap-3">
-              {likeButton(whiteButton)}
-              {saveButton(whiteButton)}
-              {shareButton(whiteButton)}
+        <div data-work-side="" className="min-w-0">
+          {/* ボタン。1023px以下では枠のすぐ下。浮かせない（作品の枠に重なるため。docs/tasks/FIX-remix-button.md）。「リミックス」を1行目に（スマホでも最初の画面に入れるため） */}
+          {!isPrivate && (
+            <div data-work-actions="" className="max-lg:mt-3">
+              {remixButton(whiteButton, '')}
+              <div className="mt-3 flex gap-3">
+                {likeButton(whiteButton)}
+                {saveButton(whiteButton)}
+                {shareButton(whiteButton)}
+              </div>
             </div>
-          </div>
-        )}
-        {/* 持ち主の「新しい版を置く」。公開の作品では、後から出すと下がずれるので、ここには出さない（設定のタブにある） */}
-        {isPrivate && (
-          <a href={newVersionPath} className="order-2 mt-3 inline-flex h-11 items-center justify-center gap-2 rounded-control bg-site-primary text-body font-semibold text-site-bg lg:hidden">
-            <Upload size={18} strokeWidth={2} aria-hidden="true" />
-            {copy.work.newVersion}
-          </a>
-        )}
+          )}
+          {/* 持ち主の「新しい版を置く」（1023px以下）。公開の作品では、後から出すと下がずれるので、ここには出さない（設定のタブにある） */}
+          {isPrivate && (
+            <a href={newVersionPath} className="mt-3 flex h-11 items-center justify-center gap-2 rounded-control bg-site-primary text-body font-semibold text-site-bg lg:hidden">
+              <Upload size={18} strokeWidth={2} aria-hidden="true" />
+              {copy.work.newVersion}
+            </a>
+          )}
+          <p role="status" className="sr-only">
+            {shareMessage}
+          </p>
 
-        <div className="order-5 min-w-0 max-lg:mt-4 lg:order-none">
+          {/* 数は小さく1行 */}
+          <div data-work-counts="" className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-small text-site-fg-3 ${isPrivate ? 'max-lg:mt-4' : 'mt-4'}`}>
+            <a href={localizedPath(locale, `/c/${handle}`)} className="rounded-key font-semibold text-site-fg hover:underline">
+              {creator.name}
+            </a>
+            {creator.kind === 'label' && <span className="text-meta text-site-fg-2">{copy.work.label}</span>}
+            {creator.x_url && <XLink href={creator.x_url} />}
+            <span className={`${BADGE} md:hidden`}>{copy.work.meta(work.category, work.subtype)}</span>
+            <span className="flex items-center gap-1">
+              <Eye size={16} strokeWidth={1.75} aria-hidden="true" />
+              <span aria-hidden="true">{views}</span>
+              <span className="sr-only">{copy.work.views(views)}</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <Copy size={16} strokeWidth={1.75} aria-hidden="true" />
+              <span aria-hidden="true" data-testid="copy-count">
+                {copyCount}
+              </span>
+              <span className="sr-only">{copy.work.copies(copyCount)}</span>
+            </span>
+            {!isPrivate && (
+              <span className="flex items-center gap-1">
+                <Heart size={16} strokeWidth={1.75} aria-hidden="true" />
+                <span aria-hidden="true">{likes}</span>
+                <span className="sr-only">{copy.work.likes(likes)}</span>
+              </span>
+            )}
+          </div>
+          {source && <SourceBand source={source} />}
+          {isPrivate && (
+            <p data-private-notice="" role="note" className="mt-3 rounded-control bg-site-field px-3 py-2.5 text-small">
+              <span className="font-semibold">{copy.work.privateNotice}</span>{' '}
+              <a href={localizedPath(locale, '/account/works')} className="underline">
+                {copy.work.privateToWorks}
+              </a>
+            </p>
+          )}
+
+          <div role="tablist" aria-label={copy.work.tabs.label} onKeyDown={onTabKey} className="mt-3 flex gap-1 overflow-x-auto border-b border-site-line">
+            {tabs.map(({ id: tabId, label, icon: Icon, count }) => (
+              <button
+                key={tabId}
+                id={`${tabsId}-tab-${tabId}`}
+                type="button"
+                role="tab"
+                aria-selected={shownTab === tabId}
+                aria-controls={`${tabsId}-panel-${tabId}`}
+                tabIndex={shownTab === tabId ? 0 : -1}
+                onClick={() => setTab(tabId)}
+                className={`-mb-px inline-flex h-11 flex-1 shrink-0 items-center justify-center gap-2 border-b-2 px-2.5 text-body font-semibold ${
+                  shownTab === tabId ? 'border-site-fg text-site-fg' : 'border-transparent text-site-fg-2 hover:text-site-fg'
+                }`}
+              >
+                {/* 印は、タブの列が広いときだけ（768〜1023px の1列と、1280px以上の右の列） */}
+                <Icon size={16} strokeWidth={1.75} aria-hidden="true" className="hidden md:max-lg:block xl:block" />
+                {label}
+                {count !== undefined && count > 0 && <span className="rounded-chip bg-site-key px-1.5 text-small font-normal text-site-fg-3">{count}</span>}
+              </button>
+            ))}
+          </div>
+
+        <div className="mt-4 min-w-0">
           <div {...panelProps('code')}>
             {page.about && <WorkAbout about={page.about} />}
             <button
@@ -524,6 +520,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
               )}
             </div>
           )}
+        </div>
         </div>
       </div>
 

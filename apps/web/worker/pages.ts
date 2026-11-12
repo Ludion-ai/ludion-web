@@ -17,7 +17,7 @@ import { canPost, draftFrameUrls, loadRevisionFiles, ownedWork, privateCurrentRe
 import { getSessionUser } from './session';
 import { renderDocument } from './ssr';
 import { loadOutline } from './outline';
-import { buildAbout, isCheckedPrefix, loadHistory } from './workAbout';
+import { buildAbout, loadHistory } from './workAbout';
 
 type PageContext = Context<{ Bindings: Env }>;
 
@@ -127,7 +127,7 @@ export async function renderWorkPage(c: PageContext): Promise<Response> {
       source,
       private: loaded.private && { frames: draftFrameUrls(loaded.private.revisionId) },
       stills: loaded.private ? [] : await wallStills(c.env.PARTS, work, loaded.prefix),
-      about: outline && buildAbout(outline, files, isCheckedPrefix(loaded.prefix)),
+      about: outline && buildAbout(outline, files),
       versions: history.versions,
       lineage: history.lineage,
     },

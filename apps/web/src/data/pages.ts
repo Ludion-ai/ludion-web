@@ -41,8 +41,6 @@ export type WorkAbout = {
   /** 関数の数 */
   functions: number;
   tech: AboutTech[];
-  /** ld upload が ld check（アクセシビリティの検査 axe を含む）を通して置いた版か */
-  checked: boolean;
 };
 
 /** 版の一覧の1行（新しい順）。at は置いた時刻 */

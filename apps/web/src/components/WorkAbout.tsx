@@ -29,7 +29,7 @@ const techItem = (copy: Copy, tech: AboutTech, extra: Partial<Item> = {}): Item 
   ...extra,
 });
 
-/** 「この作品について」の行（描き方、シェーダー、音、操作、気づかい、外から読む物、大きさ）。見つからない行は出さない */
+/** 「この作品について」の行（描き方、シェーダー、動き、音、操作、気づかい、保存、外から読む物、大きさ）。見つからない行は出さない */
 function aboutRows(copy: Copy, about: About): Row[] {
   const text = copy.work.about;
   const group = (name: string) => about.tech.filter((tech) => tech.group === name);
@@ -47,6 +47,7 @@ function aboutRows(copy: Copy, about: About): Row[] {
       ...shaders.glsl.map((version) => ({ key: `glsl-${version}`, text: glslName(version), spot: null, count: 0 })),
     ]);
   }
+  add('motion', text.motion, group('motion').map((tech) => techItem(copy, tech)));
   // 音：合成だけ（録音を読まず、音のファイルも持たない）なら、そう書く
   const synthOnly = has('webaudio-synth') && !has('webaudio-decode') && !has('audio-element');
   add(
@@ -59,6 +60,12 @@ function aboutRows(copy: Copy, about: About): Row[] {
   );
   add('input', text.input, group('input').map((tech) => techItem(copy, tech)));
   add('care', text.care, group('care').map((tech) => techItem(copy, tech, { done: true })));
+  // 保存：枠の中の localStorage と sessionStorage はメモリだけ（CLAUDE.md「JS」、FRAME001）なので、そう添える
+  const storage = group('storage');
+  add('storage', text.storage, [
+    ...storage.map((tech) => techItem(copy, tech)),
+    ...(storage.some((tech) => tech.id === 'localstorage' || tech.id === 'sessionstorage') ? [{ key: 'storage-note', text: text.storageNote, spot: null, count: 0 }] : []),
+  ]);
   const external = group('external');
   rows.push({
     key: 'external',
@@ -179,12 +186,6 @@ export function WorkAbout({ about }: { about: About }) {
         <span className="ml-2 font-normal text-site-fg-2 max-md:hidden">{text.a11y.note}</span>
       </h3>
       {a11y.length > 0 ? list(a11y, a11yId) : <p className="mt-2 text-small text-site-fg-2">{text.a11y.none}</p>}
-      {about.checked && (
-        <p data-about-checked="" className="mt-2 flex items-center gap-1.5 text-small text-site-fg-3">
-          <Check size={14} strokeWidth={2.25} aria-hidden="true" className="shrink-0" />
-          {text.a11y.checked}
-        </p>
-      )}
 
       {/* 印の行。本当のファイルの行の番号で出す（コピーされるコードの行ではない） */}
       <div id={peekId} ref={peekRef} role="region" aria-label={text.peek.region} aria-live="polite" data-about-peek="" hidden={!open?.item.spot} className="mt-3 overflow-hidden rounded-control border border-site-line bg-site-field">

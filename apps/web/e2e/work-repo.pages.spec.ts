@@ -19,18 +19,19 @@ const panel = (page: Page, id: string) => page.locator(`[data-work-panel="${id}"
 test.describe('頭', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('@作者 / 題、状態の札、版、種類。数は下に1行。右に今のボタン', async ({ page }) => {
+  test('@作者 / 題、状態の札、版、種類。右の列に今のボタンと、数の行', async ({ page }) => {
     await openWork(page, TOGGLE);
     const head = page.locator('[data-work-head]');
     await expect(head.getByRole('link', { name: '@fixture', exact: true })).toHaveAttribute('href', '/c/fixture');
     await expect(head.getByRole('heading', { level: 1 })).toHaveText('Quiet Switches');
-    await expect(head.locator('[data-work-state]')).toHaveText('公開');
-    await expect(head.locator('[data-work-state]')).toHaveAttribute('data-work-state', 'public');
-    await expect(head).toContainText('版 1');
+    await expect(head.locator('[data-work-state]:visible')).toHaveText('公開');
+    await expect(head.locator('[data-work-state]:visible')).toHaveAttribute('data-work-state', 'public');
+    await expect(head.getByText('版 1', { exact: true }).locator('visible=true')).toHaveCount(1);
     await expect(head.getByText('部品 · トグル', { exact: true })).toBeVisible();
-    // 右のボタン：いいね、保存、リミックス、共有（今あるボタン）。持ち主でない人に「新しい版を置く」と「設定」はない
-    const actions = head.locator('[data-work-actions]');
-    await expect(actions.getByRole('button')).toHaveText([/^\d+$/, '保存', 'リミックス', '共有']);
+    // 右の列のボタン：リミックス、いいね、保存、共有（今あるボタン。1組だけ）。持ち主でない人に「新しい版を置く」と「設定」はない
+    const actions = page.locator('[data-work-side] [data-work-actions]');
+    await expect(actions.getByRole('button')).toHaveText(['リミックス', /^\d+$/, '保存', '共有']);
+    await expect(page.locator('[data-work-actions]')).toHaveCount(1);
     await expect(page.getByRole('link', { name: '新しい版を置く' })).toHaveCount(0);
     // 数の行：見られた数、コピーされた数、いいね
     const counts = page.locator('[data-work-counts]');
@@ -118,8 +119,10 @@ test.describe('この作品について', () => {
     await expect(box.locator('[data-about-item="aria-state:aria-checked"]')).toHaveText('aria-checked');
     await expect(box.locator('[data-about-item="aria-name:aria-label"]')).toHaveText('aria-label');
     await expect(box.locator('[data-about-item="focus-visible::focus-visible"]')).toHaveText(':focus-visible');
-    // 見本は ld upload を通っていないが、管理 API と同じ置き場（works/<id>/<version>）なので、検査の行が出る
-    await expect(box.locator('[data-about-checked]')).toContainText('ld check のアクセシビリティ（axe）を通った');
+    // 出すのは、コードから読んだ事実だけ。検査（ld check）の結果は出さない
+    await expect(box).not.toContainText('ld check');
+    // 動き：CSS のトランジション（part.css）
+    await expect(box.locator('[data-about-item="css-transition"]')).toHaveText('CSS のトランジション');
     // 言語の帯：割合の合計は 100%（丸めの分だけずれる）
     const percents = (await box.locator('[data-about-languages] li').allTextContents()).map((text) => Number(/([\d.]+)%/.exec(text)![1]));
     expect(percents.length).toBeGreaterThanOrEqual(3);
@@ -161,6 +164,26 @@ test.describe('この作品について', () => {
     await expect(peek).toBeHidden();
   });
 
+  test('動きと保存の行：requestAnimationFrame と localStorage。保存には「枠の中では読み直すと消える」を添える。押すとその行', async ({ page }) => {
+    await openWork(page, 'fx-motion');
+    const motion = about(page).locator('[data-about-item="raf"]');
+    await expect(motion).toHaveText('requestAnimationFrame');
+    await motion.click();
+    await expect(about(page).locator('[data-about-peek] [aria-current="true"]')).toContainText('requestAnimationFrame');
+
+    await openWork(page, 'fx-counter');
+    const box = about(page);
+    const storage = box.locator('[data-about-item="localstorage"]');
+    await expect(storage).toHaveText('localStorage');
+    await expect(box).toContainText('Ludion の枠の中では読み直すと消える');
+    await storage.click();
+    await expect(box.locator('[data-about-peek]')).toContainText(/part\.js の \d+ 行目/);
+    await expect(box.locator('[data-about-peek] [aria-current="true"]')).toContainText('localStorage');
+    // 保存を使わない作品には、行も、添える文も出さない
+    await openWork(page, TOGGLE);
+    await expect(about(page)).not.toContainText('読み直すと消える');
+  });
+
   test('文書の作品：index.html の行を指す', async ({ page }) => {
     await openWork(page, 'mal-doc');
     const box = about(page);
@@ -179,11 +202,11 @@ test.describe('持ち主', () => {
     await context.addCookies([{ name: 'ld_session', value: PRIVATE_OWNER.session, url: baseURL! }]);
     await openWork(page, id);
     const head = page.locator('[data-work-head]');
-    await expect(head.locator('[data-work-state]')).toHaveText('自分だけ');
+    await expect(head.locator('[data-work-state]:visible')).toHaveText('自分だけ');
     await expect(head.getByRole('link', { name: '新しい版を置く' })).toHaveAttribute('href', `/new?work=${id}`);
     await expect(page.locator('[data-private-notice]')).toContainText('自分だけの作品です');
     // いいね、保存、共有、リミックスは出さない（docs/tasks/T036.md）
-    await expect(head.locator('[data-work-actions]').getByRole('button')).toHaveCount(0);
+    await expect(page.locator('[data-work-actions]')).toHaveCount(0);
 
     const tabs = page.getByRole('tablist', { name: '作品の中身' }).getByRole('tab');
     await expect(tabs).toHaveText([/^コード$/, /^版\s*1$/, /^系譜$/, /^設定$/]);
@@ -199,6 +222,112 @@ test.describe('持ち主', () => {
   });
 });
 
+// HTML の順と見た目の順は、どの幅でも同じ：頭 → 動く作品 → ボタン → 数の行 → タブ → タブの中身。
+// キーの Tab と読み上げ（HTML の順）が、見た目の順で進む。CSS の order で見た目だけを動かさない。
+const ORDER = ['[data-work-head]', '[data-work-stage]', '[data-work-actions]', '[data-work-counts]', '[role="tablist"]', '[data-work-panel="code"]'];
+
+type Rect = { left: number; top: number; right: number; bottom: number };
+
+/**
+ * b が a より「後」に見えるか。2列のとき（boundary：左の列の右の端）は、左の列が先。
+ * 同じ列の中では、下にあるか、同じ行で右にある。
+ */
+function after(a: Rect, b: Rect, boundary: number | null): boolean {
+  const column = (rect: Rect) => (boundary !== null && rect.left >= boundary ? 1 : 0);
+  if (column(a) !== column(b)) return column(b) > column(a);
+  if (b.top >= a.bottom - 1) return true;
+  const sameRow = b.top < a.bottom && a.top < b.bottom;
+  return sameRow && b.left >= a.right - 1;
+}
+
+for (const { label, viewport, columns } of [
+  { label: '幅1440（2列）', viewport: { width: 1440, height: 900 }, columns: 2 },
+  { label: '幅1024（2列）', viewport: { width: 1024, height: 900 }, columns: 2 },
+  { label: '幅1023（1列）', viewport: { width: 1023, height: 900 }, columns: 1 },
+  { label: '幅390（1列）', viewport: { width: 390, height: 844 }, columns: 1 },
+]) {
+  test.describe(`順：${label}`, () => {
+    test.use({ viewport });
+
+    test('HTML の順と見た目の順が同じ。CSS の order を使っていない。フォーカスできる物も、HTML の順が見た目の順', async ({ page }) => {
+      await openWork(page, 'fx-landing');
+      const measured = await page.evaluate((selectors) => {
+        const rect = (el: Element) => {
+          const { left, top, right, bottom } = el.getBoundingClientRect();
+          return { left, top: top + window.scrollY, right, bottom: bottom + window.scrollY };
+        };
+        const parts = selectors.map((selector) => document.querySelector(selector)!);
+        const scope = [document.querySelector('[data-work-head]')!, document.querySelector('[data-work-stage]')!, document.querySelector('[data-work-side]')!];
+        const visible = (el: Element) => {
+          const box = el.getBoundingClientRect();
+          return box.width > 0 && box.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+        };
+        const focusable = scope.flatMap((root) => [...root.querySelectorAll<HTMLElement>('a[href], button, iframe, [tabindex]')]).filter((el) => visible(el) && el.tabIndex >= 0);
+        const ordered = scope.flatMap((root) => [root, ...root.querySelectorAll('*')]).filter((el) => getComputedStyle(el).order !== '0');
+        return {
+          // HTML の順：前の物が、次の物より前にある
+          domOrder: parts.slice(1).map((el, index) => Boolean(parts[index].compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)),
+          rects: parts.map(rect),
+          stage: rect(document.querySelector('[data-work-stage]')!),
+          focusable: focusable.map((el) => ({ name: (el.getAttribute('aria-label') ?? el.textContent ?? el.tagName).trim().slice(0, 20) || el.tagName, rect: rect(el) })),
+          ordered: ordered.length,
+        };
+      }, ORDER);
+
+      expect(measured.domOrder).toEqual([true, true, true, true, true]);
+      expect(measured.ordered).toBe(0);
+      const boundary = columns === 2 ? measured.stage.right : null;
+      // 頭 → 動く作品 → ボタン → 数の行 → タブ → タブの中身
+      for (let index = 1; index < measured.rects.length; index++) {
+        expect(after(measured.rects[index - 1], measured.rects[index], boundary), `${ORDER[index - 1]} → ${ORDER[index]}`).toBe(true);
+      }
+      // 2列：動く作品は左、ボタンから下は右の列。1列：全部が同じ左の端
+      if (columns === 2) for (const rect of measured.rects.slice(2)) expect(rect.left).toBeGreaterThan(measured.stage.right);
+      else for (const rect of measured.rects.slice(2)) expect(Math.abs(rect.left - measured.stage.left)).toBeLessThan(2);
+      // フォーカスできる物（リンク、ボタン、枠、タブ、コードの箱）：HTML の順に並べると、見た目も前から後ろへ進む
+      expect(measured.focusable.length).toBeGreaterThan(10);
+      for (let index = 1; index < measured.focusable.length; index++) {
+        const [a, b] = [measured.focusable[index - 1], measured.focusable[index]];
+        expect(after(a.rect, b.rect, boundary), `${a.name} → ${b.name}`).toBe(true);
+      }
+    });
+
+    test('Tab のキーで進むと、見た目の順（ボタン → 数の行 → タブ → この作品について）で進む', async ({ page, browserName }) => {
+      await openWork(page, TOGGLE);
+      // 「リミックス」から始める（その前は作品の枠の中で、枠の中の Tab の数は作品による）
+      const first = page.getByRole('button', { name: 'リミックス', exact: true });
+      await first.focus();
+      const seen: { name: string; rect: Rect }[] = [];
+      for (let press = 0; press < 12; press++) {
+        const now = await page.evaluate(() => {
+          const el = document.activeElement as HTMLElement | null;
+          if (!el || el === document.body) return null;
+          const { left, top, right, bottom } = el.getBoundingClientRect();
+          return { name: (el.getAttribute('aria-label') ?? el.textContent ?? '').trim().slice(0, 24) || el.tagName, role: el.getAttribute('role'), rect: { left, top: top + window.scrollY, right, bottom: bottom + window.scrollY } };
+        });
+        if (!now) break;
+        seen.push(now);
+        // 「この作品について」の最初の印まで来たら終わり
+        if (seen.length > 1 && (await page.evaluate(() => document.activeElement?.hasAttribute('data-about-item') ?? false))) break;
+        // WebKit は、Option を押さないと、リンクを Tab で飛ばす（Safari の決まり）。ボタンは進む
+        await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab');
+      }
+      const names = seen.map((item) => item.name);
+      // リミックス → いいね → 保存 → 共有 → 作者の名前 → 選んだタブ（コード）→ 最初の印
+      expect(names.slice(0, 4)).toEqual(['リミックス', expect.stringMatching(/^いいね/), '保存', '共有']);
+      expect(names).toContain('Fixture');
+      expect(names.indexOf('コード')).toBeGreaterThan(names.indexOf('Fixture'));
+      expect(names.at(-1)).toBe('DOM + CSS');
+      expect(names.indexOf('DOM + CSS')).toBe(names.indexOf('コード') + 1);
+      const stage = (await page.locator('[data-work-stage]').boundingBox())!;
+      const boundary = columns === 2 ? stage.x + stage.width : null;
+      for (let index = 1; index < seen.length; index++) {
+        expect(after(seen[index - 1].rect, seen[index].rect, boundary), `${seen[index - 1].name} → ${seen[index].name}`).toBe(true);
+      }
+    });
+  });
+}
+
 test.describe('スマホ（幅390）', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
@@ -209,14 +338,13 @@ test.describe('スマホ（幅390）', () => {
     const order = [
       await top('[data-work-head]'),
       await top('iframe[data-ld-frame]'),
-      await top('button[aria-haspopup="dialog"] >> visible=true'),
+      await top('[data-work-actions]'),
       await top('[data-work-counts]'),
       await top('[role="tablist"]'),
       await top('[data-work-about]'),
     ];
     expect(order).toEqual([...order].sort((a, b) => a - b));
-    // 頭のボタン（1024px以上の形）は出さない。種類の札は、頭ではなく数の行に出す（頭を2行に収める）
-    await expect(page.locator('[data-work-actions]')).toBeHidden();
+    // 種類の札は、頭ではなく数の行に出す（頭を2行に収める）
     await expect(page.locator('[data-work-head]').getByText('部品 · トグル', { exact: true })).toBeHidden();
     await expect(page.locator('[data-work-counts]').getByText('部品 · トグル', { exact: true })).toBeVisible();
     const head = (await page.locator('[data-work-head]').boundingBox())!;
