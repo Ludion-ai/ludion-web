@@ -306,8 +306,72 @@ test.describe('AI につなぐ：許可とトークン', () => {
     const database = dumpD1();
     for (const raw of [code, tokens.access_token, tokens.refresh_token, next.access_token, next.refresh_token]) expect(database).not.toContain(raw);
     const [row] = d1<Record<string, unknown>>(`SELECT * FROM oauth_grants WHERE user_id = ${quote(id)} AND client_id = ${quote(grantClient)}`);
-    expect(Object.keys(row).sort()).toEqual(['access_expires_at', 'access_hash', 'client_id', 'client_name', 'created_at', 'id', 'last_used_at', 'refresh_expires_at', 'refresh_hash', 'user_id']);
+    expect(Object.keys(row).sort()).toEqual(['access_expires_at', 'access_hash', 'client_id', 'client_name', 'created_at', 'id', 'last_used_at', 'prev_refresh_hash', 'refresh_expires_at', 'refresh_hash', 'refresh_rotated_at', 'user_id']);
     expect(database).toContain(row.access_hash as string);
+  });
+
+  test('トークン：許可の求めに redirect_uri があったなら、同じ値が要る。無かったなら省いてよい（OAUTH002）', async () => {
+    const { visitor } = await person();
+    const client = await register('Claude');
+    /** 許可して出た証で、トークンの口を叩く */
+    const exchange = async (redirect: string | null, sentOnAuthorize = true) => {
+      const { verifier, challenge } = pkce();
+      const params = authorizeParams(client.client_id, challenge);
+      if (!sentOnAuthorize) params.delete('redirect_uri');
+      const code = (await allow(visitor, params)).searchParams.get('code')!;
+      const body: Record<string, string> = { grant_type: 'authorization_code', code, client_id: client.client_id, code_verifier: verifier, resource: `${ownOrigin()}/mcp` };
+      if (redirect !== null) body.redirect_uri = redirect;
+      const response = await form('/oauth/token', body);
+      return { status: response.status, body: (await response.json()) as { error?: string; access_token?: string } };
+    };
+    // 許可の求めに redirect_uri があった：送らない、違う値は invalid_grant。同じ値は通る
+    expect(await exchange(null)).toMatchObject({ status: 400, body: { error: 'invalid_grant' } });
+    expect(await exchange('https://claude.example/api/mcp/other')).toMatchObject({ status: 400, body: { error: 'invalid_grant' } });
+    expect((await exchange(REDIRECT)).status).toBe(200);
+    // 許可の求めに redirect_uri が無かった（登録した戻り先が1つ）：省いてよい。送るなら同じ値
+    expect((await exchange(null, false)).status).toBe(200);
+    expect((await exchange(REDIRECT, false)).status).toBe(200);
+    expect(await exchange('https://claude.example/api/mcp/other', false)).toMatchObject({ status: 400, body: { error: 'invalid_grant' } });
+  });
+
+  test('トークン：ひとつ前のリフレッシュのトークンがまた来たら、30秒以内は断るだけ、30秒より後はつながりを切る（OAUTH002）', async () => {
+    const { visitor, id } = await person();
+    const { client, tokens } = await connect(visitor);
+    const refresh = (token: string) => form('/oauth/token', { grant_type: 'refresh_token', refresh_token: token, client_id: client.client_id });
+    const grant = () => d1<{ id: string; prev_refresh_hash: string | null; refresh_rotated_at: number | null }>(`SELECT id, prev_refresh_hash, refresh_rotated_at FROM oauth_grants WHERE user_id = ${quote(id)}`);
+    expect(grant()).toHaveLength(1);
+    expect(grant()[0]).toMatchObject({ prev_refresh_hash: null, refresh_rotated_at: null });
+
+    // 1回目の更新：R1 → R2。ひとつ前（R1）のハッシュと替えた時刻を残す
+    const first = await refresh(tokens.refresh_token);
+    expect(first.status).toBe(200);
+    const second = (await first.json()) as Tokens;
+    const [rotated] = grant();
+    expect(rotated.prev_refresh_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(Math.abs(Date.now() - rotated.refresh_rotated_at!)).toBeLessThan(60_000);
+    expect(dumpD1()).not.toContain(tokens.refresh_token);
+
+    // 30秒以内に R1 がまた来た（同時に2本の更新を送る AI）：invalid_grant だけ。つながりは残り、R2 で更新できる
+    const overlap = await refresh(tokens.refresh_token);
+    expect(overlap.status).toBe(400);
+    expect((await overlap.json()).error).toBe('invalid_grant');
+    expect(grant()).toHaveLength(1);
+    expect((await rpc(second.access_token, 'ping')).response.status).toBe(200);
+    const again = await refresh(second.refresh_token);
+    expect(again.status).toBe(200);
+    const third = (await again.json()) as Tokens;
+    // 2つ前（R1）は、ひとつ前ではないので、ただ断るだけ
+    expect((await refresh(tokens.refresh_token)).status).toBe(400);
+    expect(grant()).toHaveLength(1);
+
+    // 替えてから30秒より後に、ひとつ前（R2）がまた来た：つながりを消して invalid_grant。今のトークン（R3 とそのアクセス）も使えない
+    d1(`UPDATE oauth_grants SET refresh_rotated_at = refresh_rotated_at - 31000 WHERE user_id = ${quote(id)}`);
+    const reused = await refresh(second.refresh_token);
+    expect(reused.status).toBe(400);
+    expect((await reused.json()).error).toBe('invalid_grant');
+    expect(grant()).toHaveLength(0);
+    expect((await refresh(third.refresh_token)).status).toBe(400);
+    expect((await rpc(third.access_token, 'ping')).response.status).toBe(401);
   });
 });
 
