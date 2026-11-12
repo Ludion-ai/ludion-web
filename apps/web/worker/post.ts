@@ -770,6 +770,119 @@ post.post('/works/:id/publish', async (c) => {
   return c.json({ id: work.id, status: 'submitted', revision_id: revision.id, version: revision.version });
 });
 
+/** 画像だけの本文（multipart の thumb の1つだけ）を読む。だめなら応答を返す。 */
+async function readThumbOnly(c: PostContext): Promise<Uint8Array | Response> {
+  const contentType = c.req.header('Content-Type') ?? '';
+  if (!/^multipart\/form-data\b/i.test(contentType)) return c.json({ error: 'bad_request' }, 400);
+  const bytes = await readBody(c.req.raw);
+  if (!bytes) return c.json({ error: 'too_large' }, 413);
+  let form: FormData;
+  try {
+    form = await new Response(bytes, { headers: { 'Content-Type': contentType } }).formData();
+  } catch {
+    return c.json({ error: 'bad_request' }, 400);
+  }
+  let thumb: Uint8Array | null = null;
+  for (const [name, value] of form.entries() as Iterable<[string, string | File]>) {
+    if (name !== 'thumb') return c.json({ error: 'unknown_field' }, 400);
+    if (thumb) return c.json({ error: 'duplicate_field' }, 400);
+    if (typeof value === 'string') return c.json({ error: 'bad_request' }, 400);
+    thumb = new Uint8Array(await value.arrayBuffer());
+  }
+  return thumb ?? c.json({ error: 'thumb_required' }, 400);
+}
+
+/**
+ * 自分だけの作品に、画像だけを足す（DOC002「1」）。今の版のファイルを写し、画像を足した新しい版を作って、作品の今の版にする。
+ * 今の版は書き換えない（承認は中身のハッシュで結ぶので、中身の違う版にする）。画像は投稿と同じ道で読み直す（thumb.ts）。
+ * 持ち主だけ。ほかの人には、ない作品と同じ 404。数え方は自分だけの版（MCP001）。公開に回すのは、今の「公開する」（/works/:id/publish）。
+ */
+post.post('/works/:id/thumb', async (c) => {
+  const db = c.env.DB;
+  const user = c.get('user');
+  if (!canPost(c.env, user)) return c.json({ error: 'not_found' }, 404);
+  const work = await ownedWork(db, c.req.param('id'));
+  if (!work || work.owner_id !== user.id) return c.json({ error: 'not_found' }, 404);
+  if (work.status !== 'private') return c.json({ error: 'not_private' }, 409);
+  const current = await db.prepare('SELECT * FROM revisions WHERE work_id = ? AND version = ?').bind(work.id, work.version).first<RevisionRow>();
+  if (!current || (current.status !== 'private' && current.status !== 'approved')) return c.json({ error: 'not_placed' }, 409);
+  // 直している途中の版（下書き、審査待ち）があるときは足さない（版の番号が前後し、直している版が今の版より古くなるため）
+  const open = await db.prepare(`SELECT status FROM revisions WHERE work_id = ? AND status IN ('draft', 'submitted') LIMIT 1`).bind(work.id).first<{ status: string }>();
+  if (open) return c.json({ error: open.status === 'submitted' ? 'in_review' : 'has_draft' }, 409);
+
+  const source = await readThumbOnly(c);
+  if (source instanceof Response) return source;
+  const limited = await takePostQuota(db, user.id, true, Date.now(), 'private');
+  if (limited) return c.json({ error: 'rate_limited', limit: limited }, 429);
+  const { processThumb } = await import('./thumb');
+  const made = await processThumb(source);
+  if ('error' in made) return c.json({ error: THUMB_STATUS[made.error] }, 422);
+
+  // 今の版のファイルを、そのままのバイト列で写す。meta.json だけは版の番号と日付を新しい版のものにする（writeDraft と同じ）
+  const read = async (name: string) => {
+    const object = await c.env.PARTS.get(revisionFile(current.r2_prefix, name));
+    return object ? new Uint8Array(await object.arrayBuffer()) : null;
+  };
+  const [metaBytes, html, css, js, document] = await Promise.all(['meta.json', 'part.html', 'part.css', 'part.js', DOCUMENT_FILE].map(read));
+  const isDocument = html === null && document !== null;
+  if (!metaBytes || (!isDocument && (html === null || css === null))) return c.json({ error: 'not_placed' }, 409);
+  const { results: versions } = await db.prepare('SELECT version FROM revisions WHERE work_id = ?').bind(work.id).all<{ version: string }>();
+  const version = nextVersion(versions.map((row) => row.version));
+  const now = Date.now();
+  const meta = JSON.parse(new TextDecoder().decode(metaBytes)) as Record<string, unknown>;
+  const metaJson = JSON.stringify({ ...meta, version, published_at: new Date(now).toISOString().slice(0, 10) });
+  const contentHash = await sha256Hex(isDocument ? [metaJson, document!, made.thumb, made.og] : [metaJson, html!, css!, js ?? '', made.thumb, made.og]);
+  const revisionId = randomHex(16);
+  const prefix = `revisions/${revisionId}/${contentHash.slice(0, 16)}`;
+  const files: [string, Uint8Array | string, string][] = [
+    ['meta.json', metaJson, CONTENT_TYPES['meta.json']],
+    ...((isDocument
+      ? [[DOCUMENT_FILE, document, CONTENT_TYPES['part.html']]]
+      : [
+          ['part.html', html, CONTENT_TYPES['part.html']],
+          ['part.css', css, CONTENT_TYPES['part.css']],
+          ...(js !== null ? [['part.js', js, CONTENT_TYPES['part.js']]] : []),
+        ]) as [string, Uint8Array, string][]),
+    ['thumb.webp', made.thumb, CONTENT_TYPES['thumb.webp']],
+    ['og.png', made.og, CONTENT_TYPES['og.png']],
+  ];
+  await Promise.all(files.map(([name, body, contentType]) => c.env.PARTS.put(revisionFile(prefix, name), body, { httpMetadata: { contentType } })));
+
+  // 1つのトランザクション。今の版がまだ今の版で、直している版がないときだけ、新しい版を足し（changes() > 0）、作品の今の版にする
+  let placed: number;
+  let moved: number;
+  try {
+    const [inserted, updated] = await db.batch([
+      db
+        .prepare(
+          `INSERT INTO revisions (id, work_id, version, status, r2_prefix, content_hash, title, type, platform, category, subtype, tags, made_with, thumb_w, thumb_h, tokens_ok, created_by, created_at, updated_at, is_remix, remix_of, via)
+           SELECT ?1, work_id, ?2, 'private', ?3, ?4, title, type, platform, category, subtype, tags, made_with, ?5, ?6, tokens_ok, ?7, ?8, ?8, is_remix, remix_of, NULL
+           FROM revisions WHERE id = ?9
+             AND EXISTS (SELECT 1 FROM works WHERE id = ?10 AND status = 'private' AND version = ?11)
+             AND NOT EXISTS (SELECT 1 FROM revisions WHERE work_id = ?10 AND status IN ('draft', 'submitted'))`,
+        )
+        .bind(revisionId, version, prefix, contentHash, made.width, made.height, user.id, now, current.id, work.id, current.version),
+      db
+        .prepare(`UPDATE works SET version = ?1, thumb_key = ?2, thumb_w = ?3, thumb_h = ?4 WHERE id = ?5 AND status = 'private' AND version = ?6 AND changes() > 0`)
+        .bind(version, revisionFile(prefix, 'thumb.webp'), made.width, made.height, work.id, current.version),
+    ]);
+    placed = inserted.meta.changes;
+    moved = updated.meta.changes;
+  } catch {
+    placed = 0;
+    moved = 0;
+  }
+  if (placed === 0 || moved === 0) {
+    // 同時に送られて、もう片方が先に通った（版の番号がぶつかった、今の版が変わった）。こちらのファイルは残さない
+    await deletePrefix(c.env.PARTS, prefix);
+    return c.json({ error: 'conflict' }, 409);
+  }
+  return c.json({
+    work_id: work.id,
+    revision: { id: revisionId, version, status: 'private', thumb: draftThumbUrl(revisionId), thumb_w: made.width, thumb_h: made.height },
+  });
+});
+
 /**
  * 公開 → 自分だけにする（docs/tasks/T036.md「4」）。すぐ。審査はしない。ホームと検索から消え、リンクを開いても 404 になる。
  * 閲覧数とコピー数、ほかの人のリミックスは残す。審査待ちの新しい版は審査から外して下書きに戻す（承認で公開に戻らないように）。
