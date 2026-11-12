@@ -63,7 +63,7 @@ function checkTimeline() {
   }
   for (let i = 1; i < timeline.captions.length; i++) if (timeline.captions[i].in < timeline.captions[i - 1].out) errors.push(`見出し ${i} と ${i + 1} が重なる`);
   // 公式アカウントで使う文言に「AI」を入れない。ターミナルに出す行（本物の記録）も見る
-  const words = [...timeline.captions.flatMap((c) => [c.ja, c.en]), timeline.end.wordmark, timeline.end.line.ja, timeline.end.line.en, timeline.terminal.title, ...terminal.items.map((i) => i.text)];
+  const words = [...timeline.captions.flatMap((c) => [c.ja, c.en]), timeline.end.wordmark, timeline.end.domain, timeline.terminal.title, ...terminal.items.map((i) => i.text)];
   for (const w of words) if (/(^|[^a-z.])ai([^a-z]|$)/i.test(w.replace(/ludion\.ai/gi, ''))) errors.push(`「AI」の言葉がある: ${w}`);
   const beat = 60 / timeline.bpm;
   for (const s of timeline.scenes) if (Math.abs(s.from / beat - Math.round(s.from / beat)) > 1e-6) errors.push(`場面${s.id}の始まり ${s.from} が拍にのっていない`);
@@ -195,6 +195,33 @@ function run(bin, args, opts = {}) {
 }
 const lastJson = (text) => JSON.parse(text.slice(text.lastIndexOf('{'), text.lastIndexOf('}') + 1));
 
+// ---- PC の守り：ほかの試験（Playwright など）や動画の書き出しが動いている間は、描かない。0 になるまで待つ
+function busyCount() {
+  const pattern = 'playwright.*test|@playwright.test.cli|vitest|\\s--test(\\s|$)|promo[\\/][\\w-]+\\.mjs';
+  if (process.platform === 'win32') {
+    const script = `$n = (Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.ProcessId -ne ${process.pid} -and $_.CommandLine -match '${pattern}' } | Measure-Object).Count; $f = (Get-Process ffmpeg -ErrorAction SilentlyContinue | Measure-Object).Count; "$($n + $f)"`;
+    const r = spawnSync('powershell', ['-NoProfile', '-Command', script], { encoding: 'utf8' });
+    const n = Number(String(r.stdout).trim());
+    if (r.status !== 0 || !Number.isFinite(n)) throw new Error(`動いているものを数えられなかった: ${r.stderr}`);
+    return n;
+  }
+  const r = spawnSync('ps', ['-eo', 'pid=,args='], { encoding: 'utf8' });
+  const re = new RegExp(`${pattern}|^\\s*\\d+\\s+\\S*ffmpeg`);
+  return String(r.stdout).split('\n').filter((line) => re.test(line) && Number(line.trim().split(/\s+/)[0]) !== process.pid).length;
+}
+async function waitForQuiet() {
+  const maxMs = Number(valueOf('--wait-max') || 8) * 60 * 1000;
+  const started = Date.now();
+  for (let said = false; ; ) {
+    const n = busyCount();
+    if (n === 0) return;
+    if (!said) console.log(`ほかの試験か書き出しが ${n} 個動いている。0 になるまで待つ`);
+    said = true;
+    if (Date.now() - started > maxMs) throw new Error(`${Math.round(maxMs / 60000)}分待っても空かなかった（動いているもの ${n} 個）。描いていない`);
+    await new Promise((done) => setTimeout(done, 10000));
+  }
+}
+
 // ---- 舞台のブラウザ（Playwright を通さず直に起こす。1コマが速い）
 function headlessShellPath() {
   const full = chromium.executablePath();
@@ -204,6 +231,7 @@ function headlessShellPath() {
   return shell;
 }
 async function openStage(width, height, samples) {
+  await waitForQuiet();
   const { port } = server.address();
   // 一時の置き場は promo/out/ の中（この PC では、一時ファイルを作業の置き場の外に作らない）
   const profile = mkdtempSync(join(OUT_DIR, 'workspace-profile-'));
@@ -398,6 +426,11 @@ try {
   server.close();
 }
 if (report.network.productionRequests !== 0) throw new Error('本番へ要求を送ってしまった');
+{
+  // カメラが寄って追う行（指示、道具、プラグインの行、Claude の文）は、字の高さが画面の高さの 4.5% 以上で、プラグインの行は画面の幅に収まること
+  const m = (report.stills ?? report.look ?? report.video)?.measure?.terminal;
+  if (m && !(Object.values(m.textInkRatio).every((r) => r >= 0.045) && m.hookRightAt <= 0.95)) throw new Error(`ターミナルの字の大きさが決まりに合わない: ${JSON.stringify(m.textInkRatio)}、右端 ${m.hookRightAt}`);
+}
 if (!LOOK && !BENCH && !STILLS) {
   report.probe = run('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_name,profile,width,height,pix_fmt,r_frame_rate,nb_frames,duration,sample_rate,channels,color_space:format=duration,size,bit_rate', '-of', 'default=nw=1', OUT]).stdout;
   console.log(report.probe);

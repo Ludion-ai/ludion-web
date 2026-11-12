@@ -422,7 +422,25 @@ function updateBoards(t) {
 }
 
 // ---- カメラ
-const camKeys = TL.camera.keys;
+// キーに focus（user、tool、hook、say）とあれば、その行をカメラで追う。寄り方は1つ：プラグインの行の字の高さ（字の上端から下端まで）が
+// 画面の高さの textInkRatio になる距離。行は画面の上から lineAt、字の左端は画面の左から textLeftAt の位置に置く。wide は、そこから引く倍率
+const FOCUS = (() => {
+  termCtx.setTransform(1, 0, 0, 1, 0, 0);
+  const k = T1.size[0] / TDW; // 設計の画素 → 世界
+  const measure = (line) => {
+    termCtx.font = line.st.font;
+    const m = termCtx.measureText(line.text);
+    return { ink: (m.actualBoundingBoxAscent + m.actualBoundingBoxDescent) * k, width: m.width * k, cy: T1.at[1] + T1.size[1] / 2 - (TITLE_H + TPAD * 0.8 + line.y + line.st.lineH / 2) * k };
+  };
+  const lines = Object.fromEntries(['user', 'tool', 'hook', 'say'].map((kind) => [kind, measure(LAYOUT.lines.find((l) => l.kind === kind))]));
+  return { lines, fw: (lines.hook.ink * 1920) / (TL.camera.textInkRatio * 1080), left: T1.at[0] - T1.size[0] / 2 + TPAD * k };
+})();
+const camKeys = TL.camera.keys.map((key) => {
+  if (!key.focus) return key;
+  const fw = FOCUS.fw * (key.wide ?? 1);
+  const frameH = (fw * 9) / 16;
+  return { ...key, p: [FOCUS.left + (0.5 - TL.camera.textLeftAt) * fw + (key.dx ?? 0), FOCUS.lines[key.focus].cy - (0.5 - key.lineAt) * frameH, T1.at[2]], fw };
+});
 const camTrack = {
   x: makeTrack(camKeys.map((k) => ({ t: k.t, v: k.p[0] }))),
   y: makeTrack(camKeys.map((k) => ({ t: k.t, v: k.p[1] }))),
@@ -529,6 +547,7 @@ function overlaySprite(canvas) {
   mesh.frustumCulled = false;
   overlay.add(mesh);
   return {
+    tex,
     set(x, y, w, h, alpha) {
       mesh.visible = alpha > 0.003;
       mesh.position.set(x + w / 2, y + h / 2, 0);
@@ -550,6 +569,7 @@ function makeCaption(c) {
     ctx.font = `680 ${fs}px LDNoto`;
     ctx.letterSpacing = `${-0.012 * fs}px`;
     const mJa = ctx.measureText(c.ja);
+    m.wJa = mJa.width;
     ctx.fillStyle = '#111114';
     ctx.fillText(c.ja, W / 2, baseJa);
     m.inkJa = mJa.actualBoundingBoxAscent + mJa.actualBoundingBoxDescent;
@@ -559,10 +579,77 @@ function makeCaption(c) {
     ctx.fillStyle = '#6e6e78';
     ctx.fillText(c.en, W / 2, baseJa + Math.round(fs * 0.74));
     m.inkEn = mEn.actualBoundingBoxAscent + mEn.actualBoundingBoxDescent;
+    m.wEn = mEn.width;
   });
-  return { ...c, ...m, sprite: overlaySprite(canvas), baseJa, canvasH };
+  // 字の多い絵（寄ったターミナル）の上でも読めるよう、見出しの後ろに白い やわらかい板を敷く。ターミナルを離れたら、板は消す（plate.out）
+  let plateSprite = null;
+  if (c.plate) {
+    const pw = Math.max(m.wJa, m.wEn) + fs * 2.6;
+    plateSprite = overlaySprite(
+      drawCanvas(W, canvasH, (ctx) => {
+        ctx.shadowColor = 'rgb(255 255 255 / 0.95)';
+        ctx.shadowBlur = fs * 0.6;
+        ctx.fillStyle = 'rgb(255 255 255 / 0.93)';
+        ctx.beginPath();
+        ctx.roundRect(W / 2 - pw / 2, baseJa - fs * 1.3, pw, fs * 2.55, fs * 0.7);
+        ctx.fill();
+        ctx.fill();
+      }),
+    );
+  }
+  return { ...c, ...m, plateSprite, sprite: overlaySprite(canvas), baseJa, canvasH };
 }
 const captions = TL.captions.map(makeCaption);
+
+// 速さと経過の印（記録の時刻から計算したもの）。カメラが字に寄っている間も見えるよう、画面の右上に固定して出す
+function recAt(t) {
+  const keys = RUN.clock;
+  if (t <= keys[0].at) return keys[0].rec;
+  for (let i = 1; i < keys.length; i++) if (t <= keys[i].at) return mix(keys[i - 1].rec, keys[i].rec, seg(t, keys[i - 1].at, keys[i].at));
+  return keys[keys.length - 1].rec;
+}
+const BADGE = { w: 300, h: 72, right: 56, top: 48 };
+const badgeCanvas = drawCanvas(BADGE.w * K, BADGE.h * K, () => {});
+const badgeCtx = badgeCanvas.getContext('2d');
+const badgeSprite = overlaySprite(badgeCanvas);
+let badgeStamp = '';
+function paintBadge(t) {
+  const a = q5(seg(t, TM.enter, TM.enter + 0.25)) * (1 - q5(seg(t, TM.badgeOut[0], TM.badgeOut[1])));
+  badgeSprite.set(1920 - BADGE.right - BADGE.w, BADGE.top, BADGE.w, BADGE.h, a);
+  if (a <= 0.003) return;
+  const rec = recAt(t);
+  const clock = `${String(Math.floor(rec / 60)).padStart(2, '0')}:${String(Math.floor(rec % 60)).padStart(2, '0')}`;
+  if (clock === badgeStamp) return;
+  badgeStamp = clock;
+  const c = badgeCtx;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.clearRect(0, 0, badgeCanvas.width, badgeCanvas.height);
+  c.setTransform(K, 0, 0, K, 0, 0);
+  c.textBaseline = 'middle';
+  // 後ろを流れる字と重ならないよう、白い やわらかい板を敷く
+  c.save();
+  c.shadowColor = 'rgb(255 255 255 / 0.95)';
+  c.shadowBlur = 10;
+  c.fillStyle = 'rgb(255 255 255 / 0.94)';
+  c.beginPath();
+  c.roundRect(14, 8, BADGE.w - 22, BADGE.h - 16, 28);
+  c.fill();
+  c.restore();
+  c.font = monoFont(30, 700);
+  const lw = c.measureText(RUN.speedLabel).width + 34;
+  c.fillStyle = 'rgb(22 22 26)';
+  c.beginPath();
+  c.roundRect(BADGE.w - lw - 16, BADGE.h / 2 - 22, lw, 44, 22);
+  c.fill();
+  c.fillStyle = '#ffffff';
+  c.fillText(RUN.speedLabel, BADGE.w - lw + 1, BADGE.h / 2 + 2);
+  c.font = monoFont(30, 600);
+  c.textAlign = 'right';
+  c.fillStyle = 'rgb(96 96 106)';
+  c.fillText(clock, BADGE.w - lw - 30, BADGE.h / 2 + 2);
+  c.textAlign = 'left';
+  badgeSprite.tex.needsUpdate = true;
+}
 const captionAlpha = (c, t) => q5(seg(t, c.in, c.in + FADE)) * (1 - q5(seg(t, c.out - FADE, c.out)));
 
 // 終わりのロゴ：マーク「」（サイトのヘッダーと同じ形と色）と、Inter 800 の字。字の大きさ＝マークの高さ、間は字の大きさの 0.4
@@ -611,14 +698,17 @@ function lineSprite(text, font, color) {
   });
   return { sprite: overlaySprite(canvas), w: canvas.width / K, h: canvas.height / K, inkPx: tm.actualBoundingBoxAscent + tm.actualBoundingBoxDescent };
 }
-const endJa = lineSprite(END.line.ja, `680 ${Math.round(H * 0.056)}px LDNoto`, '#111114');
-const endEn = lineSprite(END.line.en, `500 ${Math.round(H * 0.056 * 0.45)}px LDNoto`, '#6e6e78');
+// ロゴの下に、小さく ludion.ai（サイトのロゴと同じ書体）
+const endDomain = lineSprite(END.domain, `600 ${Math.round(H * END.domainSize)}px LDInter`, '#6e6e78');
 function updateOverlay(t) {
   for (const c of captions) {
     const a = captionAlpha(c, t);
     const rise = (1 - q5(seg(t, c.in, c.in + 0.95))) * 12;
-    c.sprite.set(0, 1080 * CAPTION.jaY - (c.baseJa / H) * 1080 + rise, 1920, (c.canvasH / H) * 1080, a);
+    const y = 1080 * CAPTION.jaY - (c.baseJa / H) * 1080 + rise;
+    c.plateSprite?.set(0, y, 1920, (c.canvasH / H) * 1080, a * (1 - q5(seg(t, c.plate.out[0], c.plate.out[1]))));
+    c.sprite.set(0, y, 1920, (c.canvasH / H) * 1080, a);
   }
+  paintBadge(t);
   {
     // ロゴは、少し大きい所から、ゆっくり落ち着く（最後まで、わずかに動いている）
     const a = q5(seg(t, END.logoIn[0], END.logoIn[1]));
@@ -627,11 +717,10 @@ function updateOverlay(t) {
     const h = lockup.h * s;
     lockup.sprite.set(960 - w / 2, 1080 * END.logoY - h / 2, w, h, a);
   }
-  [endJa, endEn].forEach((line, i) => {
-    if (!line) return;
-    const u = q5(seg(t, END.lineIn + i * 0.12, END.lineIn + i * 0.12 + 0.8));
-    line.sprite.set(960 - line.w / 2, 1080 * (END.lineY + i * 0.052) - line.h / 2 + (1 - u) * 12, line.w, line.h, u);
-  });
+  if (endDomain) {
+    const u = q5(seg(t, END.domainIn, END.domainIn + 0.8));
+    endDomain.sprite.set(960 - endDomain.w / 2, 1080 * END.domainY - endDomain.h / 2 + (1 - u) * 8, endDomain.w, endDomain.h, u);
+  }
 }
 
 // ---- 1コマ
@@ -706,17 +795,19 @@ window.__stage = {
   measure() {
     return {
       captions: captions.map((c) => ({ ja: c.ja, en: c.en, in: c.in, out: c.out, jaInkRatio: Number((c.inkJa / H).toFixed(4)), enOverJa: Number((c.inkEn / c.inkJa).toFixed(3)) })),
-      end: { markRatio: END.markPx / 1080, wordmarkInkRatio: Number((lockup.capPx / H).toFixed(4)), lineJaInkRatio: endJa ? Number((endJa.inkPx / H).toFixed(4)) : null },
+      end: { markRatio: END.markPx / 1080, wordmarkInkRatio: Number((lockup.capPx / H).toFixed(4)), domainInkRatio: endDomain ? Number((endDomain.inkPx / H).toFixed(4)) : null },
       terminal: {
         typed: USER.chars.length,
         typeStep: Number(typeStep.toFixed(4)),
         hookAt: HOOK.at,
+        // カメラが字に寄ったときの、字の高さ（画面の高さとの比）と、プラグインの行の右端（画面の幅との比）
+        textInkRatio: Object.fromEntries(Object.entries(FOCUS.lines).map(([kind, l]) => [kind, Number(((l.ink * 1920) / FOCUS.fw / 1080).toFixed(4))])),
+        hookRightAt: Number((TL.camera.textLeftAt + FOCUS.lines.hook.width / FOCUS.fw).toFixed(3)),
         layoutHeight: LAYOUT.height,
         viewHeight: TDH - TITLE_H - TPAD * 1.2,
         // 1920 の画面で、板がいちばん大きく落ち着いたときの文字の高さ（画素）
-        textPxAt1080: Number((((TM.fontPx + 2) * T1.size[0]) / TDW / (camKeys[1].fw / 1920)).toFixed(1)),
       },
-      camera: camKeys.map((k) => ({ t: k.t, fw: k.fw })),
+      camera: camKeys.map((k) => ({ t: k.t, fw: Math.round(k.fw), p: k.p.map((v) => Math.round(v)) })),
     };
   },
 };

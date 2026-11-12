@@ -236,8 +236,9 @@ export function synthesize(tl, facts) {
 
   // ---- カメラが板の間を動くときの風。動く区間は、カメラのキーから取る
   const keys = tl.camera.keys;
+  const keyX = (k) => (k.p ? k.p[0] : tl.world.boards.find((b) => b.id === 'term1').at[0]);
   for (let i = 1; i < keys.length; i++) {
-    const dx = keys[i].p[0] - keys[i - 1].p[0];
+    const dx = keyX(keys[i]) - keyX(keys[i - 1]);
     if (Math.abs(dx) < 1000 || keys[i].t > tl.duration) continue;
     const right = dx > 0;
     addAir(keys[i].t - 0.15, keys[i].t - keys[i - 1].t - 0.15, lv.air, 420, 2800, tl.seed + 500 + i, right ? 0.3 : 0.7, right ? 0.7 : 0.3);
