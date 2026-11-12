@@ -77,6 +77,7 @@ export function verifyOutline(input: OutlineInput, outline: Outline): string[] {
       const text = lineOf(hit.file, hit.line);
       if (text === null || !text.includes(hit.match)) problems.push(`${tech.id}：${hit.file}:${hit.line} に「${hit.match}」がない`);
     }
+    if (tech.values && (tech.values.length === 0 || tech.values.some((value) => typeof value !== 'string' || value === '' || value.length > 40))) problems.push(`${tech.id}：値の形が違う`);
   }
 
   const total = outline.files.reduce((sum, file) => sum + file.bytes, 0);
