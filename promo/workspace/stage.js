@@ -556,11 +556,11 @@ function siteMaterial() {
     ...PREMUL,
     depthWrite: true,
     depthTest: true,
-    uniforms: { mapA: { value: null }, mapB: { value: null }, uMix: { value: 0 }, uRect: { value: new THREE.Vector4(0, 0, 1, 1) }, uSize: { value: new THREE.Vector2(1, 1) }, uRadius: { value: 0 }, uAlpha: { value: 1 }, uBias: { value: -0.4 }, uEdge: { value: 0.07 }, uVeil: { value: 0 } },
+    uniforms: { mapA: { value: null }, mapB: { value: null }, mapC: { value: null }, uMix: { value: 0 }, uMixC: { value: 0 }, uRect: { value: new THREE.Vector4(0, 0, 1, 1) }, uSize: { value: new THREE.Vector2(1, 1) }, uRadius: { value: 0 }, uAlpha: { value: 1 }, uBias: { value: -0.4 }, uEdge: { value: 0.07 }, uVeil: { value: 0 } },
     vertexShader: BOARD_VERT,
     fragmentShader: /* glsl */ `
       ${SD}
-      varying vec2 vUv; uniform sampler2D mapA,mapB; uniform vec4 uRect; uniform vec2 uSize; uniform float uMix,uRadius,uAlpha,uBias,uEdge,uVeil;
+      varying vec2 vUv; uniform sampler2D mapA,mapB,mapC; uniform vec4 uRect; uniform vec2 uSize; uniform float uMix,uMixC,uRadius,uAlpha,uBias,uEdge,uVeil;
       void main(){
         vec2 p=(vUv-.5)*uSize;
         float d=sdBox(p,uSize*.5,uRadius);
@@ -571,6 +571,7 @@ function siteMaterial() {
         vec3 cb=texture2D(mapB,q,uBias).rgb;
         float inside=step(uRect.x,q.x)*step(q.x,uRect.z)*step(uRect.y,q.y)*step(q.y,uRect.w);
         vec3 c=mix(ca,cb,uMix*inside);
+        if(uMixC>0.) c=mix(c,texture2D(mapC,q,uBias).rgb,uMixC);
         c=mix(c,vec3(1.),uVeil);
         float line=1.-smoothstep(0.,max(aa*2.,1.6),abs(d+max(aa,.8)));
         c=mix(c,vec3(0.),line*uEdge);
@@ -607,17 +608,21 @@ const site = await (async () => {
   };
   const switches = ST.switches.map((sw, i) => ({ ...sw, from: i === 0 ? ST.first : ST.switches[i - 1].to }));
   for (const sw of switches) sw.rect = regionOf(sw.from, sw.to, sw.region);
-  /** 時刻 t の状態：前の絵 a と、次の絵 b と、混ぜ方 m（替わる所 rect の中だけ） */
+  /**
+   * 時刻 t の形：地の絵 a と、替わる所 rect の中だけの絵 b（混ぜ方 m）。全部が替わる途中は、その上に c を mc で重ねる。
+   * ナビの所だけが替わった形は、次に全部が替わるまで保つ（作品の枠の中の雨は、撮った時刻で違うので、地は前の絵のまま）
+   */
   const stateAt = (t) => {
-    let cur = ST.first;
+    let base = { a: ST.first, b: ST.first, m: 0, rect: FULL };
     for (const sw of switches) {
       if (t < sw.at - 1e-6) break;
       // 替わる時刻のコマで、もう替わり始めている（音とのずれを1コマ以内にする）
-      const m = easeOut(seg(t + 1 / TL.fps, sw.at, sw.at + sw.dur));
-      if (m < 1) return { a: cur, b: sw.to, m, rect: sw.rect };
-      cur = sw.to;
+      const p = easeOut(seg(t + 1 / TL.fps, sw.at, sw.at + sw.dur));
+      if (sw.region === 'nav') base = { a: base.a, b: sw.to, m: p, rect: sw.rect };
+      else if (p < 1) return { ...base, c: sw.to, mc: p };
+      else base = { a: sw.to, b: sw.to, m: 0, rect: FULL };
     }
-    return { a: cur, b: cur, m: 0, rect: FULL };
+    return { ...base, c: base.a, mc: 0 };
   };
   // カーソル：押す所は、撮ったときに押した物の四角（その物を押した後の状態の clicked）
   const C = ST.cursor;
@@ -663,7 +668,9 @@ const site = await (async () => {
       const s = stateAt(t);
       u.mapA.value = tex[s.a];
       u.mapB.value = tex[s.b];
+      u.mapC.value = tex[s.c];
       u.uMix.value = s.m;
+      u.uMixC.value = s.mc;
       u.uRect.value.set(s.rect.x / V.width, s.rect.y / V.height, (s.rect.x + s.rect.width) / V.width, (s.rect.y + s.rect.height) / V.height);
       board.set(SB.at[0], SB.at[1], SB.at[2], SB.size[0], SB.size[1], { radius: SB.radius, alpha, yaw: SB.yaw });
       const c = cursorWorld(t);
@@ -833,6 +840,7 @@ function overlaySprite(canvas) {
   overlay.add(mesh);
   return {
     tex,
+    mesh,
     set(x, y, w, h, alpha) {
       mesh.visible = alpha > 0.003;
       mesh.position.set(x + w / 2, y + h / 2, 0);
@@ -841,7 +849,26 @@ function overlaySprite(canvas) {
     },
   };
 }
-const CAPTION = { jaSize: 0.056, enRatio: 0.45, jaY: 0.868 };
+// 見出しの帯（画面の下、いつも同じ所）。上の端は feather の幅で柔らかくぼかす。色は空間の地の色（引いた所では見えない）。
+// 帯の下に入った字は帯が隠すので、読める字として数えない。帯の濃さが半分（ぼかしの中ほど）より下に出た字の部分は数えない
+const BAND = TL.band;
+const BAND_TOP = 1080 * (1 - BAND.height);
+const BAND_COUNT_Y = BAND_TOP + 1080 * BAND.feather * 0.5;
+const band = (() => {
+  const hPx = Math.ceil(H * BAND.height);
+  const fPx = H * BAND.feather;
+  const canvas = drawCanvas(16, hPx, (c) => {
+    for (let y = 0; y < hPx; y++) {
+      const u = clamp((y + 0.5) / fPx);
+      c.fillStyle = css(BG, u * u * (3 - 2 * u));
+      c.fillRect(0, y, 16, 1);
+    }
+  });
+  const sprite = overlaySprite(canvas);
+  sprite.mesh.renderOrder = -10; // 見出しより先に描く
+  return sprite;
+})();
+const CAPTION = { jaSize: 0.056, enRatio: 0.45, jaY: BAND.captionY };
 const FADE = 0.62;
 function makeCaption(c) {
   const fs = Math.round(H * CAPTION.jaSize);
@@ -975,6 +1002,7 @@ function lineSprite(text, font, color) {
 // ロゴの下に、小さく ludion.ai（サイトのロゴと同じ書体）
 const endDomain = lineSprite(END.domain, `600 ${Math.round(H * END.domainSize)}px LDInter`, '#6e6e78');
 function updateOverlay(t) {
+  band.set(0, BAND_TOP, 1920, 1080 - BAND_TOP, 1);
   for (const c of captions) {
     const a = captionAlpha(c, t);
     const rise = (1 - q5(seg(t, c.in, c.in + 0.95))) * 12;
@@ -1141,7 +1169,10 @@ function readableTexts(t) {
   const ba = brAlpha(t);
   const board = ba > 0.003 ? pageRect({ x: 0, y: 0, width: BR.size[0], height: BR.size[1] }, t) : null;
   const hidden = (r) => ba >= 0.97 && r.x >= board.x && r.y >= board.y && r.x + r.w <= board.x + board.w && r.y + r.h <= board.y + board.h;
-  const push = (what, text, r, more = {}) => {
+  const push = (what, text, r0, more = {}) => {
+    // 帯が隠す所（帯の濃さが半分より下）は、読める字に数えない。半分だけ帯の上に出た字は、上に出た所だけを数える
+    if (r0.y >= BAND_COUNT_Y) return;
+    const r = r0.y + r0.h > BAND_COUNT_Y ? { ...r0, h: BAND_COUNT_Y - r0.y } : r0;
     if (onScreen(r)) out.push({ what, text: text.slice(0, 30), x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h), ...more });
   };
   if (boardsAlpha(t) > 0.003) {
@@ -1160,8 +1191,16 @@ function readableTexts(t) {
     }
     // サイトの窓：その時刻に見えている状態（替わる途中は、前と後の両方）の字
     if (site) {
+      // その時刻に見えている絵の字：地の絵（替わる所の中は、替わり終えていなければ）、替わる所の中の絵、重ねている途中の絵
       const st = site.stateAt(t);
-      for (const id of st.m > 0 ? [st.a, st.b] : [st.a]) for (const r of site.states[id].textRects) push(`site:${id}`, r.text, siteRect(r), { fontPx: r.fontPx, tag: r.tag });
+      const R = st.rect;
+      const inside = (r) => r.x + r.width > R.x && r.x < R.x + R.width && r.y + r.height > R.y && r.y < R.y + R.height;
+      const add = (id, keep) => {
+        for (const r of site.states[id].textRects) if (keep(r)) push(`site:${id}`, r.text, siteRect(r), { fontPx: r.fontPx, tag: r.tag });
+      };
+      add(st.a, (r) => st.m < 1 || st.a === st.b || !inside(r));
+      if (st.m > 0 && st.b !== st.a) add(st.b, inside);
+      if (st.mc > 0) add(st.c, () => true);
     }
     for (const e of emptyBoards) {
       for (const x of e.texts) {
@@ -1307,6 +1346,7 @@ window.__stage = {
   measure() {
     return {
       captions: captions.map((c) => ({ ja: c.ja, en: c.en, in: c.in, out: c.out, jaInkRatio: Number((c.inkJa / H).toFixed(4)), enOverJa: Number((c.inkEn / c.inkJa).toFixed(3)) })),
+      band: { top: Number((BAND_TOP / 1080).toFixed(4)), countBelow: Number((BAND_COUNT_Y / 1080).toFixed(4)), feather: BAND.feather },
       end: { markRatio: END.markPx / 1080, wordmarkInkRatio: Number((lockup.capPx / H).toFixed(4)), domainInkRatio: endDomain ? Number((endDomain.inkPx / H).toFixed(4)) : null },
       terminal: {
         pages: LAID.map((page) => ({ id: page.id, lines: page.lines.length, height: page.height, speedLabel: page.speedLabel })),
