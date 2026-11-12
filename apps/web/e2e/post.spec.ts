@@ -400,7 +400,7 @@ test.describe('リミックスの元（T033 B3、B4）', () => {
     expect(lines[1]).toBe(`<!-- Remix of UI by @${original.handle} — ludion.ai/p/${source.id} (MIT) -->`);
     const style = lines.indexOf('<style>');
     expect(lines.slice(style + 1, style + 3)).toEqual([`/* UI by @${remixer.handle} — ludion.ai/p/${id} (MIT) */`, `/* Remix of UI by @${original.handle} — ludion.ai/p/${source.id} (MIT) */`]);
-    // 作品のページの「コードをコピー」と1文字も違わない
+    // 作品のページの「全部をコピー」と1文字も違わない
     const page = await (await new Visitor().fetch(`/p/${id}`)).text();
     const json = JSON.parse(/<script[^>]*id="ld-page"[^>]*>([\s\S]*?)<\/script>/.exec(page)?.[1] ?? 'null') as { snippet?: string } | null;
     if (json?.snippet !== undefined) expect(json.snippet).toBe(code);

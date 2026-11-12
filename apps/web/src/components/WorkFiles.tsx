@@ -126,7 +126,7 @@ export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopi
     if (!openFile || stay) return;
     setJump((count) => count + 1);
     // 行の指定がなければ、本文の頭を見える所へ（スマホは全画面なので、送らない）
-    if (!parseLineHash(location.hash) && !window.matchMedia(NARROW_QUERY).matches) panel?.scrollIntoView({ block: 'nearest' });
+    if (!parseLineHash(location.hash) && !window.matchMedia(NARROW_QUERY).matches) panel?.scrollIntoView({ block: 'start' });
   }, [openFile, location.hash, location.key, stay, panel]);
 
   // ---- スマホの全画面：開いたらフォーカスを中へ、閉じたら押した所へ。Esc でも閉じる

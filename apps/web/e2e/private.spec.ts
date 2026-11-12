@@ -374,7 +374,7 @@ test.describe('自分だけの作品は、本人にしか見えない', () => {
     await hydrated(page);
     await expect(page.locator('[data-private-notice]')).toContainText(UI.ja.notice);
     await expect(page.frameLocator('iframe[data-ld-frame]').getByRole('button', { name: '押す' })).toBeVisible();
-    await page.getByRole('button', { name: 'コードをコピー' }).click();
+    await page.getByRole('button', { name: '全部をコピー' }).click();
     await page.waitForTimeout(1000);
     expect(counts).toEqual([]);
     expect(counted(own.id)).toEqual({ views: 0, copies: 0 });

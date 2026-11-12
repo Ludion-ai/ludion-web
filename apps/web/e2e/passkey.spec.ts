@@ -796,7 +796,7 @@ test.describe('回復のコード', () => {
     await expect(page.getByText('使えます', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'パスキーを作る' }).click();
     const code = (await page.locator('[data-recovery-code]').textContent())!;
-    await page.getByRole('button', { name: 'コードをコピーする' }).click();
+    await page.getByRole('button', { name: '全部をコピーする' }).click();
     await expect(page.getByRole('button', { name: 'コピーしました' })).toBeVisible();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(code);
   });
