@@ -11,7 +11,11 @@
 // - 回数の上限：置くのは1人1時間30回、ほかの読み取りは1時間300回（quotas）。超えたら 429 と、次に使える時刻。
 // - エラーはどれも { error: <決まった語>, message }。文は Accept-Language で日本語か英語。
 // - 鍵の生の値は、ログに出さない（log.ts は道の種類と決まった語だけ）。
+// - 読み方は「まず地図、次に要る部分」（WS006）。GET /works/:id/outline が地図、GET /works/:id/code が行の範囲か分け目の1つ。
+//   この2つだけは、公開の作品の公開の版なら鍵なしでも読める（/p/:id/code と同じく、だれでも読めるもの）。
+//   鍵があれば、自分の作品はいちばん新しい版、ほかの人の作品は公開の版。読めないものは、ない作品と同じ 404（worker/workRead.ts）。
 
+import { MAX_PART_READ_BYTES, TECH_LIST, techQuery } from '@ludion/outline';
 import { buildCopySnippet, stripDocumentCredits } from '@ludion/render';
 import {
   checkDocument,
@@ -36,9 +40,11 @@ import { keyUser } from './aiKeys';
 import { apiDocs } from './apiDocs';
 import type { Env } from './env';
 import { cleanClientName, grantUser } from './oauth';
+import { loadOutline } from './outline';
 import { checkWorkId, placePrivate, readBody, writeDraft, type PostMeta } from './post';
 import { nextDay, nextHour, takeApiQuota } from './quota';
 import { canPost, countPrivateWorks, loadRevisionFiles, ownedRevision, ownedWork, PRIVATE_WORKS_LIMIT, type RevisionRow } from './revisions';
+import { creditTexts, fullCode, loadFiles, loadMap, readPart, readableWork, type ReadableWork } from './workRead';
 
 /**
  * 置く人。AI の鍵（ld_…）か、AI につないだときのアクセスのトークン（ldo_…。worker/oauth.ts、MCP001）の持ち主。
@@ -119,6 +125,22 @@ const MESSAGES = {
   },
   no_id: { ja: '作品の ID を決められませんでした。もう一度送ってください', en: 'Could not pick an ID for the work. Send it again.' },
   unknown_path: { ja: 'この道はありません。GET /api/v1 に使い方があります', en: 'No such endpoint. GET /api/v1 explains the API.' },
+  not_readable: { ja: '作品が見つかりません。自分の作品か、公開されている作品の ID を入れてください', en: 'Work not found. Use the ID of one of your own works or of a public work.' },
+  version_changed: { ja: '作品の版が変わりました。地図を取り直してください（current_version が今の版）', en: 'The work has a different version now. Get the map again (current_version is the version now).' },
+  bad_part: {
+    ja: 'section（分け目の呼び名。例 shader:WINDOW_FRAG）か、file と lines（行の範囲。例 200-760）のどちらかを入れてください',
+    en: 'Give either section (a selector from the map, e.g. shader:WINDOW_FRAG) or file and lines (a line range, e.g. 200-760).',
+  },
+  file_required: { ja: 'file を入れてください（files のどれか）', en: 'Give file (one of files).' },
+  file_not_found: { ja: 'その名前のファイルはありません（files のどれか）', en: 'No file with that name (use one of files).' },
+  section_not_found: { ja: 'その分け目はありません。地図の呼び名をそのまま入れてください（candidates は近いもの）', en: 'No such section. Use a selector exactly as the map gives it (candidates are close ones).' },
+  ambiguous_section: { ja: '同じ名前の分け目が2つ以上あります。candidates のどれかをそのまま入れてください', en: 'More than one section has that name. Use one of candidates exactly.' },
+  out_of_range: { ja: '行の範囲がファイルの外です（total がファイルの行の数）', en: 'The line range is outside the file (total is the number of lines in the file).' },
+  part_too_large: {
+    ja: `1回に読めるのは ${MAX_PART_READ_BYTES / 1024}KB までです。範囲を狭めてください（inside は、その中の分け目）`,
+    en: `One read can be up to ${MAX_PART_READ_BYTES / 1024}KB. Narrow the range (inside lists the sections in it).`,
+  },
+  bad_tech: { ja: '知らない技術の名前です（allowed のどれか。, で区切ると、全部を使う作品）', en: 'Unknown tech name (use ones from allowed; separate with , for works that use all of them).' },
 } satisfies Record<string, Message>;
 
 type MessageName = keyof typeof MESSAGES;
@@ -172,9 +194,14 @@ apiV1.get('/', (c) => {
 // '/works/*' は '/works' にも当たる（Hono）。'/works' にも付けると、1回の要求で2回数える
 apiV1.use('/works/*', authenticate);
 
+/** 鍵なしでも読める道：地図と、要る部分（WS006）。鍵なしで読めるのは、公開の作品の公開の版だけ。 */
+const OPEN_READ = /\/works\/[^/]+\/(?:outline|code)$/;
+
 /** 鍵を確かめ、回数を数える。cookie は見ない。 */
 async function authenticate(c: ApiContext, next: () => Promise<void>) {
   c.set('locale', apiLocale(c.req.header('Accept-Language')));
+  // 鍵なしの読み取り。IP の束縛（app.ts）だけで数える。Authorization があれば、違う鍵は今までどおり 401
+  if (c.req.method === 'GET' && c.req.header('Authorization') === undefined && OPEN_READ.test(c.req.path)) return next();
   const user = await apiUser(c.env.DB, c.req.header('Authorization'), c.req.header('X-Ludion-Client'));
   if (!user) return fail(c, 401, 'unauthorized', 'unauthorized', {}, { 'WWW-Authenticate': 'Bearer' });
   c.set('user', user);
@@ -414,10 +441,34 @@ apiV1.post('/works/:id/versions', async (c) => {
   return answer(c, await writeDraft(c.env, user, id, { ...fixed, thumb: null }, meta, { via: user.via, privateBound: work.status !== 'approved' }));
 });
 
-// 自分の作品の一覧。状態と版は、いちばん新しい版のもの
+/**
+ * 一覧で地図を読む作品の数の上限（新しい順）。超えた分の tech は null。
+ * 地図のない版（WS002 より前に置いた版）は、その場でファイルから作って置く。1つの版で R2 を読み書きするのは多くて7回
+ * （地図を探す1、ファイル4〜5、置く1）なので、全部の版に地図がなくても、1回の要求の上限（1000回）に収まる数にする。
+ * 地図を作るのは、234 KB の作品で 7〜25ms（packages/outline の試験）。
+ */
+const TECH_SCAN_MAX = 120;
+const TECH_SCAN_BATCH = 20;
+
+/** tech の値（, で区切る）を、技術の id の集まりの並びにする。知らない言葉があれば null。 */
+function techFilter(value: string): string[][] | null {
+  const terms = value
+    .split(',')
+    .map((term) => term.trim())
+    .filter((term) => term !== '');
+  const groups = terms.map((term) => techQuery(term));
+  return terms.length > 0 && groups.every((group) => group !== null) ? (groups as string[][]) : null;
+}
+
+// 自分の作品の一覧。状態と版は、いちばん新しい版のもの。
+// ?tech=webgl2,webaudio で、その技術を全部使う作品だけ。?with=tech で、絞らずに技術の印だけを足す（どちらも地図を読むので、ふだんの一覧より重い）
 apiV1.get('/works', async (c) => {
+  const techParam = c.req.query('tech');
+  const filter = techParam === undefined ? null : techFilter(techParam);
+  if (techParam !== undefined && filter === null) return fail(c, 400, 'bad_tech', 'bad_tech', { allowed: TECH_LIST.map((tech) => tech.id) });
+  const withTech = filter !== null || c.req.query('with') === 'tech';
   const { results } = await c.env.DB.prepare(
-    `SELECT w.id, w.status AS work_status, r.title, r.status, r.version, r.updated_at
+    `SELECT w.id, w.status AS work_status, r.title, r.status, r.version, r.updated_at, r.r2_prefix
      FROM works w
      JOIN creators c ON c.id = w.creator_id
      JOIN revisions r ON r.id = (SELECT id FROM revisions WHERE work_id = w.id ORDER BY created_at DESC, rowid DESC LIMIT 1)
@@ -425,9 +476,27 @@ apiV1.get('/works', async (c) => {
      ORDER BY r.updated_at DESC, w.id`,
   )
     .bind(c.get('user').id)
-    .all<{ id: string; work_status: string; title: string; status: string; version: string; updated_at: number }>();
+    .all<{ id: string; work_status: string; title: string; status: string; version: string; updated_at: number; r2_prefix: string }>();
+
+  // 技術の印：いちばん新しい版の地図から。地図のない版は、ここで作って置く。ファイルが読めない版は null
+  const tech = new Map<string, string[] | null>();
+  if (withTech) {
+    const scanned = results.slice(0, TECH_SCAN_MAX);
+    for (let at = 0; at < scanned.length; at += TECH_SCAN_BATCH) {
+      await Promise.all(
+        scanned.slice(at, at + TECH_SCAN_BATCH).map(async (row) => {
+          const outline = await loadOutline(c.env.PARTS, row.r2_prefix, () => loadRevisionFiles(c.env.PARTS, row.r2_prefix)).catch(() => null);
+          tech.set(row.id, outline ? outline.tech.map((item) => item.id) : null);
+        }),
+      );
+    }
+  }
+  const matches = (ids: string[] | null) => filter === null || (ids !== null && filter.every((group) => group.some((id) => ids.includes(id))));
+  const rows = withTech ? results.filter((row) => matches(tech.get(row.id) ?? null)) : results;
+  // 地図を読めなかった作品の数（絞ったときは、当たるか分からないので結果に入れない）
+  const unknown = withTech ? results.filter((row) => (tech.get(row.id) ?? null) === null).length : 0;
   return c.json({
-    works: results.map((row) => ({
+    works: rows.map((row) => ({
       id: row.id,
       title: row.title,
       visibility: visibilityOf(row.work_status),
@@ -435,8 +504,75 @@ apiV1.get('/works', async (c) => {
       version: row.version,
       updated_at: new Date(row.updated_at).toISOString(),
       url: workUrl(c, row.id),
+      ...(withTech ? { tech: tech.get(row.id) ?? null } : {}),
     })),
+    ...(unknown > 0 ? { tech_unknown: unknown } : {}),
   });
+});
+
+/** 1回の答えにコードの全部も入れる大きさ（code=auto）。これより大きい作品は、地図だけを返す。 */
+export const INLINE_CODE_BYTES = 16 * 1024;
+
+/** 読む人（鍵なしなら null）と作品 id から、読む版を決める。だめなら応答。 */
+async function readTarget(c: ApiContext): Promise<ReadableWork | Response> {
+  const reader = (c.get('user') as ApiUser | undefined) ?? null;
+  const id = c.req.param('id') ?? '';
+  const version = c.req.query('version') || undefined;
+  const target = await readableWork(c.env.DB, id, reader?.id ?? null, 'mine', version);
+  if (target === null) return fail(c, 404, 'not_found', 'not_readable');
+  if (target === 'version_changed') {
+    const current = await readableWork(c.env.DB, id, reader?.id ?? null, 'mine');
+    return fail(c, 409, 'version_changed', 'version_changed', current && current !== 'version_changed' ? { current_version: current.version } : {});
+  }
+  return target;
+}
+
+const workInfo = (c: ApiContext, target: ReadableWork) => ({
+  id: target.id,
+  title: target.title,
+  creator: target.creator.handle,
+  own: target.own,
+  visibility: visibilityOf(target.workStatus),
+  status: target.status,
+  version: target.version,
+  from: target.remixOf?.id ?? null,
+  url: workUrl(c, target.id),
+});
+
+// 作品の地図（WS006）：ファイル、行の数、技術とその行、分け目、言語。コードは入れない。
+// ?code=1 でコードの全部も、?code=auto で小さい作品（INLINE_CODE_BYTES まで）だけコードも入れる（MCP の get_work が使う）
+apiV1.get('/works/:id/outline', async (c) => {
+  const target = await readTarget(c);
+  if (target instanceof Response) return target;
+  const want = c.req.query('code');
+  const outline = await loadMap(c.env, target);
+  if (!outline) return fail(c, 404, 'not_found', 'not_readable');
+  const bytes = outline.files.reduce((sum, file) => sum + file.bytes, 0);
+  const include = want === '1' || want === 'true' || (want === 'auto' && bytes <= INLINE_CODE_BYTES);
+  const files = include ? await loadFiles(c.env, target) : null;
+  return c.json({
+    ...workInfo(c, target),
+    bytes,
+    max_read_bytes: MAX_PART_READ_BYTES,
+    outline,
+    ...(files ? { code: fullCode(target, files) } : {}),
+  });
+});
+
+// 作品の一部（WS006）：?section=shader:WINDOW_FRAG（地図の呼び名）か、?file=part.js&lines=200-760。?file= だけなら、そのファイルの全部。
+// code は、置いてあるファイルのその行の文字そのまま（start 行から end 行。行の番号は地図と同じ）。上限を超える部分は断る
+apiV1.get('/works/:id/code', async (c) => {
+  const target = await readTarget(c);
+  if (target instanceof Response) return target;
+  const query = { file: c.req.query('file') || undefined, lines: c.req.query('lines') || undefined, section: c.req.query('section') || undefined };
+  if (query.file === undefined && query.lines === undefined && query.section === undefined) return fail(c, 400, 'bad_part');
+  const part = await readPart(c.env, target, query);
+  if (part.ok) return c.json({ id: target.id, version: target.version, file: part.file, section: part.section, start: part.start, end: part.end, total_lines: part.total, bytes: part.bytes, credit: creditTexts(target), code: part.code });
+  const { ok: _ok, error, ...extra } = part;
+  if (error === 'not_found') return fail(c, 404, 'not_found', 'not_readable');
+  if (error === 'part_too_large') return fail(c, 413, error, error, extra);
+  if (error === 'file_not_found' || error === 'section_not_found') return fail(c, 404, error, error, extra);
+  return fail(c, 400, error, error, extra);
 });
 
 // 自分の作品の、いちばん新しい版のコード（コピーされるコードと同じ形。1行目にクレジット行）

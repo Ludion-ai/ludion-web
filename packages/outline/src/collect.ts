@@ -45,6 +45,8 @@ const TECH: [id: string, group: TechGroup, label: string][] = [
   ['cdn', 'external', 'CDN'],
   ['external', 'external', 'External URL'],
 ];
+/** 地図が見分ける技術の全部（id、まとまり、見せる名前）。並びは地図の tech と同じ */
+export const TECH_LIST: readonly { id: string; group: TechGroup; label: string }[] = TECH.map(([id, group, label]) => ({ id, group, label }));
 const TECH_ORDER = new Map(TECH.map(([id], order) => [id, order]));
 const TECH_DEF = new Map(TECH.map(([id, group, label]) => [id, { group, label }]));
 

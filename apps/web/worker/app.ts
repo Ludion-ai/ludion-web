@@ -25,9 +25,13 @@ import { rateLimit } from './rateLimit';
 import { publicHandleCheck, signup } from './signup';
 import { renderSitemap } from './sitemap';
 import { renderWallPage } from './wall';
+import { renderWorkMap, renderWorkRaw } from './workSite';
 import { WINDOWS_DOWNLOAD_URL } from './download';
 
 export const app = new Hono<{ Bindings: Env }>();
+
+/** 作品の地図の道（/p/<id>.json）。'/p/:id' にも当たる形なので、それより先に置く */
+const WORK_MAP_ROUTE = '/p/:file{[a-z0-9-]+\\.json}';
 
 // 回数の制限。ルートより先に置く
 app.post('/api/count', rateLimit('LIMIT_COUNT'));
@@ -46,6 +50,9 @@ app.use('/api/review/*', rateLimit('LIMIT_ACCOUNT'));
 app.use('/api/v1/*', rateLimit('LIMIT_ACCOUNT', undefined, apiLimitedBody));
 // 作品のコードを文字で返す口（docs/tasks/T031.md「1」）。作品のページを読む人の束縛で数える。キャッシュに当たった分は Worker に来ないので数えない
 app.get('/p/:id/code', rateLimit('LIMIT_COUNT'));
+// 作品の地図と、ファイルの生の文字（WS006）。自分だけの作品は本人の鍵でも読めるので、鍵の確かめより先に、同じ束縛で数える
+app.get(WORK_MAP_ROUTE, rateLimit('LIMIT_COUNT'));
+app.get('/p/:id/raw/:file', rateLimit('LIMIT_COUNT'));
 // AI につなぐ（MCP001）。許可の画面は人が開くので、ログインと同じ束縛で数える。
 // 登録、トークン、/mcp は AI のサーバーから来る（多くの人が同じ IP を通る）ので IP では数えない（oauth.ts、mcp.ts の頭）
 app.use('/oauth/authorize', rateLimit('LIMIT_AUTH'));
@@ -76,7 +83,9 @@ app.route('/', files);
 app.route('/', frames);
 
 app.get('/', renderHome);
+app.get(WORK_MAP_ROUTE, renderWorkMap);
 app.get('/p/:id', renderWorkPage);
+app.get('/p/:id/raw/:file', renderWorkRaw);
 app.get('/p/:id/code', renderWorkCode);
 // 全画面の住所（WALL001）。壁紙のアプリが開く。言語の文字がないので、英語の道は作らない
 app.get('/p/:id/wall', renderWallPage);
