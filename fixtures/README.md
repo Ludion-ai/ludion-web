@@ -26,4 +26,6 @@
 
 `malicious/` は枠の閉じ込めを確かめる見本（T007）。`ld` からは見えない。`npm run seed:dev` が開発用のデータにだけ入れる（`malicious/README.md`）。`npm run seed:dev` は、上の「全部通る」見本も開発用のデータに入れる。
 
+`documents/` は文書の作品（DOC001。`index.html` と `meta.json` だけ）の見本。`ld` からは見えない。`npm run seed:dev` が開発用のデータにだけ入れる。`fx-doc-ripple/index.html` は `t033-real/naive-1.html`（Ludion を知らない AI が書いた1つの HTML）と1バイトも違わない写し。埋め込みの住所（`/e/<id>`）で文書の作品が動くことを確かめる（`apps/web/e2e/embed.spec.ts`）。
+
 `t033-real/` は、1つの箱と指示文の本物の確かめ（docs/tasks/T033.md）。文脈を渡していない別の AI のセッションに、指示文だけを渡して作らせた HTML を、手を入れずに置いた。`remix-*.html` はリミックスの指示文（`remix-prompt.txt`。住人のいるスイッチ、URL の形、「雪の夜の山小屋に」）、`naive-*.html` は「押すと波紋が広がるボタンを、1つの HTML で作って」とだけ頼んだもの、`fixed-*.html` はそれを「AI で Ludion の形に直す」の指示文（`fix-prompt.txt`）で直させたもの。`packages/ld/tests/real-ai.spec.ts` が箱と同じ処理に通す。`ld` からは見えない。本番のサイトには出さない。

@@ -37,6 +37,7 @@ const ALLOWED_ROUTES = [
   'GET /p/:id',
   'GET /p/:id/code',
   'GET /p/:id/wall',
+  'GET /e/:id',
   'GET /privacy',
   'GET /terms',
   'GET /sitemap.xml',
@@ -195,6 +196,7 @@ test.describe('applyCachePolicy', () => {
     for (const path of [
       '/frame/abc/1/desktop.html',
       '/frame/abc/1/mobile.html',
+      '/frame/abc/1/embed.html',
       '/w/abc/1/og.png',
       '/w/abc/1/part.js',
       '/saved',

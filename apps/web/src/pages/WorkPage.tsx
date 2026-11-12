@@ -1,4 +1,4 @@
-import { Bookmark, Copy, Eye, GitFork, Heart, Monitor, Share2 } from 'lucide-react';
+import { Bookmark, Code, Copy, Eye, GitFork, Heart, Monitor, Share2 } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type MouseEvent } from 'react';
 import { useParams } from 'react-router';
 import { FramePreview } from '../components/FramePreview';
@@ -18,6 +18,7 @@ import { usePageData } from '../hooks/usePageData';
 import { useResetTitle } from '../hooks/useResetTitle';
 import { trackEvent } from '../lib/analytics';
 import { COPIED_MS, postCount } from '../lib/count';
+import { embedSnippet } from '../lib/embed';
 import { isWallpaper } from '../lib/homeQuery';
 import { NotFound } from './NotFound';
 
@@ -62,6 +63,13 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const shareTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const viewSent = useRef(false);
+  // 埋め込む（EMBED001「4」）。押すと1行の <iframe> が出て、コピーできる
+  const [embedOpen, setEmbedOpen] = useState(false);
+  const [embedState, setEmbedState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const embedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const embedRef = useRef<HTMLInputElement>(null);
+  const embedId = useId();
+  const embedCode = embedSnippet(work, handle);
   const [remixAnchor, setRemixAnchor] = useState<HTMLElement | null>(null);
   const [wallpaperAnchor, setWallpaperAnchor] = useState<HTMLElement | null>(null);
   const wallpaper = isWallpaper(work);
@@ -81,6 +89,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
     () => () => {
       clearTimeout(copyTimer.current);
       clearTimeout(shareTimer.current);
+      clearTimeout(embedTimer.current);
     },
     [],
   );
@@ -106,6 +115,22 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
     setCopies((count) => count + 1);
     postCount(work.id, 'copy');
     trackEvent('copy_code', { work_id: work.id });
+  };
+
+  const onCopyEmbed = async () => {
+    let state: 'copied' | 'failed' = 'copied';
+    try {
+      await navigator.clipboard.writeText(embedCode);
+    } catch {
+      // クリップボードが使えないときは、手で写せるように1行を選んでおく
+      embedRef.current?.select();
+      state = 'failed';
+    }
+    setEmbedState(state);
+    // 押してコピーできた回数（日ごと。EMBED001「6」）。コピー数とは別の数で、画面のコピー数は増やさない
+    if (state === 'copied') postCount(work.id, 'embed_copy');
+    clearTimeout(embedTimer.current);
+    embedTimer.current = setTimeout(() => setEmbedState('idle'), COPIED_MS);
   };
 
   const toggleCode = () => {
@@ -292,6 +317,38 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
           <p role="status" className="sr-only">
             {copyState === 'copied' ? copy.work.copied : copyState === 'failed' ? copy.work.copyFailed : ''}
           </p>
+          {/* 「コードをコピー」の次（EMBED001「4」）。自分だけの作品は外に出せない（/e/<id> も 404）ので出さない */}
+          {!isPrivate && (
+            <>
+              <button
+                type="button"
+                aria-expanded={embedOpen}
+                aria-controls={embedId}
+                onClick={() => setEmbedOpen((open) => !open)}
+                className={`${whiteButton} mt-3 w-full`}
+              >
+                <Code size={18} strokeWidth={1.75} aria-hidden="true" />
+                {copy.work.embed.open}
+              </button>
+              <div id={embedId} data-embed="" hidden={!embedOpen} className="mt-2">
+                <input
+                  ref={embedRef}
+                  type="text"
+                  readOnly
+                  value={embedCode}
+                  aria-label={copy.work.embed.codeLabel(work.title)}
+                  onFocus={(event) => event.currentTarget.select()}
+                  className="h-11 w-full rounded-control border border-site-line bg-site-field px-3 font-mono text-small text-site-fg"
+                />
+                <button type="button" onClick={onCopyEmbed} className={`${whiteButton} mt-2 w-full`}>
+                  {embedState === 'copied' ? copy.work.copied : embedState === 'failed' ? copy.work.copyFailed : copy.work.embed.copy}
+                </button>
+                <p role="status" className="sr-only">
+                  {embedState === 'copied' ? copy.work.copied : embedState === 'failed' ? copy.work.copyFailed : ''}
+                </p>
+              </div>
+            </>
+          )}
           <p className="mt-2 text-meta text-site-fg-2">{copy.work.license}</p>
           {!isPrivate && <ReportIssue workId={work.id} />}
 
