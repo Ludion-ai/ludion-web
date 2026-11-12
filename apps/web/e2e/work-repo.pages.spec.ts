@@ -316,9 +316,11 @@ for (const { label, viewport, columns } of [
       const names = seen.map((item) => item.name);
       // リミックス → いいね → 保存 → 共有 → 作者の名前 → 選んだタブ（コード）→ 最初の印
       expect(names.slice(0, 4)).toEqual(['リミックス', expect.stringMatching(/^いいね/), '保存', '共有']);
-      // WebKit は、Tab でリンクを飛ばす（Safari の初めの設定と同じ）。ボタン、タブ、印の順は同じ
-      if (browserName === 'webkit') expect(names).toEqual(['リミックス', expect.stringMatching(/^いいね/), '保存', '共有', 'コード', 'DOM + CSS']);
-      else expect(names.slice(4)).toEqual(['Fixture', 'コード', 'DOM + CSS']);
+      // WebKit は、端末によって Tab でリンクを飛ばす（Safari の初めの設定と同じ。Windows の WebKit は飛ばし、Linux の WebKit は止まる）。
+      // 止まるなら、共有とタブの間。ボタン、タブ、印の順は、どのブラウザでも同じ
+      if (browserName !== 'webkit') expect(names).toContain('Fixture');
+      if (names.includes('Fixture')) expect(names.indexOf('Fixture')).toBe(4);
+      expect(names.filter((name) => name !== 'Fixture')).toEqual(['リミックス', expect.stringMatching(/^いいね/), '保存', '共有', 'コード', 'DOM + CSS']);
       expect(names.at(-1)).toBe('DOM + CSS');
       expect(names.indexOf('DOM + CSS')).toBe(names.indexOf('コード') + 1);
       const stage = (await page.locator('[data-work-stage]').boundingBox())!;
