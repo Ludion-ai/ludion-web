@@ -197,7 +197,7 @@ test.describe('下書き', () => {
     // 中身の地図（WS002）：版の置き場に outline.json。置いたファイルから作る
     const outline = JSON.parse(r2(`${row.r2_prefix}/outline.json`)!.toString());
     expect(outline).toEqual(buildOutline({ html: r2(`${row.r2_prefix}/part.html`)!.toString(), css: r2(`${row.r2_prefix}/part.css`)!.toString(), js: r2(`${row.r2_prefix}/part.js`)?.toString() ?? null }));
-    expect(outline).toMatchObject({ version: 1, format: 'parts' });
+    expect(outline).toMatchObject({ version: 2, format: 'parts' });
 
     // 新しい作者は、まだ公開の作り手のページに出ない
     expect((await new Visitor().fetch(`/c/${handle}`)).status).toBe(404);
@@ -400,7 +400,7 @@ test.describe('リミックスの元（T033 B3、B4）', () => {
     expect(lines[1]).toBe(`<!-- Remix of UI by @${original.handle} — ludion.ai/p/${source.id} (MIT) -->`);
     const style = lines.indexOf('<style>');
     expect(lines.slice(style + 1, style + 3)).toEqual([`/* UI by @${remixer.handle} — ludion.ai/p/${id} (MIT) */`, `/* Remix of UI by @${original.handle} — ludion.ai/p/${source.id} (MIT) */`]);
-    // 作品のページの「コードをコピー」と1文字も違わない
+    // 作品のページの「全部をコピー」と1文字も違わない
     const page = await (await new Visitor().fetch(`/p/${id}`)).text();
     const json = JSON.parse(/<script[^>]*id="ld-page"[^>]*>([\s\S]*?)<\/script>/.exec(page)?.[1] ?? 'null') as { snippet?: string } | null;
     if (json?.snippet !== undefined) expect(json.snippet).toBe(code);

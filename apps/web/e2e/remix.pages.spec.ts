@@ -25,7 +25,7 @@ const sheet = (page: Page, name = text.heading) => page.getByRole('dialog', { na
 const briefField = (page: Page, label = text.briefLabel) => page.getByRole('textbox', { name: label });
 const copyPrompt = (page: Page, name = text.copyPrompt) => page.getByRole('button', { name, exact: true });
 
-/** 開いている作品の、コピーされるコード（「コードをコピー」と同じもの。/p/:id/code）。 */
+/** 開いている作品の、コピーされるコード（「全部をコピー」と同じもの。/p/:id/code）。 */
 const snippetOf = async (page: Page) => (await page.request.get(`/p/${/\/p\/([^/?#]+)/.exec(page.url())![1]}/code`)).text();
 
 /** Windows のクリップボードは改行を CRLF にする。行の中身は1文字も変わらない */
@@ -51,7 +51,7 @@ test.describe('指示文', () => {
     await page.addInitScript(() => window.localStorage.setItem('ld-remix-mode', 'full'));
   });
 
-  test('ボタン → シート → 入力 → コピー：クリップボードが型どおり（クレジット行つき、入力が入る、元のコードは「コードをコピー」と同じ）', async ({ page }) => {
+  test('ボタン → シート → 入力 → コピー：クリップボードが型どおり（クレジット行つき、入力が入る、元のコードは「全部をコピー」と同じ）', async ({ page }) => {
     await openWork(page, 'fx-toggle');
     await expect(page.locator('dialog')).toHaveCount(0);
 
@@ -268,14 +268,20 @@ test.describe('置き場所', () => {
     expect((await openButton(page).boundingBox())!.y).toBe(box.y - 300);
   });
 
-  test('幅1440：「コードをコピー」のすぐ上にある', async ({ page }) => {
+  test('幅1440：右の列のいちばん上にある（いいね、保存、共有のすぐ上。WS003）', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openWork(page, 'fx-toggle');
     const box = (await openButton(page).boundingBox())!;
-    const copyCode = (await page.getByRole('button', { name: copy.work.copyCode, exact: true }).boundingBox())!;
+    const like = (await page.getByRole('button', { name: /^いいね/ }).boundingBox())!;
+    const share = (await page.getByRole('button', { name: copy.work.share, exact: true }).boundingBox())!;
+    const frame = (await page.locator('iframe').boundingBox())!;
     expect(box.height).toBe(44);
-    expect(copyCode.y).toBe(box.y + box.height + 12);
-    expect(box.width).toBe(copyCode.width);
+    expect(like.y).toBe(box.y + box.height + 12);
+    // 右の列の幅いっぱい（左の端は いいね、右の端は 共有 と同じ）。動く作品の枠の右、上の端は枠の線と同じ高さ
+    expect(box.x).toBe(like.x);
+    expect(box.x + box.width).toBeCloseTo(share.x + share.width, 0);
+    expect(box.x).toBeGreaterThan(frame.x + frame.width + 30);
+    expect(box.y).toBeCloseTo(frame.y - 1, 0);
     expect(box.y + box.height).toBeLessThanOrEqual(900);
   });
 
@@ -723,7 +729,7 @@ https://ludion.ai/p/fx-toggle/code
 // ---------------------------------------------------------------- コードを返す口（docs/tasks/T031.md「1」）
 
 test.describe('GET /p/:id/code', () => {
-  test('「コードをコピー」と1文字も違わない。text/plain、nosniff、作品のページと同じキャッシュ', async ({ page, request }) => {
+  test('「全部をコピー」と1文字も違わない。text/plain、nosniff、作品のページと同じキャッシュ', async ({ page, request }) => {
     await openWork(page, 'fx-toggle');
     const snippet = await snippetOf(page);
     expect(snippet.split('\n')[0]).toBe(credit('fx-toggle'));

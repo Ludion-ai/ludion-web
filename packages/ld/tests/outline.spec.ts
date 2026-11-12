@@ -26,7 +26,7 @@ test('ld outline：HTML 文書の場所も読む。--json は地図の JSON。�
     const json = runLd(['outline', file, '--json'], REPO);
     expect(json.code, json.out).toBe(0);
     const outline = JSON.parse(json.out);
-    expect(outline).toMatchObject({ version: 1, format: 'document', files: [{ name: 'index.html', lines: 7 }] });
+    expect(outline).toMatchObject({ version: 2, format: 'document', files: [{ name: 'index.html', lines: 7 }] });
     expect(outline.tech.map((tech: { id: string }) => tech.id)).toEqual(['canvas2d', 'raf']);
     expect(runLd(['outline', join(dir, 'none')], REPO).code).toBe(1);
   } finally {

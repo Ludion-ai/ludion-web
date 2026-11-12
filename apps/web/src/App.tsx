@@ -55,7 +55,8 @@ export function App() {
     <Routes>
       <Route element={<Shell />}>
         <Route index element={<Home />} />
-        <Route path="p/:id" element={<WorkPage />} />
+        {/* p/:id/code/<file>（行の住所。WS003）も同じ要素で受ける。ファイルを替えても、ページを載せ直さない（枠を読み直さず、閲覧を数え直さない） */}
+        <Route path="p/:id/*" element={<WorkPage />} />
         <Route path="c/:handle" element={<CreatorPage />} />
         <Route path="login" element={<LoginPage />} />
         <Route path="signup" element={<SignupPage />} />

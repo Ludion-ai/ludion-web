@@ -1,6 +1,7 @@
 // HTML を読む：<style>、<script>、x-shader の script、インラインの SVG、data: の素材、見出し、技術。
 // 文書の作品（index.html）と、部品の作品の part.html の両方に使う。
 
+import { ariaTech, roleValues } from './a11y.ts';
 import type { Unit } from './collect.ts';
 import { analyzeCss } from './css.ts';
 import { findHeadings, headingRanges, type CommentLike } from './headings.ts';
@@ -188,7 +189,21 @@ export function analyzeHtml(unit: Unit): HtmlResult {
     if (svgRoot) col.hit('svg', file, index, lt, `<${rawName}`);
     if (name === 'audio') col.hit('audio-element', file, index, lt, `<${rawName}`);
     if (!inSvg && !svgRoot && CONTROLS.has(name)) noteDom(lt, rawName);
+    // 名前を付ける要素（<label>）
+    if (name === 'label' && !inSvg) {
+      col.hit('aria-name', file, index, lt, `<${rawName}`);
+      col.value('aria-name', '<label>');
+    }
     for (const a of attrs) {
+      // キー操作と読み上げ：役目、状態、名前、知らせ（WS003）
+      const aria = ariaTech(a.name);
+      if (aria) {
+        col.hit(aria, file, index, a.nameStart, text.slice(a.nameStart, a.nameStart + a.name.length));
+        if (aria === 'aria-role') for (const role of roleValues(a.value)) col.value(aria, role);
+        else if (aria === 'aria-live') col.value(aria, /^[a-z]{1,20}$/.test(a.value.trim().toLowerCase()) ? a.value.trim().toLowerCase() : '');
+        else col.value(aria, a.name);
+        continue;
+      }
       if (a.name.startsWith('on') && a.name.length > 2) {
         const event = eventTech(a.name.slice(2));
         if (event) col.hit(event, file, index, a.nameStart, text.slice(a.nameStart, a.nameStart + a.name.length));

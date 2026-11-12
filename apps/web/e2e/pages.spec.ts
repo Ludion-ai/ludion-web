@@ -29,7 +29,7 @@ async function workFromApi(request: APIRequestContext, id: string): Promise<Work
   return (await worksFromApi(request)).find((work) => work.id === id)!;
 }
 
-/** 作品のページを開き、React が載るまで待つ（コードをコピーが押せる）。 */
+/** 作品のページを開き、React が載るまで待つ（全部をコピーが押せる）。 */
 async function openWork(page: Page, id: string) {
   await page.goto(`/p/${id}`);
   await page.getByRole('heading', { level: 1 }).waitFor();
@@ -110,7 +110,7 @@ test.describe('悪意のある見本は、作品のページで3つとも失敗�
     await expect(root).toHaveAttribute('data-parent', 'blocked:SecurityError');
     await expect(page.locator('#hacked')).toHaveCount(0);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Malicious: Rewrites Parent');
-    await expect(page.getByRole('button', { name: 'コードをコピー' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '全部をコピー' })).toBeVisible();
   });
 
   test('枠は sandbox="allow-scripts allow-forms" だけ。allow-same-origin がない', async ({ page }) => {
@@ -343,7 +343,8 @@ test.describe('プレビュー', () => {
   test('2列：左が約65%、右が約35%、間隔32px。1023px以下は1列で、プレビューが上', async ({ page }) => {
     await openWork(page, 'fx-button');
     const left = (await page.locator('iframe').boundingBox())!;
-    const right = (await page.getByRole('heading', { level: 1 }).boundingBox())!;
+    // 右の列は、タブの中身（「この作品について」から。WS003）
+    const right = (await page.locator('[data-work-about]').boundingBox())!;
     expect(right.x - (left.x + left.width)).toBeGreaterThanOrEqual(31);
     expect(right.x - (left.x + left.width)).toBeLessThanOrEqual(33);
     const total = 1440 - 68 - 48 - 32;
@@ -351,9 +352,13 @@ test.describe('プレビュー', () => {
 
     await page.setViewportSize({ width: 1023, height: 900 });
     const narrowFrame = (await page.locator('iframe').boundingBox())!;
+    const narrowAbout = (await page.locator('[data-work-about]').boundingBox())!;
+    expect(narrowAbout.y).toBeGreaterThan(narrowFrame.y + narrowFrame.height);
+    // 枠の線（1px）の外側と、箱の左の端がそろう
+    expect(Math.abs(narrowFrame.x - 1 - narrowAbout.x)).toBeLessThan(2);
+    // 頭（題名）は枠の上
     const narrowTitle = (await page.getByRole('heading', { level: 1 }).boundingBox())!;
-    expect(narrowTitle.y).toBeGreaterThan(narrowFrame.y + narrowFrame.height);
-    expect(Math.abs(narrowFrame.x - narrowTitle.x)).toBeLessThan(2);
+    expect(narrowTitle.y + narrowTitle.height).toBeLessThanOrEqual(narrowFrame.y);
   });
 
   test('部品：切り替えがなく、枠の中央に置かれ、地は作品の背景', async ({ page }) => {
@@ -477,14 +482,14 @@ test.describe('プレビュー', () => {
 test.describe('コピー', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('コピーした文字列の1行目がクレジット行と1文字も違わない。「コードをコピー」を押すと、ボタンが1.5秒「コピーしました」になり、コピー数が1増える', async ({ context, page, request }) => {
+  test('コピーした文字列の1行目がクレジット行と1文字も違わない。「全部をコピー」を押すと、ボタンが1.5秒「コピーしました」になり、コピー数が1増える', async ({ context, page, request }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: ownOrigin() });
     const before = (await workFromApi(request, 'fx-button')).copies;
     await openWork(page, 'fx-button');
     await expect(page.getByTestId('copy-count')).toHaveText(String(before));
 
     const posted = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/count' && response.request().postDataJSON().type === 'copy');
-    const button = page.getByRole('button', { name: 'コードをコピー' });
+    const button = page.getByRole('button', { name: '全部をコピー' });
     const box = (await button.boundingBox())!;
     expect(box.height).toBe(44);
     await button.click();
@@ -504,7 +509,7 @@ test.describe('コピー', () => {
     await expect(page.getByTestId('copy-count')).toHaveText(String(before + 1));
     expect((await workFromApi(request, 'fx-button')).copies).toBe(before + 1);
 
-    await expect(page.getByRole('button', { name: 'コードをコピー' })).toBeVisible({ timeout: 3000 });
+    await expect(page.getByRole('button', { name: '全部をコピー' })).toBeVisible({ timeout: 3000 });
     const elapsed = Date.now() - pressed;
     expect(elapsed).toBeGreaterThan(1000);
     expect(elapsed).toBeLessThan(2500);
@@ -516,7 +521,7 @@ test.describe('コピー', () => {
 
   test('コードの箱：コピー用の文字列を等幅で出す。高さは最大320pxでスクロールし、1行目のクレジット行が最初に見える', async ({ page }) => {
     await openWork(page, 'fx-landing');
-    const code = page.getByRole('region').or(page.locator('pre')).first();
+    const code = page.locator('pre:has([data-ld-code])');
     await expect(code).toHaveCSS('font-family', /mono|consolas|courier/i);
     const box = (await code.boundingBox())!;
     expect(box.height).toBeLessThanOrEqual(320);
@@ -574,7 +579,8 @@ test.describe('レーベルの表示（CLAUDE.md 原則10）', () => {
     await expect(label).toBeVisible();
     await expect(label).toHaveCSS('font-size', '13px');
     await expect(label).toHaveCSS('color', 'rgb(107, 107, 118)');
-    const name = (await page.getByRole('link', { name: work.creator.name }).first().boundingBox())!;
+    // 名前は数の行にある（頭の1行目は @handle。WS003）
+    const name = (await page.locator('[data-work-counts]').getByRole('link', { name: work.creator.name }).boundingBox())!;
     expect((await label.boundingBox())!.x).toBeGreaterThan(name.x + name.width - 1);
 
     await page.goto(`/c/${work.creator.handle}`);
@@ -678,9 +684,12 @@ test.describe('作品のページの情報', () => {
     await expect(title).toHaveText(work.title);
     await expect(title).toHaveCSS('font-size', '24px');
     await expect(title).toHaveCSS('font-weight', '700');
+    // 種類は、頭の札（WS003）
     const meta = page.getByText(`${copy.categories[work.category] ?? work.category} · ${copy.subtypes[work.subtype] ?? work.subtype}`, { exact: true }).first();
-    await expect(meta).toHaveCSS('font-size', '14px');
-    await expect(meta).toHaveCSS('color', 'rgb(107, 107, 118)');
+    await expect(meta).toHaveCSS('font-size', '12px');
+    await expect(meta).toHaveCSS('color', 'rgb(74, 74, 85)');
+    // 頭の1行目に @handle（作り手のページへ）
+    await expect(page.locator('[data-work-head]').getByRole('link', { name: '@seed_a', exact: true })).toHaveAttribute('href', '/c/seed_a');
 
     const author = page.getByRole('link', { name: work.creator.name }).first();
     await expect(author).toHaveAttribute('href', '/c/seed_a');
@@ -725,7 +734,7 @@ test.describe('作品のページの情報', () => {
     expect(same.length).toBeGreaterThan(4);
     expect(other.length).toBeGreaterThan(0);
 
-    const headings = page.locator('section > h2');
+    const headings = page.locator('section:has([data-masonry]) > h2');
     await expect(headings).toHaveText(['@fixture のほかの作品', 'ほかの作品']);
     const lists = page.locator('[data-masonry][data-placed]');
     await expect(lists).toHaveCount(2);
@@ -940,13 +949,13 @@ test.describe('axe-core（critical と serious が0件）', () => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: ownOrigin() });
     await page.setViewportSize({ width: 1440, height: 900 });
     await openWork(page, 'fx-toggle');
-    await page.getByRole('button', { name: 'コードをコピー' }).click();
+    await page.getByRole('button', { name: '全部をコピー' }).click();
     expect(await runAxe(page, '1440 押した後')).toEqual([]);
   });
 });
 
 test.describe('キーボード', () => {
-  test('デスクトップ／モバイル、いいね、しおり、コードをコピー、コードの箱にフォーカスが入り、枠が見える', async ({ page }) => {
+  test('デスクトップ／モバイル、いいね、しおり、全部をコピー、コードの箱にフォーカスが入り、枠が見える', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openWork(page, 'fx-landing');
     for (const target of [
@@ -954,7 +963,7 @@ test.describe('キーボード', () => {
       page.getByRole('button', { name: /^いいね/ }),
       page.getByRole('button', { name: '保存', exact: true }),
       page.getByRole('button', { name: '共有', exact: true }),
-      page.getByRole('button', { name: 'コードをコピー' }),
+      page.getByRole('button', { name: '全部をコピー' }),
       page.locator('pre'),
     ]) {
       await target.focus();
@@ -1013,12 +1022,12 @@ test.describe('コードの箱のたたみ', () => {
     });
   }
 
-  test('幅390：たたんだままでも「コードをコピー」は全部をコピーする', async ({ page, context }) => {
+  test('幅390：たたんだままでも「全部をコピー」は全部をコピーする', async ({ page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await page.setViewportSize({ width: 390, height: 844 });
     await openWork(page, 'fx-landing');
     await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
-    await page.getByRole('button', { name: 'コードをコピー' }).click();
+    await page.getByRole('button', { name: '全部をコピー' }).click();
     await expect(page.getByRole('button', { name: 'コピーしました' })).toBeVisible();
     const clipboard = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n');
     expect(clipboard).toBe(await (await page.request.get('/p/fx-landing/code')).text());
@@ -1103,13 +1112,19 @@ test.describe('共有', () => {
     expect(await other.evaluate(() => navigator.clipboard.readText())).toBe(SHARED_URL);
   });
 
-  test('幅390：共有のボタンは、いいねとしおりのすぐ下で、44pxの高さ', async ({ page }) => {
+  test('幅390：共有のボタンは、いいねとしおりと同じ行で、44pxの高さ。「リミックス」のすぐ下（WS003）', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openWork(page, 'fx-toggle');
     const like = (await page.getByRole('button', { name: /^いいね/ }).boundingBox())!;
+    const save = (await page.getByRole('button', { name: '保存', exact: true }).boundingBox())!;
     const share = (await page.getByRole('button', { name: '共有', exact: true }).boundingBox())!;
+    const remix = (await page.getByRole('button', { name: 'リミックス', exact: true }).boundingBox())!;
     expect(share.height).toBe(44);
-    expect(share.y).toBe(like.y + like.height + 12);
+    expect([save.y, share.y]).toEqual([like.y, like.y]);
+    expect(like.y).toBe(remix.y + remix.height + 12);
+    // 3つで幅を分ける（間隔12px）
+    expect(Math.abs(like.width - share.width)).toBeLessThan(1);
+    expect(share.x + share.width).toBeCloseTo(390 - 24, 0);
   });
 });
 
@@ -1149,15 +1164,15 @@ test.describe('GA4 のイベント（SPEC 15）', () => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     const sent = await watchEvents(page);
     await openWork(page, 'fx-toggle');
-    await page.getByRole('button', { name: 'コードをコピー' }).click();
+    await page.getByRole('button', { name: '全部をコピー' }).click();
     await expect.poll(() => sent).toEqual([['copy_code', { work_id: 'fx-toggle' }]]);
 
     sent.length = 0;
     await page.evaluate(() => {
       navigator.clipboard.writeText = () => Promise.reject(new Error('stub'));
     });
-    await expect(page.getByRole('button', { name: 'コードをコピー' })).toBeVisible({ timeout: 3000 });
-    await page.getByRole('button', { name: 'コードをコピー' }).click();
+    await expect(page.getByRole('button', { name: '全部をコピー' })).toBeVisible({ timeout: 3000 });
+    await page.getByRole('button', { name: '全部をコピー' }).click();
     await expect(page.getByRole('button', { name: 'コピーできませんでした' })).toBeVisible();
     expect(sent).toEqual([]);
   });
@@ -1223,7 +1238,7 @@ test.describe('下のタブ（幅390）', () => {
   test('コピーのボタンの上に、下のタブが重ならない位置までスクロールできる', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openWork(page, 'fx-toggle');
-    const button = page.getByRole('button', { name: 'コードをコピー' });
+    const button = page.getByRole('button', { name: '全部をコピー' });
     await button.scrollIntoViewIfNeeded();
     await button.evaluate((el) => el.scrollIntoView({ block: 'center' }));
     const hit = await button.evaluate((el) => {
@@ -1241,7 +1256,8 @@ test.describe('英語のページ（SPEC 9）', () => {
     expect(response!.status()).toBe(200);
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.getByRole('button', { name: copyEn.work.copyCode })).toBeVisible();
-    await expect(page.getByText(`${work.category} · ${work.subtype}`, { exact: true })).toBeVisible();
+    // 種類の札（幅で置き場所が変わるので2つ描いてある。見えているのは1つ）
+    await expect(page.getByText(`${work.category} · ${work.subtype}`, { exact: true }).locator('visible=true')).toHaveCount(1);
     await expect(page).toHaveTitle(copyEn.work.pageTitle(work.title, work.creator.handle));
     const creatorLink = page.locator(`main a[href="/en/c/${work.creator.handle}"]`).first();
     await creatorLink.click();

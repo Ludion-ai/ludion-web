@@ -1,7 +1,7 @@
 // 作品のページ（/p/:id）と作り手のページ（/c/:handle）を Worker で描く（docs/tasks/T007.md「1」「2」）。
 // 数は描画のときに D1 から入れる。作品のコードは R2 から読み、コピー用の文字列だけをページに入れる。ページの中では動かさない。
 
-import { authorBackground, buildCopySnippet } from '@ludion/render';
+import { authorBackground, buildCopySnippet, creditText, remixCreditText } from '@ludion/render';
 import { STILL_SIZES, stillFileName } from '@ludion/rules';
 import type { Context } from 'hono';
 import type { CreatorProfile, WallStill } from '../src/data/pages';
@@ -16,6 +16,9 @@ import type { Env } from './env';
 import { canPost, draftFrameUrls, loadRevisionFiles, ownedWork, privateCurrentRevision, revisionFile } from './revisions';
 import { getSessionUser } from './session';
 import { renderDocument } from './ssr';
+import { loadOutline } from './outline';
+import { buildAbout, buildTree, loadHistory } from './workAbout';
+import { isWorkFileName } from './workFile';
 
 type PageContext = Context<{ Bindings: Env }>;
 
@@ -61,7 +64,7 @@ async function loadWork(c: PageContext) {
   );
   // 帯には、公開されている元だけを出す。そうでなければ題も作者も出さない
   const band = source ? (source.status === 'approved' ? { id: source.id, title: source.title, handle: source.handle } : { hidden: true as const }) : null;
-  return { ...found, files, snippet, source: band };
+  return { ...found, files, snippet, source: band, creditSource: source && { id: source.id, handle: source.handle } };
 }
 
 /**
@@ -104,7 +107,17 @@ export async function renderWorkPage(c: PageContext): Promise<Response> {
     return renderNotFound(c);
   }
 
-  const { work, creator, files, snippet, source } = loaded;
+  const { work, creator, files, snippet, source, creditSource } = loaded;
+  // 行の住所の道（/p/<id>/code/<file>）：その版にないファイルの名前は、ないページ
+  const openFile = c.req.param('file');
+  if (openFile !== undefined && !(isWorkFileName(openFile) && (typeof files.document === 'string' ? openFile === 'index.html' : openFile !== 'index.html' && (openFile !== 'part.js' || typeof files.js === 'string')))) {
+    return renderNotFound(c);
+  }
+  // 「この作品について」は地図から（WS003）。地図は版ごとに置き場にあり、なければここで作って置く（worker/outline.ts）
+  const [outline, history] = await Promise.all([
+    loadOutline(c.env.PARTS, loaded.prefix, async () => files),
+    loadHistory(db, work.id, loaded.private !== null),
+  ]);
   // 作品のページから行き止まりをなくす（docs/tasks/T018.md「1」）。同じ作者が先で、それぞれ Popular の順
   const rest = (await listApprovedWorks(db)).filter((other) => other.id !== work.id);
 
@@ -120,6 +133,11 @@ export async function renderWorkPage(c: PageContext): Promise<Response> {
       source,
       private: loaded.private && { frames: draftFrameUrls(loaded.private.revisionId) },
       stills: loaded.private ? [] : await wallStills(c.env.PARTS, work, loaded.prefix),
+      about: outline && buildAbout(outline),
+      tree: outline && buildTree(outline),
+      credit: [creditText(creator.handle, work.id), ...(creditSource ? [remixCreditText(creditSource)] : [])],
+      versions: history.versions,
+      lineage: history.lineage,
     },
     // 自分だけの作品には共有の画像と canonical を付けない（公開の道からは見えない）
     head: loaded.private
