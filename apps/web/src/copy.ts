@@ -54,7 +54,7 @@ export const copy = {
     /** スマホの下のボタン */
     tab: '作品',
     newWork: '新しく',
-    newWorkLabel: '新しい作品を置く',
+    newWorkLabel: '新しく作品を置く',
     search: '題で探す',
     all: 'すべての作品',
     version: (version: string) => `版 ${version}`,

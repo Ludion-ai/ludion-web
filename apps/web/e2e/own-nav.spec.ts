@@ -225,6 +225,8 @@ test.describe('PC の左のナビ（WS001「1」）', () => {
   test('作品のある人の API は GET /api/me と GET /api/post/works の2本。ページを移っても読み直さない', async ({ page }) => {
     const { login } = await threeWorks('navapi');
     await logInPage(page, '/account', login);
+    // 前のページの読み込みが終わってから数える
+    await page.waitForLoadState('networkidle');
     const api: string[] = [];
     page.on('request', (request) => {
       const { pathname } = new URL(request.url());
@@ -271,7 +273,7 @@ test.describe('PC の左のナビ（WS001「1」）', () => {
       '探す',
       '保存',
       '自分の作品',
-      '新しい作品を置く',
+      '新しく作品を置く',
       '題で探す',
       `ナビの下書き navkeys版 1下書き`,
       `ナビの自分だけ navkeys版 1自分だけ`,
@@ -311,7 +313,7 @@ test.describe('スマホの「作品」とシート（WS001「2」）', () => {
       const box = (await sheet.boundingBox())!;
       return Math.round(box.y + box.height);
     }).toBe(844);
-    await expect(sheet.getByRole('link', { name: '新しい作品を置く' })).toHaveAttribute('href', '/new');
+    await expect(sheet.getByRole('link', { name: '新しく作品を置く' })).toHaveAttribute('href', '/new');
     await expect(sheet.getByRole('searchbox', { name: '題で探す' })).toBeVisible();
 
     const rows = sheet.locator('[data-own-nav-work]');

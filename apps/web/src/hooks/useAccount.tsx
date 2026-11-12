@@ -48,12 +48,11 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 
   const loadMe = useCallback(() => {
     me.current ??= fetchMe()
-      .then((body) => {
-        setReady(true);
-        return body;
-      })
-      .catch((): MeResponse => ({ user: null }))
-      .then((body) => {
+      .then((body) => ({ body, answered: true }))
+      .catch(() => ({ body: { user: null } as MeResponse, answered: false }))
+      .then(({ body, answered }) => {
+        // 本人と「答えが来た」を同じ描画で入れる。分けると、ログインしていない形が一度だけ挟まり、左のナビが閉じかける
+        if (answered) setReady(true);
         if (body.user) {
           setUser(body.user);
           setCanPost(body.can_post);

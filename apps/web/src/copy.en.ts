@@ -42,7 +42,7 @@ export const copyEn: Copy = {
     heading: 'My works',
     tab: 'Works',
     newWork: 'New',
-    newWorkLabel: 'Post a new work',
+    newWorkLabel: 'New work',
     search: 'Search by title',
     all: 'All works',
     version: (version: string) => `Version ${version}`,
