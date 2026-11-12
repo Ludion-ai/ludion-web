@@ -18,7 +18,7 @@ export function readOutlineInput(path: string): OutlineInput | null {
 }
 
 const LANGUAGE_LABELS: Record<string, string> = { js: 'JavaScript', glsl: 'GLSL', css: 'CSS', html: 'HTML' };
-const GROUP_LABELS: Record<TechGroup, string> = { draw: '描き方', sound: '音', input: '操作', motion: '動き', care: '気づかい', storage: '保存', external: '外から読む物' };
+const GROUP_LABELS: Record<TechGroup, string> = { draw: '描き方', sound: '音', input: '操作', motion: '動き', care: '気づかい', a11y: 'キー操作と読み上げ', storage: '保存', external: '外から読む物' };
 const KIND_LABELS: Record<Section['kind'], string> = { shader: 'シェーダー', settings: '設定', heading: '見出し', function: '関数', style: 'style', script: 'script', asset: '素材' };
 
 const size = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`);
@@ -34,7 +34,7 @@ export function formatOutline(name: string, outline: Outline, { functions = fals
   if (outline.tech.length === 0) out.push('  見つからない');
   const groups = [...new Set(outline.tech.map((tech) => tech.group))];
   for (const group of groups) {
-    const items = outline.tech.filter((tech) => tech.group === group).map((tech) => `${tech.label}（${tech.hits[0].file}:${tech.hits[0].line}${tech.count > 1 ? ` ほか${tech.count - 1}` : ''}${tech.hosts ? `、${tech.hosts.join(' ')}` : ''}）`);
+    const items = outline.tech.filter((tech) => tech.group === group).map((tech) => `${tech.label}（${tech.hits[0].file}:${tech.hits[0].line}${tech.count > 1 ? ` ほか${tech.count - 1}` : ''}${tech.hosts ? `、${tech.hosts.join(' ')}` : ''}${tech.values ? `、${tech.values.join(' ')}` : ''}）`);
     out.push(`  ${GROUP_LABELS[group]}：${items.join('、')}`);
   }
   out.push('ファイル：');
