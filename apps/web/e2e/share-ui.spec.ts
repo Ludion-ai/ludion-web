@@ -2,7 +2,7 @@
 // （スイッチを押す試験は e2e/share.spec.ts。合言葉が変わると、同じ見本を使う frame-escape.spec.ts が落ちるため）。
 
 import { expect, test, type Page } from '@playwright/test';
-import { PRIVATE_OWNER, privateFixtureId, sharedFixtureToken } from '../scripts/private-fixture.mjs';
+import { PRIVATE_OWNER, sharedFixtureId, sharedFixtureToken } from '../scripts/private-fixture.mjs';
 import { ownOrigin } from './visitor';
 
 const ID = 'mal-nav';
@@ -40,7 +40,7 @@ test.describe('持ち主（見本の持ち主のセッション）', () => {
   });
 
   test('作品のページの設定のタブ：スイッチはオンで、住所が出る。札と知らせも「リンクで見せる」', async ({ page }) => {
-    await page.goto(`/p/${privateFixtureId(ID)}`);
+    await page.goto(`/p/${sharedFixtureId(ID)}`);
     await hydrated(page);
     await expect(page.locator('[data-private-notice]')).toContainText('リンクで見せています');
     await expect(page.locator('[data-work-state="shared"]:visible')).toHaveText('リンクで見せる');

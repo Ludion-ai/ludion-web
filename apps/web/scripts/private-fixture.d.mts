@@ -3,3 +3,5 @@ export declare function privateFixtureId(id: string): string;
 export declare function privateRevisionId(id: string): string;
 export declare function sessionHash(token: string): string;
 export declare function sharedFixtureToken(id: string): string;
+export declare function sharedFixtureId(id: string): string;
+export declare function sharedRevisionId(id: string): string;
