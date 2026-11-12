@@ -317,6 +317,8 @@ test.describe('AI の口：まず地図、次に要る部分', () => {
   });
 
   test('一覧：?with=tech で技術の印、?tech= で絞る。付けなければ今までと同じ形', async () => {
+    // 手元の R2 を wrangler で何度も読み書きするので、長めに待つ
+    test.setTimeout(120_000);
     const owner = await person();
     const webgl = await put(owner.key, bigDoc('Uses WebGL'));
     const plain = await put(owner.key, smallPart(unique('plain-')));
@@ -339,6 +341,38 @@ test.describe('AI の口：まず地図、次に要る部分', () => {
     const bad = await get(owner.key, '/api/v1/works?tech=flash');
     expect(bad.status).toBe(400);
     expect(await bad.json()).toMatchObject({ error: 'bad_tech', allowed: expect.arrayContaining(['webgl2', 'webaudio', 'canvas2d']) });
+
+    // 地図のない版（WS002 より前に置いた版と同じ）が並んでいても、1回の一覧で全部に作って置く
+    const old: { id: string }[] = [];
+    for (let i = 0; i < 6; i++) old.push(await put(owner.key, i % 2 === 0 ? bigDoc(`Old ${i}`) : smallPart(unique('old-'))));
+    const prefixes = new Map(d1<{ work_id: string; r2_prefix: string }>(`SELECT work_id, r2_prefix FROM revisions WHERE work_id IN (${[...old, plain].map((work) => quote(work.id)).join(', ')})`).map((row) => [row.work_id, row.r2_prefix]));
+    const remove = (key: string) => expect(spawnSync(process.execPath, [WRANGLER, 'r2', 'object', 'delete', `ludion-parts/${key}`, '--local', '--persist-to', PERSIST], { cwd: WEB, stdio: 'ignore' }).status, key).toBe(0);
+    for (const work of old) remove(`${prefixes.get(work.id)}/outline.json`);
+    expect(r2(`${prefixes.get(old[0].id)}/outline.json`)).toBeNull();
+    const rebuilt = await list('?with=tech');
+    expect(rebuilt.works).toHaveLength(8);
+    expect(rebuilt.tech_unknown).toBeUndefined();
+    for (const [i, work] of old.entries()) expect(rebuilt.works.find((item) => item.id === work.id)!.tech, `Old ${i}`).toEqual(i % 2 === 0 ? ['webgl2', 'raf'] : expect.arrayContaining(['dom-css', 'pointer']));
+    for (const work of [old[0], old[5]]) expect(r2(`${prefixes.get(work.id)}/outline.json`), work.id).not.toBeNull();
+    expect((await list('?tech=webgl2')).works).toHaveLength(4);
+
+    // ファイルが読めない版（壊れた置き場）：技術は分からない（null）。絞るときは結果に入れず、数を返す
+    const broken = prefixes.get(plain.id)!;
+    remove(`${broken}/outline.json`);
+    remove(`${broken}/part.css`);
+    const partial = await list('?with=tech');
+    expect(partial.works).toHaveLength(8);
+    expect(partial.works.find((work) => work.id === plain.id)!.tech).toBeNull();
+    expect(partial.tech_unknown).toBe(1);
+    const narrowed = await list('?tech=pointer');
+    expect(narrowed.works.map((work) => work.id)).not.toContain(plain.id);
+    expect(narrowed.works).toHaveLength(3);
+    expect(narrowed.tech_unknown).toBe(1);
+    // MCP の一覧も、分からなかった数を言う
+    const viaTool = await call(owner.key, 'list_my_works', { tech: 'pointer' });
+    expect(viaTool.content[0].text).toContain('3 work(s) that use pointer, newest first:');
+    expect(viaTool.content[0].text).toContain('(1 work(s) could not be checked for tech and are left out.)');
+    expect(viaTool.structuredContent).toMatchObject({ tech_unknown: 1 });
   });
 
   test('説明：GET /api/v1 と /llms.txt に「まず地図、次に要る部分」の読み方がある', async () => {
@@ -559,7 +593,7 @@ test.describe('MCP の道具', () => {
     const text = map.content[0].text;
     expect(text).toContain(`Rain Sketch — work_id: ${id}, version 1, Only me, ${ownOrigin()}/en/p/${id}`);
     expect(text).toContain('not its code');
-    expect(text).toContain(`read_work_code with work_id "${id}"`);
+    expect(text).toContain(`read_work_code with work_id "${id}", version "1" and either section`);
     expect(text).toContain('- index.html — 1243 lines');
     expect(text).toContain('Tech (first line found): WebGL2 (index.html:1237)');
     expect(text).toContain('shader:WINDOW_FRAG — 18-21 — ');

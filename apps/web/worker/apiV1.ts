@@ -441,10 +441,13 @@ apiV1.post('/works/:id/versions', async (c) => {
   return answer(c, await writeDraft(c.env, user, id, { ...fixed, thumb: null }, meta, { via: user.via, privateBound: work.status !== 'approved' }));
 });
 
-/** 一覧で地図を読む作品の数の上限（新しい順）。超えた分の tech は null */
-const TECH_SCAN_MAX = 150;
-/** 一覧の1回で、地図のない版（WS002 より前に置いた版）から地図を作って置く数の上限。残りは次に読むとき */
-const TECH_BUILD_MAX = 8;
+/**
+ * 一覧で地図を読む作品の数の上限（新しい順）。超えた分の tech は null。
+ * 地図のない版（WS002 より前に置いた版）は、その場でファイルから作って置く。1つの版で R2 を読み書きするのは多くて7回
+ * （地図を探す1、ファイル4〜5、置く1）なので、全部の版に地図がなくても、1回の要求の上限（1000回）に収まる数にする。
+ * 地図を作るのは、234 KB の作品で 7〜25ms（packages/outline の試験）。
+ */
+const TECH_SCAN_MAX = 120;
 const TECH_SCAN_BATCH = 20;
 
 /** tech の値（, で区切る）を、技術の id の集まりの並びにする。知らない言葉があれば null。 */
@@ -475,15 +478,14 @@ apiV1.get('/works', async (c) => {
     .bind(c.get('user').id)
     .all<{ id: string; work_status: string; title: string; status: string; version: string; updated_at: number; r2_prefix: string }>();
 
-  // 技術の印：いちばん新しい版の地図から。地図のない版は、1回に TECH_BUILD_MAX 個まで作って置く
+  // 技術の印：いちばん新しい版の地図から。地図のない版は、ここで作って置く。ファイルが読めない版は null
   const tech = new Map<string, string[] | null>();
   if (withTech) {
-    let builds = TECH_BUILD_MAX;
     const scanned = results.slice(0, TECH_SCAN_MAX);
     for (let at = 0; at < scanned.length; at += TECH_SCAN_BATCH) {
       await Promise.all(
         scanned.slice(at, at + TECH_SCAN_BATCH).map(async (row) => {
-          const outline = await loadOutline(c.env.PARTS, row.r2_prefix, async () => (builds-- > 0 ? loadRevisionFiles(c.env.PARTS, row.r2_prefix) : null)).catch(() => null);
+          const outline = await loadOutline(c.env.PARTS, row.r2_prefix, () => loadRevisionFiles(c.env.PARTS, row.r2_prefix)).catch(() => null);
           tech.set(row.id, outline ? outline.tech.map((item) => item.id) : null);
         }),
       );

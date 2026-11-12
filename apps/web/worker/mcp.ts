@@ -272,7 +272,7 @@ async function listMyWorks(call: Call): Promise<ToolResult> {
   if (status !== 200) return apiFailure(status, data, Array.isArray(data.allowed) ? `Tech names: ${(data.allowed as string[]).join(', ')}; also webgl, canvas, audio.` : '');
   const works = (data.works as { id: string; title: string; visibility: string; status: string; version: string; updated_at: string; url: string; tech?: string[] | null }[]) ?? [];
   const unknown = typeof data.tech_unknown === 'number' ? data.tech_unknown : 0;
-  const note = unknown > 0 ? `\n(${unknown} work(s) could not be checked for tech this time${filter === null ? '' : ' and are left out'}; call again to check more.)` : '';
+  const note = unknown > 0 ? `\n(${unknown} work(s) could not be checked for tech${filter === null ? '' : ' and are left out'}.)` : '';
   if (works.length === 0) return text(filter === null ? 'The person has no works on Ludion yet.' : `None of the person's works use ${filter}.${note}`, { works: [], ...(unknown > 0 ? { tech_unknown: unknown } : {}) });
   const lines = works.map((work) => {
     const marks = Array.isArray(work.tech) ? techMarks(work.tech) : '';
@@ -304,7 +304,7 @@ function mapResult(tool: 'get_work' | 'get_public_work', data: Record<string, un
       : `${String(rest.title)} by @${String(rest.creator)} — work_id: ${id}, version ${String(rest.version)}, ${String(rest.url)} (MIT)`;
   const how = hasCode
     ? 'Below: the map of the work, then its whole code.'
-    : `Below is the map of the work, not its code (${size(Number(rest.bytes))} in all). To read code, call read_work_code with work_id "${id}" and either section (a selector from the map, exactly as written${example ? `, for example "${selectorNames(outline)(example)}"` : ''}) or file and lines (for example file "${outline.files[outline.files.length - 1]?.name ?? 'index.html'}", lines "1-200"). Up to ${KB(MAX_PART_READ_BYTES)} per call. For the whole code in one piece, call ${tool} again with code: true.`;
+    : `Below is the map of the work, not its code (${size(Number(rest.bytes))} in all). To read code, call read_work_code with work_id "${id}", version "${String(rest.version)}" and either section (a selector from the map, exactly as written${example ? `, for example "${selectorNames(outline)(example)}"` : ''}) or file and lines (for example file "${outline.files[outline.files.length - 1]?.name ?? 'index.html'}", lines "1-200"). Up to ${KB(MAX_PART_READ_BYTES)} per call. For the whole code in one piece, call ${tool} again with code: true.`;
   const next =
     tool === 'get_work'
       ? `To save changes as a new version, call save_work with work_id "${id}". Keep the credit lines at the top.`
