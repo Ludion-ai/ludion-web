@@ -471,7 +471,7 @@ oauth.post('/authorize', async (c) => {
   await db.batch([
     db.prepare('DELETE FROM oauth_codes WHERE code_hash IN (SELECT code_hash FROM oauth_codes WHERE expires_at <= ? LIMIT 50)').bind(now),
     db
-      // 求めに redirect_uri があったかを残す。あったなら、トークンの口で同じ値を必ず求める（OAuth 2.1 の 4.1.3）
+      // 求めに redirect_uri があったかを残す。あったなら、トークンの口で同じ値を必ず求める（RFC 6749 の 4.1.3。OAuth 2.1 の 10.2 の、2.0 のクライアントとの互換）
       .prepare('INSERT INTO oauth_codes (code_hash, client_id, user_id, redirect_uri, redirect_uri_sent, code_challenge, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .bind(await hashToken(code), request.client.id, user.id, request.redirectUri, params.get('redirect_uri') !== null ? 1 : 0, request.challenge, now + CODE_TTL_MS),
   ]);
