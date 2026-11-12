@@ -414,7 +414,7 @@ test.describe('リミックスの元（T033 B3、B4）', () => {
     expect(d1(`SELECT remix_of FROM revisions WHERE id = ${quote(nextRevision.revision.id)}`)[0]).toEqual({ remix_of: source.id });
     expect((await original.visitor.post(`/api/post/works/${source.id}/revoke`)).status).toBe(200);
     expect((await new Visitor().fetch(`/p/${id}`)).status).toBe(200);
-    expect((await (await new Visitor().fetch(`/p/${id}/code?after-revoke`)).text()).split('\n')[1]).toBe(`<!-- Remix of UI by @${original.handle} — ludion.ai/p/${source.id} (MIT) -->`);
+    expect((await (await new Visitor().fetch(`/p/${id}/code`)).text()).split('\n')[1]).toBe(`<!-- Remix of UI by @${original.handle} — ludion.ai/p/${source.id} (MIT) -->`);
   });
 
   test('悪い remix_of：ない作品、承認されていない作品、自分自身、形の違う値は断り、何も置かない', async () => {
@@ -872,6 +872,43 @@ test.describe('数える', () => {
     expect((await send(stranger.visitor, 'view')).status).toBe(204);
     expect((await send(new Visitor(), 'copy')).status).toBe(204);
     expect(counted()).toEqual({ views: 1, copies: 1 });
+  });
+
+  test('同じ相手（IP の鍵）の同じ作品は、閲覧とコピーをそれぞれ1日に1回だけ数える。ほかの相手とほかの作品は数える。生の IP と作品の id を置かない（LIMIT001）', async () => {
+    const { visitor } = await person();
+    const { visitor: reviewer } = await operator();
+    const made = await published(visitor, reviewer, 'once');
+    const other = await published(visitor, reviewer, 'once2');
+    const counted = (id: string) => d1<{ views: number; copies: number }>(`SELECT COALESCE(SUM(views), 0) AS views, COALESCE(SUM(copies), 0) AS copies FROM counters WHERE work_id = ${quote(id)}`)[0];
+    const send = (ip: string, id: string, type: string) =>
+      new Visitor().fetch('/api/count', { method: 'POST', headers: { Origin: ownOrigin(), 'Content-Type': 'application/json', 'CF-Connecting-IP': ip }, body: JSON.stringify({ work_id: id, type }) });
+    const ip = `198.51.100.${(Date.now() % 200) + 1}`;
+    const otherIp = `203.0.113.${((Date.now() + 41) % 200) + 1}`;
+
+    // 前：同じ相手が3回開いて2回コピーすると、3と2を数えていた。後：1と1
+    for (let i = 0; i < 3; i += 1) expect((await send(ip, made.id, 'view')).status).toBe(204);
+    for (let i = 0; i < 2; i += 1) expect((await send(ip, made.id, 'copy')).status).toBe(204);
+    expect(counted(made.id)).toEqual({ views: 1, copies: 1 });
+    // 同じ IPv6 の /64 は同じ相手
+    expect((await send('2001:db8:5:6::1', made.id, 'view')).status).toBe(204);
+    expect((await send('2001:db8:5:6::2', made.id, 'view')).status).toBe(204);
+    expect(counted(made.id)).toEqual({ views: 2, copies: 1 });
+    // ほかの相手、ほかの作品は数える
+    expect((await send(otherIp, made.id, 'view')).status).toBe(204);
+    expect((await send(ip, other.id, 'view')).status).toBe(204);
+    expect(counted(made.id)).toEqual({ views: 3, copies: 1 });
+    expect(counted(other.id)).toEqual({ views: 1, copies: 0 });
+    // 承認済みでない作品は、今までどおり 400 で、印を置かない
+    const marks = () => d1<{ n: number }>(`SELECT COUNT(*) AS n FROM quotas WHERE key LIKE 'count:%'`)[0].n;
+    const before = marks();
+    expect((await send(ip, 'no-such-work', 'view')).status).toBe(400);
+    expect((await send(ip, 'no-such-work', 'view')).status).toBe(400);
+    expect(marks()).toBe(before);
+    // 置くのは、作品と種類と日を混ぜた HMAC だけ
+    for (const { key } of d1<{ key: string }>(`SELECT key FROM quotas WHERE key LIKE 'count:%'`)) {
+      expect(key).toMatch(/^count:[0-9a-f]{32}$/);
+      expect(key).not.toContain(made.id);
+    }
   });
 });
 

@@ -8,13 +8,14 @@
 //   アクセスのトークンもリフレッシュのトークンも、その場で使えなくなる（どの要求も D1 で確かめるため）。
 // - 「許可」を押すと、その AI が置くものは、投稿の同意の3つ（自分のもの、MIT、利用規約）に同意したものとして扱う（AI の鍵と同じ）。
 //   許可の画面に、その文を出す。
-// - 回数の制限：許可の画面は人が開くので IP の束縛（LIMIT_AUTH）。登録とトークンは AI のサーバーから来る（多くの人が同じ IP を通る）ので、
-//   IP では数えず、登録は全体の1日の数（quotas）で止める。トークンは 238 ビットの乱数なので、当てずっぽうでは当たらない。
+// - 回数の制限：許可の画面は人が開くので IP の束縛（LIMIT_AUTH）。登録とトークンは AI のサーバーから来る（多くの人が同じ IP を通る）。
+//   登録は、IP の束縛（LIMIT_REGISTER、1分）と、IP の鍵ごとの1日の数を先に効かせ、全体の1日の数（quotas）は余裕を持たせる
+//   （ひとりで全体を使い切らせない。LIMIT001。数は quotaLimits.ts）。トークンは IP では数えない。238 ビットの乱数なので、当てずっぽうでは当たらない。
 
 import { Hono, type Context } from 'hono';
 import type { Env } from './env';
 import { isSameOrigin } from './origin';
-import { takeQuota } from './quota';
+import { takeRegisterQuota } from './quota';
 import { getSessionUser, hashToken } from './session';
 
 type OAuthContext = Context<{ Bindings: Env }>;
@@ -34,8 +35,6 @@ const MAX_CLIENT_NAME_CHARS = 60;
 const MAX_REDIRECT_URIS = 10;
 const MAX_REDIRECT_URI_LENGTH = 2000;
 const MAX_STATE_LENGTH = 1000;
-/** 登録の、全体の1日の上限。登録は名前と戻り先だけで、人に結ばない。 */
-export const REGISTER_LIMIT_PER_DAY = 2000;
 /** 一度もつながらなかった登録は、この日数で消す。 */
 const UNUSED_CLIENT_DAYS = 7;
 const MAX_FORM_BYTES = 64 * 1024;
@@ -245,8 +244,8 @@ oauth.post('/register', async (c) => {
   }
 
   const now = Date.now();
-  const day = new Date(now).toISOString().slice(0, 10);
-  if (!(await takeQuota(db, 'oauth-register:*', day, REGISTER_LIMIT_PER_DAY, now + 2 * DAY_MS))) {
+  // 登録は名前と戻り先だけで、人に結ばない
+  if (!(await takeRegisterQuota(c.env, c.req.header('CF-Connecting-IP'), now))) {
     return oauthError(c, 429, 'temporarily_unavailable', 'Too many registrations today. Try again tomorrow.');
   }
   // 一度もつながらなかった古い登録を少し消す（登録は人に結ばないので、溜めない）

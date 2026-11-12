@@ -294,7 +294,7 @@ R2（`ludion-parts`）：版の `r2_prefix` の下に `part.html`、`part.css`�
 
 | メソッドとパス | 中身 |
 | --- | --- |
-| `GET /api/works` | 承認済みの作品をすべて（200件まで）、Popularの順で返す。各作品に閲覧数、いいね数、コピー数、リミックスの帯（`remix`）。人によって変わる情報は入れない（ホームの HTML をキャッシュするため。「10. 速さ」）。絞り込み・検索・Newestはブラウザでやる |
+| `GET /api/works` | 承認済みの作品をすべて（200件まで）、Popularの順で返す。各作品に閲覧数、いいね数、コピー数、リミックスの帯（`remix`）。人によって変わる情報は入れない（ホームの HTML をキャッシュするため。「10. 速さ」）。絞り込み・検索・Newestはブラウザでやる。キャッシュはホームと同じ（`s-maxage=60`、札 `catalog`。LIMIT001） |
 | `POST /api/works/:id/like` | いいねを切り替える（要ログイン） |
 | `POST /api/works/:id/bookmark` | しおりを切り替える（要ログイン） |
 | `GET /api/me` | ログイン中の本人（`handle`、`display_name`、`avatar_url`。運営にだけ審査待ちの数 `review_pending`）と、いいね済み・しおり済みの作品の id、作品を置けるか（`can_post`）（いなければ `null`） |
@@ -309,7 +309,7 @@ R2（`ludion-parts`）：版の `r2_prefix` の下に `part.html`、`part.css`�
 | `POST /api/account/sessions/revoke-others` | この端末のほかを全部ログアウトする |
 | `POST /api/account/identities/:provider/remove` | 手段を外す。直近10分以内のログインが要る。最後の1つは外せない |
 | `POST /api/account/delete` | 退会。直近10分以内のログインが要る |
-| `POST /api/count` | `{ work_id, type: "view" \| "copy" }`。その日のカウンタを1つ増やすだけ。ログイン中の人が作品の持ち主なら数えない |
+| `POST /api/count` | `{ work_id, type: "view" \| "copy" }`。その日のカウンタを1つ増やすだけ。ログイン中の人が作品の持ち主なら数えない。同じ相手（回数の制限と同じ IP の束ね方）の同じ作品の同じ種類は、UTC の1日に1回だけ数え、2回目からは数えずに同じ 204 を返す（LIMIT001。印は IP、作品、種類、日を混ぜた HMAC で、2日で消える） |
 | `GET /auth/github` | GitHubのログインへ。`?next=` に戻り先（自分のサイトのパスだけ受け付ける）。`?intent=reauth` は今の本人の手段でなければ断る |
 | `GET /auth/github/callback` | セッションを作り、`next` へ戻す |
 | `GET /auth/google` | Google のログインへ。認可コード ＋ PKCE ＋ state ＋ nonce。スコープは `openid profile` だけ。`?next=`、`?intent=reauth`、`?intent=link` は GitHub と同じ |
@@ -387,7 +387,8 @@ R2（`ludion-parts`）：版の `r2_prefix` の下に `part.html`、`part.css`�
   - ホームの HTML には、c、sort、q、type のどの組み合わせでも `Cache-Tag: catalog` を付け、`Cache-Control` は `s-maxage=60` にする。
   - 作品の承認、版の差し替え、取り下げのときに `ctx.cache.purge({ tags: ["catalog"] })` を呼ぶ。タグで消すので、q 付きの URL もキャッシュしてよく、消し残りも出ない。
   - Workers Cache の今の状態（ベータかどうか、料金、purge の回数の上限）は、`docs/reports/T012.md` に出典と一緒に書いた。
-  - キャッシュは許したものだけ（`apps/web/worker/cachePolicy.ts`、`apps/web/e2e/cache.spec.ts`）。許すのは、ホーム（URL の値つきを含む）、作品のページ、作り手のページの HTML、作品のコードの文字（`/p/:id/code`。「13」）、作品の地図（`/p/<id>.json`）とファイルの生の文字（`/p/<id>/raw/<file>`。「13」）と `/sitemap.xml`（`public, max-age=0, s-maxage=60`、`Cache-Tag: catalog`）、`/privacy` と `/about` の HTML（同じ指示で、札なし）、サムネイル（`public, max-age=3600, s-maxage=31536000`、札は作品ごと）、アバター、`/assets/` の静的アセット（`public, max-age=31536000, immutable`）の 200 だけ。それ以外は `private, no-store`。`Set-Cookie` を含む応答は、どんな場合もキャッシュしない。枠（`/frame/...`）と OG 画像もキャッシュしない。
+  - キャッシュは許したものだけ（`apps/web/worker/cachePolicy.ts`、`apps/web/e2e/cache.spec.ts`）。許すのは、ホーム（URL の値つきを含む）、作品のページ、作り手のページの HTML、一覧の API（`GET /api/works`。LIMIT001）、作品のコードの文字（`/p/:id/code`。「13」）、作品の地図（`/p/<id>.json`）とファイルの生の文字（`/p/<id>/raw/<file>`。「13」）と `/sitemap.xml`（`public, max-age=0, s-maxage=60`、`Cache-Tag: catalog`）、`/privacy` と `/about` の HTML（同じ指示で、札なし）、サムネイル（`public, max-age=3600, s-maxage=31536000`、札は作品ごと）、アバター、`/assets/` の静的アセット（`public, max-age=31536000, immutable`）の 200 だけ。それ以外は `private, no-store`。`Set-Cookie` を含む応答は、どんな場合もキャッシュしない。枠（`/frame/...`）と OG 画像もキャッシュしない。
+  - キャッシュのキーは道と URL の値なので、知らない値を付けると当たらない。許した道の GET と HEAD に、残さない値（ホームの c、sort、q、type と、人が開くページの UTM のほかの値。同じ名前の2つ目）が付いていたら、D1 を読まずに、その値を外した URL へ 302 で送る（`worker/cachePolicy.ts` の `canonicalCacheUrl`。LIMIT001）。値の順は変えない。
   - キャッシュのキーにホストも cookie も入らない。だから人によって変わる応答を一覧に足さない。workers.dev と ludion.ai で同じ項目を使うので、HTML の中の絶対 URL は ludion.ai にする。
   - 同じ理由で、`www.ludion.ai` は `ludion-web` につながず、転送だけをする別の Worker（`apps/web/www-redirect/`）で `https://ludion.ai` へ 301 で送る。
   - 取り下げのときは、作品のサムネイルの札（`work-<id>`）も消す。当たると Worker の「承認済みか」の確かめを通らないため。
@@ -537,7 +538,7 @@ Worker で描く。ヘッダー、サイドバー、下のタブはホームと�
 ### 動き
 
 - ホームや一覧のカードからは、読み込み直して移る。データは Worker が HTML の中の JSON（`ld-page`）に入れ、ブラウザで取り直さない。
-- 閲覧数：開いたときに1回だけ `POST /api/count`（`type: "view"`）を送る。重複は除かない。
+- 閲覧数：開いたときに1回だけ `POST /api/count`（`type: "view"`）を送る。重複はサーバーで除く（同じ相手の同じ作品は1日1回。「8」の `POST /api/count`）。
 - Copy all：押すと、コピー用の文字列をクリップボードに入れ、ボタンの文字を1.5秒だけ「Copied」にし、画面のコピー数を1増やして `POST /api/count`（`type: "copy"`）を送る。クリップボードに書けないときは、1.5秒だけ「Couldn't copy」にしてコードを選択し、数えない。
 - `POST /api/count` が失敗しても、画面には何も出さない。
 - リミックス（`components/RemixSheet.tsx`、`lib/remix.ts`）：押すと `<dialog>` のシートを `showModal()` で開く。Esc、後ろを押す、閉じるのボタンで閉じ、フォーカスはボタンへ戻す。閉じて開き直しても、書いた文は残る（再読み込みで消える）。
@@ -555,7 +556,7 @@ Worker で描く。ヘッダー、サイドバー、下のタブはホームと�
 - 行の住所の道 `GET /p/<id>/code/<file>`（英語は `/en/p/<id>/code/<file>`。WS003）：作品のページと同じ HTML を返す（どのファイルを開くかは、ブラウザが道から読む）。その版にないファイルの名前は 404。キャッシュは作品のページと同じ。`robots.txt` で止める（`/p/*/code`）。
 - 本文のための読み口 `GET /p/<id>/file/<版>/<file>`（`worker/workFile.ts`。WS003）：版のファイルを、置いてあるとおりの文字で返す。クレジット行を足さないので、行の番号は地図と同じ。画面に出すためだけで、人が持ち出す文字（「コピー」、`/raw/`、`/code`）にはクレジット行が入る。
   - 公開の作品は、承認済みの作品の、承認済みのその版だけ（cookie を読まない）。自分だけの作品は、持ち主のセッションにだけ今の版を返し、残さない（`private, no-store`）。ほかは 404。id、版、ファイルの名前は、D1 と R2 を読む前に形で弾く。
-  - `Content-Type: text/plain; charset=utf-8`、`X-Content-Type-Options: nosniff`、`X-Robots-Tag: noindex`。回数の制限はかけない。
+  - `Content-Type: text/plain; charset=utf-8`、`X-Content-Type-Options: nosniff`、`X-Robots-Tag: noindex`。回数の制限は束縛 `LIMIT_PAGE`（キャッシュに当たった分は数えない。LIMIT001）。
   - キャッシュは作品のページと同じ（`s-maxage=60`、一覧の札）。同じ版の中身は `ld upload` で置き直せるので、版の番号だけでは「変わらない」と言えないため。`robots.txt` で止める（`/p/*/file/`）。
 - 作品の地図とファイルの生の文字（WS006。`worker/workSite.ts`）：`GET /p/<id>.json` は、今の版の地図（ファイルと行の数、言語、技術と見つけた行、分け目。`packages/outline`）と、読む先の住所を JSON で返す。`GET /p/<id>/raw/<file>` は、1つのファイル（`part.html`、`part.css`、`part.js`、文書の作品は `index.html`）の生の文字を返す（`text/plain; charset=utf-8`、`nosniff`）。頭にクレジット行を入れる（`/p/<id>/code` と同じ決まり：1行目は作者、リミックスは次の行に元の作品。文書の作品は `<!doctype>` の直後）ので、行の番号は地図とその行の数だけずれる。行で読むのは AI の口（`/api/v1/works/:id/code`）。公開の作品はだれにでも同じ中身で、キャッシュは作品のページと同じ（「10」）。自分だけの作品は、本人の鍵（セッションの cookie、AI の鍵、AI につないだトークン）でだけ読め、残さない（`private, no-store`）。ほかの人には、ない作品と同じ 404。回数の制限は束縛 `LIMIT_COUNT`（鍵の確かめより先）。`robots.txt` で止める。開いても閲覧数とコピー数は数えない。
 - 壁紙にする（WALL001。`components/WallpaperSheet.tsx`、`lib/wallpaper.ts`）：種類が壁紙の作品（`subtype` が `Wallpaper`）にだけ、「リミックス」の横に同じ形のボタンを置く（2つで幅を分ける）。ほかの作品では「リミックス」だけで、今までどおり。
@@ -679,7 +680,10 @@ GA4 の利用規約（Google Analytics Terms of Service の「7. Privacy」）�
 - サムネイル：作り手が PNG、JPEG、WebP の静止画で出す。Worker で完全に読み直し（600万画素まで。`@jsquash` の wasm）、WebP（幅800、80KB 以下。高さ÷幅は 0.6〜1.25、はみ出す分は切る）と OG 画像（PNG、1200×630）に作り直す。元の画像は置かない。運営の PC で他人の作品を開いて撮らない。
 - 下書きと審査待ちの版は、持ち主と運営だけが見られる（自分だけの作品の版は持ち主だけ。運営は審査に出された版だけ。`/draft-frame/<版の id>/<desktop|mobile>.html`、`/draft-thumb/<版の id>.webp`）。枠の守りは「13」と同じ。ほかの人には 404。キャッシュしない。
 - 回数の上限（`worker/quotaLimits.ts`）：1人1日10版、全体で1日200版。保存（下書きの上書きを含む）は1人1日50回、全体で1日1000回。保存は1分に10回（IP の HMAC ごと。束縛 `LIMIT_POST`）。
-- 新しい人を作る上限：同じ回線（IP の HMAC）で1日5人、全体で1時間200人。超えるとログインの画面で知らせる。今いる人のログインは止めない。
+- 新しい人を作る上限：同じ回線（IP の HMAC）で1日5人、全体で1時間1000人（LIMIT001。前は200人）。超えるとログインの画面で知らせる。今いる人のログインは止めない。
+- AI のクライアントの登録（`POST /oauth/register`）：1分に20回（IP の HMAC ごと。束縛 `LIMIT_REGISTER`）、同じ回線で1日200、全体で1日10000（LIMIT001。前は全体で1日2000だけ）。
+- 全体の数（`quotas` の `…:*`）が上限の8割と上限に届いたら、ログに `quota_near_limit` と `quota_full` を数の名前だけで出す（LIMIT001）。
+- 作品のページ、作者のページ、`/p/<id>/code/<file>`、`/p/<id>/file/…`、`/p/<id>/wall`、`GET /api/works`（英語の道を含む）：キャッシュに当たらなかった分を、1分に120回（IP の HMAC ごと。束縛 `LIMIT_PAGE`。LIMIT001）。
 - 作り手自身の閲覧とコピーは数えない。
 - 取り下げ：運営の取り下げ（`/api/admin/...`）と退会で使う。持ち主の画面では「自分だけにする」に置き換えた（T036）。API の `POST /api/post/works/:id/revoke` は残る。公開から消え、`catalog` と作品の札を消す。直している最中の版も止まる。ファイルは R2 に残す（公開の道からは読めない）。
 - 退会すると、公開も審査待ちも下書きも自分だけの版も `revoked` になる。

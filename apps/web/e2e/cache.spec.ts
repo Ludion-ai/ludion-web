@@ -9,6 +9,7 @@ import type { Work } from '../src/data/works';
 import {
   applyCachePolicy,
   CACHE_RULES,
+  canonicalCacheUrl,
   CATALOG_TAG,
   DEFAULT_CACHE_CONTROL,
   LONG_CACHE_CONTROL,
@@ -34,6 +35,8 @@ const ALLOWED_ROUTES = [
   'GET /en/terms',
   'GET /',
   'GET /about',
+  // 一覧の API（LIMIT001）。ホームの一覧と同じ中身で、人によって変わらない
+  'GET /api/works',
   'GET /c/:handle',
   'GET /p/:id',
   'GET /p/:id/code',
@@ -212,7 +215,7 @@ test.describe('applyCachePolicy', () => {
       '/api/account',
       '/api/me',
       '/api/me/bookmarks',
-      '/api/works',
+      '/api/works/abc/like',
       '/auth/github',
       '/auth/github/callback',
       '/nothing',
@@ -248,7 +251,7 @@ test.describe('手元のサーバーの実際の応答', () => {
     const style = /href="(\/assets\/index-[^"]+\.css)"/.exec(html)![1];
     const font = /href="(\/assets\/inter-latin-wght-normal-[^"]+\.woff2)"/.exec(html)![1];
 
-    for (const path of ['/', '/?c=web', '/?sort=new&q=a&type=component', `/p/${work.id}`, `/p/${work.id}/code`, `/c/${work.creator.handle}`]) {
+    for (const path of ['/', '/?c=web', '/?sort=new&q=a&type=component', `/p/${work.id}`, `/p/${work.id}/code`, `/c/${work.creator.handle}`, '/api/works']) {
       const response = await request.get(path);
       expect(response.status(), path).toBe(200);
       expect(response.headers()['cache-control'], path).toBe(PAGE_CACHE_CONTROL);
@@ -269,7 +272,6 @@ test.describe('手元のサーバーの実際の応答', () => {
   test('許さない道：private, no-store で、札がない', async ({ request }) => {
     const [work] = await seedWorks(request);
     const checks: [string, Promise<APIResponse>, number][] = [
-      ['/api/works', request.get('/api/works'), 200],
       ['/api/me', request.get('/api/me'), 200],
       ['/saved', request.get('/saved', { maxRedirects: 0 }), 301],
       ['/account', request.get('/account', { maxRedirects: 0 }), 302],
@@ -356,6 +358,30 @@ test.describe('回数の制限（数の守り）', () => {
     }
     throw new Error(`${limit * 2 + 2} 回送っても 429 が返らなかった`);
   }
+
+  test('GET の作品と作者の読み口（キャッシュに当たらなかった分）：上限を超えると 429（束縛は LIMIT_PAGE。LIMIT001）。ほかの IP は通る', async ({ request }) => {
+    const limit = limitOf('LIMIT_PAGE');
+    const ip = uniqueIp();
+    // ない作品と作者で数える（R2 を読まない）。道をまたいで1つの束縛で数える
+    const paths = ['/p/nothing-here', '/c/nobody-here', '/en/p/nothing-here', '/p/nothing-here/file/1/part.html', '/p/nothing-here/code/part.html', '/api/works'];
+    const { index, response } = await firstLimited(limit, (i) => request.get(paths[i % paths.length], { headers: { 'CF-Connecting-IP': ip } }));
+    expect(index).toBeGreaterThanOrEqual(limit);
+    expect(await response.json()).toEqual({ error: 'rate_limited' });
+    expect(response.headers()['cache-control']).toBe(DEFAULT_CACHE_CONTROL);
+    expect((await request.get('/p/nothing-here', { headers: { 'CF-Connecting-IP': uniqueIp() } })).status()).toBe(404);
+    expect((await request.get('/api/works', { headers: { 'CF-Connecting-IP': uniqueIp() } })).status()).toBe(200);
+  });
+
+  test('POST /oauth/register：上限を超えると 429（束縛は LIMIT_REGISTER。LIMIT001）。ほかの IP は通る', async ({ request }) => {
+    const limit = limitOf('LIMIT_REGISTER');
+    const ip = uniqueIp();
+    // 中身が正しくない要求で数える（D1 に登録を作らない）
+    const post = (from: string) => request.post('/oauth/register', { headers: { 'CF-Connecting-IP': from }, data: {} });
+    const { index, response } = await firstLimited(limit, () => post(ip));
+    expect(index).toBeGreaterThanOrEqual(limit);
+    expect(await response.json()).toEqual({ error: 'rate_limited' });
+    expect((await post(uniqueIp())).status()).toBe(400);
+  });
 
   test('wrangler.jsonc：版ごとの URL を作らない。Workers Cache を入れる', () => {
     expect(config).toMatch(/"preview_urls": false/);
@@ -487,5 +513,72 @@ test.describe('回数の制限（数の守り）', () => {
       const response = await request.post('/api/count', { headers: { 'CF-Connecting-IP': '127.0.0.1', Origin: origin }, data: {} });
       expect(response.status()).toBe(400);
     }
+  });
+});
+
+test.describe('知らない URL の値は外して、同じキャッシュに当てる（LIMIT001）', () => {
+  const canon = (path: string, method = 'GET') => canonicalCacheUrl(method, new URL(path, 'https://ludion.ai'));
+
+  test('canonicalCacheUrl：キャッシュの道の知らない値を外す。知っている値と順は残す。外すものがなければ null', () => {
+    expect(canon('/p/abc?x=1')).toBe('/p/abc');
+    expect(canon('/p/abc?x=1&y=2')).toBe('/p/abc');
+    expect(canon('/?zz=1')).toBe('/');
+    expect(canon('/?sort=new&zz=1&c=web')).toBe('/?sort=new&c=web');
+    expect(canon('/en?q=card&cb=9')).toBe('/en?q=card');
+    expect(canon('/c/someone?x')).toBe('/c/someone');
+    expect(canon('/api/works?x=1')).toBe('/api/works');
+    expect(canon('/p/abc/code?x=1')).toBe('/p/abc/code');
+    expect(canon('/p/abc.json?x=1')).toBe('/p/abc.json');
+    expect(canon('/p/abc/file/1/part.html?x=1')).toBe('/p/abc/file/1/part.html');
+    expect(canon('/w/abc/1/thumb.webp?x=1')).toBe('/w/abc/1/thumb.webp');
+    expect(canon('/sitemap.xml?x=1')).toBe('/sitemap.xml');
+    // 同じ名前の2つ目は外す（キーを増やさない）
+    expect(canon('/?c=web&c=ui')).toBe('/?c=web');
+    // 人が開くページは UTM を残す（GA4 がどこから来たかを見る）。テキストや API の道は残さない
+    expect(canon('/p/abc?utm_source=x&fbclid=y')).toBe('/p/abc?utm_source=x');
+    expect(canon('/api/works?utm_source=x')).toBe('/api/works');
+    // ホームの値は、作品のページでは知らない値
+    expect(canon('/p/abc?sort=new')).toBe('/p/abc');
+    // 外すものがない
+    for (const path of ['/', '/p/abc', '/?c=web&sort=new', '/?sort=new&c=web', '/?q=a%20b', '/p/abc?utm_source=x', '/api/works']) expect(canon(path), path).toBeNull();
+    // キャッシュの道でないもの、GET と HEAD でないものは触らない
+    for (const path of ['/login?next=/p/x', '/auth/github?next=/', '/new?work=abc', '/account?error=x', '/frame/abc/1?motion=1', '/api/me?x=1']) expect(canon(path), path).toBeNull();
+    expect(canon('/p/abc?x=1', 'POST')).toBeNull();
+    expect(canon('/p/abc?x=1', 'HEAD')).toBe('/p/abc');
+  });
+
+  test('知らない値の付いた URL は、D1 を読まずに、外した URL へ 302。送り先はキャッシュの道（同じキャッシュに当たる）', async ({ request }) => {
+    const works = (await (await request.get('/api/works')).json()) as { works: Work[] };
+    const work = works.works[0];
+    for (const [path, location] of [
+      [`/p/${work.id}?x=${randomInt(1e9)}`, `/p/${work.id}`],
+      [`/?c=web&x=${randomInt(1e9)}`, '/?c=web'],
+      [`/c/${work.creator.handle}?x=${randomInt(1e9)}`, `/c/${work.creator.handle}`],
+      [`/api/works?x=${randomInt(1e9)}`, '/api/works'],
+      [`/p/${work.id}?utm_source=x&x=1`, `/p/${work.id}?utm_source=x`],
+    ]) {
+      const response = await request.get(path, { maxRedirects: 0 });
+      expect(response.status(), path).toBe(302);
+      expect(response.headers().location, path).toBe(location);
+      expect(response.headers()['cache-control'], path).toBe(DEFAULT_CACHE_CONTROL);
+      const target = await request.get(location, { maxRedirects: 0 });
+      expect(target.status(), location).toBe(200);
+      expect(target.headers()['cache-control'], location).toBe(PAGE_CACHE_CONTROL);
+    }
+    // 値のない URL と、知っている値だけの URL は、送り直さない
+    for (const path of [`/p/${work.id}`, '/?c=web', '/?sort=new&c=web', `/p/${work.id}?utm_source=x`]) {
+      expect((await request.get(path, { maxRedirects: 0 })).status(), path).toBe(200);
+    }
+  });
+
+  test('GET /api/works：ホームと同じ扱い（s-maxage=60 と札 catalog）。人によって変わる項目がない', async ({ request }) => {
+    const response = await request.get('/api/works');
+    expect(response.status()).toBe(200);
+    expect(response.headers()['cache-control']).toBe(PAGE_CACHE_CONTROL);
+    expect(response.headers()['cache-tag']).toBe(CATALOG_TAG);
+    expect(response.headers()['set-cookie']).toBeUndefined();
+    const { works } = (await response.json()) as { works: Record<string, unknown>[] };
+    expect(works.length).toBeGreaterThan(0);
+    for (const key of ['liked', 'bookmarked', 'is_owner', 'viewer']) expect(Object.keys(works[0])).not.toContain(key);
   });
 });

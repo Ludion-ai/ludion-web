@@ -6,6 +6,8 @@ import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { limitKey } from '../worker/limitKey';
+import { REGISTER_LIMITS } from '../worker/quotaLimits';
 import { Visitor, ownOrigin } from './visitor';
 
 const WEB = join(import.meta.dirname, '..');
@@ -174,6 +176,39 @@ test.describe('AI につなぐ：見つけ方と 401', () => {
     const long = (await (await json('/oauth/register', { client_name: `a\nb${'x'.repeat(100)}`, redirect_uris: [REDIRECT] })).json()) as { client_name: string };
     expect([...long.client_name].length).toBeLessThanOrEqual(60);
     expect(long.client_name).not.toContain('\n');
+  });
+
+  test('登録：同じ IP（HMAC の鍵）が1日の上限に届くと 429。ほかの IP は通る。全体の数は減らさない。生の IP を置かない（LIMIT001）', async () => {
+    const ip = `203.0.113.${randomBytes(1)[0] % 200 + 1}`;
+    const day = new Date().toISOString().slice(0, 10);
+    // テストのサーバーの秘密の値（scripts/test-server.mjs）で、Worker と同じ鍵を作る
+    const key = `oauth-register:${(await limitKey(ip, 'test-rate-key-secret')).slice(0, 32)}`;
+    const body = { client_name: 'x', redirect_uris: [REDIRECT] };
+    expect((await json('/oauth/register', body, { 'CF-Connecting-IP': ip })).status).toBe(201);
+    expect(d1<{ n: number }>(`SELECT n FROM quotas WHERE key = ${quote(key)} AND bucket = ${quote(day)}`)).toEqual([{ n: 1 }]);
+    const all = () => d1<{ n: number }>(`SELECT n FROM quotas WHERE key = 'oauth-register:*' AND bucket = ${quote(day)}`)[0].n;
+
+    d1(`UPDATE quotas SET n = ${REGISTER_LIMITS.perKeyDay} WHERE key = ${quote(key)} AND bucket = ${quote(day)}`);
+    const before = all();
+    const blocked = await json('/oauth/register', body, { 'CF-Connecting-IP': ip });
+    expect(blocked.status).toBe(429);
+    expect((await blocked.json()).error).toBe('temporarily_unavailable');
+    expect(all()).toBe(before);
+
+    expect((await json('/oauth/register', body, { 'CF-Connecting-IP': `198.51.100.${randomBytes(1)[0] % 200 + 1}` })).status).toBe(201);
+    for (const { key: stored } of d1<{ key: string }>(`SELECT key FROM quotas WHERE key LIKE 'oauth-register:%'`)) {
+      expect(stored).toMatch(/^oauth-register:([0-9a-f]{32}|\*)$/);
+    }
+  });
+
+  test('登録：全体の1日の上限に届くと 429（LIMIT001）', async () => {
+    const day = new Date().toISOString().slice(0, 10);
+    d1(`INSERT INTO quotas (key, bucket, n, expires_at) VALUES ('oauth-register:*', ${quote(day)}, ${REGISTER_LIMITS.allDay}, ${Date.now() + 3_600_000}) ON CONFLICT (key, bucket) DO UPDATE SET n = ${REGISTER_LIMITS.allDay}`);
+    try {
+      expect((await json('/oauth/register', { client_name: 'x', redirect_uris: [REDIRECT] }, { 'CF-Connecting-IP': `192.0.2.${randomBytes(1)[0] % 200 + 1}` })).status).toBe(429);
+    } finally {
+      d1(`UPDATE quotas SET n = 1 WHERE key = 'oauth-register:*' AND bucket = ${quote(day)}`);
+    }
   });
 });
 

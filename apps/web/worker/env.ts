@@ -18,6 +18,10 @@ export interface Env {
   LIMIT_RECOVERY: RateLimit;
   /** 作品の投稿の保存 */
   LIMIT_POST: RateLimit;
+  /** AI のクライアントの登録（POST /oauth/register） */
+  LIMIT_REGISTER: RateLimit;
+  /** 作品のページ、作者のページ、ファイルの本文、GET /api/works（キャッシュに当たらなかった分） */
+  LIMIT_PAGE: RateLimit;
   /** パスキーの RP ID と origin（wrangler.jsonc の vars）。手元は .dev.vars で localhost に差し替える */
   PASSKEY_RP_ID: string;
   PASSKEY_ORIGIN: string;
