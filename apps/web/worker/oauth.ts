@@ -29,6 +29,11 @@ export const ACCESS_TTL_MS = HOUR_MS;
 export const REFRESH_TTL_MS = 180 * DAY_MS;
 /** 「許可」の後の証の寿命。 */
 const CODE_TTL_MS = 10 * MINUTE_MS;
+/**
+ * ひとつ前のリフレッシュのトークンがまた来たとき、つながりを切らずに断るだけの間（OAUTH002）。
+ * 同時に2本の更新を送る AI では、遅れた1本が、替えたばかりの前のトークンを持って来るため。これより後なら、盗まれた見込みとして切る。
+ */
+export const REFRESH_REUSE_GRACE_MS = 30 * 1000;
 /** 1人がつないでおける AI の数。超えたら、いちばん古いつながりから切る。 */
 export const MAX_GRANTS_PER_USER = 20;
 const MAX_CLIENT_NAME_CHARS = 60;
@@ -588,6 +593,7 @@ oauth.post('/token', async (c) => {
       .bind(await hashToken(code))
       .first<{ client_id: string; user_id: string; redirect_uri: string; code_challenge: string; expires_at: number }>();
     if (!row || row.client_id !== client.id || row.expires_at <= now) return oauthError(c, 400, 'invalid_grant', 'The code is wrong or expired.');
+    // redirect_uri は、送られたときだけ比べる。OAuth 2.1 はトークンの口から外した（証は PKCE の S256 で、この AI に結んでいる）
     const redirect = params.get('redirect_uri');
     if (redirect !== null && redirect !== row.redirect_uri) return oauthError(c, 400, 'invalid_grant', 'redirect_uri does not match.');
     if ((await s256(verifier)) !== row.code_challenge) return oauthError(c, 400, 'invalid_grant', 'PKCE verification failed.');
@@ -616,15 +622,23 @@ oauth.post('/token', async (c) => {
     if (!REFRESH_PATTERN.test(refresh)) return oauthError(c, 400, 'invalid_grant', 'The refresh token is wrong, expired, or revoked.');
     const access = randomToken(ACCESS_PREFIX);
     const next = randomToken(REFRESH_PREFIX);
-    // 作り直す。前のリフレッシュのトークンは、この文で使えなくなる
+    const refreshHash = await hashToken(refresh);
+    // 作り直す。前のリフレッシュのトークンは、この文で使えなくなる。そのハッシュと替えた時刻を、ひとつ前として残す
     const updated = await db
       .prepare(
-        `UPDATE oauth_grants SET access_hash = ?1, access_expires_at = ?2, refresh_hash = ?3, refresh_expires_at = ?4
+        `UPDATE oauth_grants SET access_hash = ?1, access_expires_at = ?2, refresh_hash = ?3, refresh_expires_at = ?4, prev_refresh_hash = ?5, refresh_rotated_at = ?7
          WHERE refresh_hash = ?5 AND client_id = ?6 AND refresh_expires_at > ?7`,
       )
-      .bind(await hashToken(access), now + ACCESS_TTL_MS, await hashToken(next), now + REFRESH_TTL_MS, await hashToken(refresh), client.id, now)
+      .bind(await hashToken(access), now + ACCESS_TTL_MS, await hashToken(next), now + REFRESH_TTL_MS, refreshHash, client.id, now)
       .run();
-    if (updated.meta.changes === 0) return oauthError(c, 400, 'invalid_grant', 'The refresh token is wrong, expired, or revoked.');
+    if (updated.meta.changes === 0) {
+      // ひとつ前のトークンがまた来た：替えてから30秒より後なら、そのつながりを消す（OAuth 2.1 の 4.3.1）。30秒以内は断るだけ
+      await db
+        .prepare('DELETE FROM oauth_grants WHERE prev_refresh_hash = ?1 AND client_id = ?2 AND refresh_rotated_at < ?3')
+        .bind(refreshHash, client.id, now - REFRESH_REUSE_GRACE_MS)
+        .run();
+      return oauthError(c, 400, 'invalid_grant', 'The refresh token is wrong, expired, or revoked.');
+    }
     return tokenResponse(c, access, next);
   }
 
