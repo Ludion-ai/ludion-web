@@ -31,3 +31,12 @@ export const SIGNUP_LIMITS = {
   perKeyDay: 5,
   allHour: 200,
 } as const;
+
+/**
+ * 埋め込み（/e/<id>。EMBED001「7」）の、全体の1日（UTC）の上限。数えるのは埋め込みの枠（embed.html）を返した回数。
+ * 1回の表示は /e/<id> と枠で、Worker の要求が2回になる。Workers の無料の枠（1日10万要求）の半分（5万）を超えないよう、
+ * 2万回（要求は約4万）で止め、止めた絵と作品のページへのリンクにする。止めた後の表示も、1回に要求が2回（/e/ とサムネイル）かかる。
+ */
+export const EMBED_LIMITS = {
+  viewsAllDay: 20_000,
+} as const;

@@ -3,7 +3,7 @@
 
 import type { Env } from './env';
 import { limitKey } from './limitKey';
-import { API_LIMITS, POST_LIMITS, PRIVATE_LIMITS, SIGNUP_LIMITS } from './quotaLimits';
+import { API_LIMITS, EMBED_LIMITS, POST_LIMITS, PRIVATE_LIMITS, SIGNUP_LIMITS } from './quotaLimits';
 import { LOOPBACK } from './rateLimit';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -103,4 +103,18 @@ export async function takeSignupQuota(env: Pick<Env, 'DB' | 'RATE_KEY_SECRET'>, 
   } catch {
     return true;
   }
+}
+
+/** 埋め込みの全体の数の鍵（EMBED001「7」）。人ごとには数えない（IP も読まない）。 */
+export const EMBED_VIEW_KEY = 'embed-view:*';
+
+/** 埋め込みの枠を1回返してよいか。今日の上限に達していれば、数えずに false。 */
+export async function takeEmbedView(db: D1Database, now = Date.now()): Promise<boolean> {
+  return takeQuota(db, EMBED_VIEW_KEY, dayBucket(now), EMBED_LIMITS.viewsAllDay, now + 2 * DAY_MS);
+}
+
+/** 今日の埋め込みが上限に達したか。数えない（/e/<id> を描くとき。キャッシュの外れたときだけ読む）。 */
+export async function embedPaused(db: D1Database, now = Date.now()): Promise<boolean> {
+  const n = await db.prepare('SELECT n FROM quotas WHERE key = ? AND bucket = ?').bind(EMBED_VIEW_KEY, dayBucket(now)).first<number>('n');
+  return (n ?? 0) >= EMBED_LIMITS.viewsAllDay;
 }

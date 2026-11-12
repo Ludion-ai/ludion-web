@@ -40,6 +40,8 @@ export const CACHE_RULES: CacheRule[] = [
   { route: '/p/:id/code', path: /^\/p\/[^/]+\/code$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   // 全画面の住所（WALL001）。作品のページと同じ扱い。中の枠（/frame/...）はキャッシュしない
   { route: '/p/:id/wall', path: /^\/p\/[^/]+\/wall$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
+  // 埋め込みの住所（EMBED001）。全画面の住所と同じ扱い。中の枠（/frame/.../embed.html）はキャッシュしない（そこで数える）
+  { route: '/e/:id', path: /^\/e\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   { route: '/c/:handle', path: /^\/c\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   // 一覧を含まないので札は要らない。文を変えるのはデプロイのときだけで、Worker の版が変わればキャッシュも変わる
   { route: '/privacy', path: /^\/privacy$/, cacheControl: PAGE_CACHE_CONTROL },

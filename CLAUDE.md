@@ -48,6 +48,7 @@ LudionはUIのPinterest。作り手が置いたUIの作品（画面と部品）�
 - 枠のCSPに `form-action 'none'` を入れる。`allow-forms` でフォームの submit は届き、作品のJSが `preventDefault` できる。送信先への実際の送信はCSPで止まる。`ld preview` と `ld check` の枠も同じにする。
 - 枠の URL（`/frame/...`）は、`Sec-Fetch-Dest: iframe` のときだけ作品を返す。それ以外は作品のページへ 302 で戻す。作品の JS は自分のタブを外へ移せるので、URL を直接開かせると、ludion.ai のリンクが外への入口になるため。見出しで返すものが変わるので、枠はキャッシュしない。
 - 枠の応答の頭の CSP に `frame-ancestors 'self'` を入れる。ほかのサイトの枠に入らないようにするため（meta では効かない）。
+  - 例外は埋め込みの住所（`/e/<id>`。EMBED001）だけ。`/e/<id>` と、その中の枠（`/frame/<id>/<version>/embed.html`）の応答だけ `frame-ancestors *` にする。開けるのは「誰の枠に入れるか」だけで、sandbox、`form-action 'none'`、通信を止める CSP、`Sec-Fetch-Dest` の確かめ、親の `frame-src 'self'` と見張りは同じ。埋め込みの枠は `Sec-Fetch-Site: same-origin` のときだけ返す（外のサイトが枠を直に置いて、`/e/<id>` の印を飛ばせないように）。
 - 枠が外へ移るのは、親のページの CSP `frame-src 'self'` で止める。
 - 親の見張りは2枚目の守り。枠が自分で移ったら、親が元の URL で読み直す。目印は、枠の `load` が2回目に起きたこと（読み込みの後の移動）と、`load` が起きたのに枠の文書から「読み込めた」の `postMessage` が来ないこと（読み込みの途中の移動）。3回読み直しても移るなら、枠を空にする（`apps/web/src/frameGuard.ts`）。
 - `frame-src 'self'` は同じサイトの中の移動を通すので、公開前の審査でも見る。作品の配信を別のドメインに分けることは T028 で決める。

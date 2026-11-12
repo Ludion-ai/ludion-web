@@ -178,6 +178,11 @@ export const copy = {
     hideCode: 'コードをたたむ',
     share: '共有',
     linkCopied: 'リンクをコピーしました',
+    embed: {
+      open: '埋め込む',
+      copy: '埋め込みのコードをコピー',
+      codeLabel: (title: string) => `${title}の埋め込みのコード`,
+    },
     report: {
       open: '問題を報告',
       heading: 'この作品の問題を報告',
