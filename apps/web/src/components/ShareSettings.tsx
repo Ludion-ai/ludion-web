@@ -112,6 +112,10 @@ export function ShareSettings({ workId, onChange }: { workId: string; onChange?:
               {copyState === 'copied' ? text.copied : copyState === 'failed' ? text.copyFailed : text.copy}
             </button>
           </div>
+          {/* 持ち主の AI の get_work の答えにも、この住所が入る（AUDIT001 F9） */}
+          <p data-share-ai-note="" className="mt-2 text-small text-site-fg-2">
+            {text.aiNote}
+          </p>
         </div>
       )}
       <p role="status" className="sr-only">

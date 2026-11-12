@@ -14,7 +14,7 @@ test('ログインなしの人：作品が動き、札と知らせがある。�
   await page.goto(`/s/${TOKEN}`);
   await hydrated(page);
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-  await expect(page.locator('[data-share-notice]')).toHaveText('リンクで見せている作品です（審査はしていません）');
+  await expect(page.locator('[data-share-notice]')).toHaveText('リンクで見せている作品です。この作品は審査していません。パスワードやカードの番号を入れないでください。');
   await expect(page.locator('[data-work-state="shared"]:visible')).toHaveText('リンクで見せる');
   await expect(page.locator('iframe[data-ld-frame]').first()).toHaveAttribute('src', new RegExp(`^/share-frame/${TOKEN}/`));
   await expect(page.locator('iframe[data-ld-frame]').first()).toHaveAttribute('sandbox', 'allow-scripts allow-forms');

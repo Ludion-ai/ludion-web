@@ -59,9 +59,9 @@ function png(width: number, height: number): Buffer {
   return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', header), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }
 
-function formOf(id: string, title: string, thumb = false) {
+function formOf(id: string, title: string, thumb = false, isNew = true) {
   const form = new FormData();
-  form.append('meta', JSON.stringify({ id, title, category: 'Components', subtype: 'Toggle', tags: ['minimal'], motion: false, made_with: 'human' }));
+  form.append('meta', JSON.stringify({ ...(isNew ? { id } : {}), title, category: 'Components', subtype: 'Toggle', tags: ['minimal'], motion: false, made_with: 'human' }));
   form.append('part.html', htmlOf(id));
   form.append('part.css', cssOf(id));
   if (thumb) form.append('thumb', new Blob([new Uint8Array(png(900, 700))], { type: 'image/png' }), 'x.png');
@@ -149,7 +149,7 @@ test.describe('リンクで見せる（API と Worker の HTML）', () => {
       expect(html, label).toContain(`見せる見本 ${id}`);
       expect(html, label).toContain(`@${handle}`);
       expect(html, label).toContain('<meta name="robots" content="noindex, nofollow">');
-      expect(html, label).toContain('リンクで見せている作品です（審査はしていません）');
+      expect(html, label).toContain('リンクで見せている作品です。この作品は審査していません。パスワードやカードの番号を入れないでください。');
       expect(html, label).toContain('Ludion につなぐと、作った物が残る');
       // 絵はサイトの決まった絵。canonical と言語の対応は付けない
       expect(html, label).toContain(`<meta property="og:image" content="${ownOrigin()}/og-home.png">`);
@@ -191,7 +191,7 @@ test.describe('リンクで見せる（API と Worker の HTML）', () => {
     // 英語の道
     const en = await new Visitor().fetch(`/en/s/${token}`);
     expect(en.status).toBe(200);
-    expect(await en.text()).toContain('This work is shared by link (it has not been reviewed).');
+    expect(await en.text()).toContain('This work is shared by link. It has not been reviewed. Do not enter passwords or card numbers.');
     // 枠の外から開くと /s/ へ戻す
     const direct = await new Visitor().fetch(`/share-frame/${token}/desktop.html`);
     expect(direct.status).toBe(302);
@@ -358,6 +358,52 @@ test.describe('リンクで見せる（API と Worker の HTML）', () => {
     expect(await (await visitor.fetch(`/api/post/works/${id}/share`)).json()).toEqual({ state: 'off', url: null });
   });
 
+  // AUDIT001 F8：運営の取り下げ（unpublish と、今の版の取り下げ）の後に、持ち主が自分だけの版を置き直しても、古い /s/ は開かない
+  for (const how of ['unpublish', 'revision'] as const) {
+    test(`オン → 公開 → 運営が取り下げ（${how}）→ 自分だけの版を置き直す → 古い /s/ は 404`, async () => {
+      const { visitor } = await person();
+      const { visitor: reviewer } = await operator();
+      const id = await privateWork(visitor, `f8${how.slice(0, 3)}`, true);
+      const token = await turnOn(visitor, id);
+      expect((await visitor.post(`/api/post/works/${id}/publish`, CONFIRM)).status).toBe(200);
+      const [revision] = d1<{ id: string; content_hash: string }>(`SELECT id, content_hash FROM revisions WHERE work_id = ${quote(id)} AND status = 'submitted'`);
+      expect((await reviewer.post(`/api/review/revisions/${revision.id}/approve`, { content_hash: revision.content_hash })).status).toBe(200);
+
+      const admin = { Authorization: `Bearer ${process.env.LD_TEST_ADMIN_TOKEN}` };
+      const path = how === 'unpublish' ? `/api/admin/works/${id}/unpublish` : `/api/admin/revisions/${revision.id}/revoke`;
+      const taken = await fetch(new URL(path, ownOrigin()), { method: 'POST', headers: admin });
+      expect(taken.status, await taken.clone().text()).toBe(200);
+      await taken.arrayBuffer();
+      expect(d1(`SELECT status, share_token, shared_at FROM works WHERE id = ${quote(id)}`)).toEqual([{ status: 'rejected', share_token: null, shared_at: null }]);
+      await missing(`/s/${token}`);
+
+      // 持ち主が新しい版を作り、自分だけで置き直す
+      const next = await visitor.fetch(`/api/post/works/${id}/revisions`, { method: 'POST', body: formOf(id, `置き直し ${id}`, false, false), headers: { Origin: ownOrigin() } });
+      expect(next.status, await next.clone().text()).toBe(201);
+      const { revision: again } = (await next.json()) as { revision: { id: string } };
+      const placed = await visitor.post(`/api/post/revisions/${again.id}/place`, CONFIRM);
+      expect(placed.status, await placed.clone().text()).toBe(200);
+      await placed.arrayBuffer();
+      expect(d1(`SELECT status FROM works WHERE id = ${quote(id)}`)).toEqual([{ status: 'private' }]);
+      await missing(`/s/${token}`);
+      expect(await (await visitor.fetch(`/api/post/works/${id}/share`)).json()).toEqual({ state: 'off', url: null });
+    });
+  }
+
+  test('取り下げた作品に合言葉が残っていても、自分だけの版を置き直すと持ち越さない（2枚目の守り）', async () => {
+    const { visitor } = await person();
+    const id = await privateWork(visitor, 'f8old');
+    const token = await turnOn(visitor, id);
+    // 前の版のコードで残った形を作る（取り下げで合言葉を捨てる前の行）
+    d1(`UPDATE works SET status = 'rejected' WHERE id = ${quote(id)}`);
+    const next = await visitor.fetch(`/api/post/works/${id}/revisions`, { method: 'POST', body: formOf(id, `置き直し ${id}`, false, false), headers: { Origin: ownOrigin() } });
+    expect(next.status, await next.clone().text()).toBe(201);
+    const { revision } = (await next.json()) as { revision: { id: string } };
+    expect((await visitor.post(`/api/post/revisions/${revision.id}/place`, CONFIRM)).status).toBe(200);
+    expect(d1(`SELECT status, share_token FROM works WHERE id = ${quote(id)}`)).toEqual([{ status: 'private', share_token: null }]);
+    await missing(`/s/${token}`);
+  });
+
   test('AI の口で置いた文書の作品（index.html）も、/s/ で文書のまま動き、本文と行の住所が開く', async () => {
     const { visitor } = await person('doc');
     const key = await visitor.post('/api/account/ai-keys', { name: 'Claude Code', ...CONFIRM });
@@ -439,7 +485,7 @@ test.describe('リンクで見せる（画面）', () => {
     await anon.goto(`/s/${token}`);
     await hydrated(anon);
     await expect(anon.getByRole('heading', { level: 1 })).toHaveText(`見せる見本 ${id}`);
-    await expect(anon.locator('[data-share-notice]')).toHaveText('リンクで見せている作品です（審査はしていません）');
+    await expect(anon.locator('[data-share-notice]')).toHaveText('リンクで見せている作品です。この作品は審査していません。パスワードやカードの番号を入れないでください。');
     await expect(anon.frameLocator('iframe[data-ld-frame]').locator('#ld-host')).toBeAttached();
     await expect(anon.locator('[data-share-owner]')).toHaveCount(0);
     await expect(anon.getByRole('button', { name: '全部をコピー' })).toBeVisible();

@@ -705,7 +705,8 @@ export async function placePrivate(db: D1Database, userId: string, revision: Non
   }
   const rid = revision.id;
   const now = Date.now();
-  // 1つのトランザクション。版が置けたときだけ（changes() > 0）、作品の今の値をこの版にする。確かめた後に公開された作品には置かない
+  // 1つのトランザクション。版が置けたときだけ（changes() > 0）、作品の今の値をこの版にする。確かめた後に公開された作品には置かない。
+  // 自分だけでない作品（取り下げなど）を自分だけに戻すときは、前のリンクで見せる合言葉を持ち越さない（SHARE001、AUDIT001 F8。2枚目の守り）
   const [placed, current] = await db.batch([
     db
       .prepare(
@@ -716,7 +717,9 @@ export async function placePrivate(db: D1Database, userId: string, revision: Non
     db
       .prepare(
         `UPDATE works SET status = 'private', reject_reason = NULL, title = ?1, type = ?2, platform = ?3, category = ?4, subtype = ?5, tags = ?6, made_with = ?7,
-           version = ?8, thumb_key = ?9, thumb_w = ?10, thumb_h = ?11, is_remix = ?12
+           version = ?8, thumb_key = ?9, thumb_w = ?10, thumb_h = ?11, is_remix = ?12,
+           share_token = CASE WHEN status = 'private' THEN share_token END,
+           shared_at = CASE WHEN status = 'private' THEN shared_at END
          WHERE id = ?13 AND status <> 'approved' AND changes() > 0`,
       )
       .bind(
