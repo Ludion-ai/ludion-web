@@ -212,7 +212,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
   const StateIcon = state === 'public' ? Globe : state === 'private' ? Lock : Clock;
   const newVersionPath = localizedPath(locale, `/new?work=${encodeURIComponent(work.id)}`);
   // 版のタブ（WS004）：一覧は右の列、2つの版の違いは下の幅いっぱい。状態はここで1つ持つ
-  const versions = useVersions(work, page.versions);
+  const versions = useVersions(work, page.versions, page.tree?.files.some((file) => file.name === 'index.html') ?? false);
 
   const tabs: { id: TabId; label: string; icon: typeof Code2; count?: number }[] = [
     { id: 'code', label: copy.work.tabs.code, icon: Code2 },

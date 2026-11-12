@@ -21,8 +21,11 @@ async function readFile(workId: string, version: string, name: string): Promise<
   return text;
 }
 
-/** 版の中身。部品の作品は part.html、part.css、part.js。文書の作品は index.html。読めない版は null */
-export function loadVersionFiles(workId: string, version: string): Promise<VersionFiles | null> {
+/**
+ * 版の中身。部品の作品は part.html、part.css、part.js。文書の作品は index.html。読めない版は null。
+ * documentFirst：先に index.html を試す（今の版が文書の作品のとき。読み口の回数を、ないファイルの 404 で使わない）
+ */
+export function loadVersionFiles(workId: string, version: string, documentFirst = false): Promise<VersionFiles | null> {
   const key = `${workId}\u0000${version}`;
   const known = files.get(key);
   if (known) {
@@ -32,10 +35,17 @@ export function loadVersionFiles(workId: string, version: string): Promise<Versi
     return known;
   }
   const loading = (async (): Promise<VersionFiles | null> => {
+    const asDocument = async () => {
+      const document = await readFile(workId, version, 'index.html');
+      return document === null ? null : { html: null, css: null, js: null, document };
+    };
+    if (documentFirst) {
+      const document = await asDocument();
+      if (document) return document;
+    }
     const [html, css, js] = await Promise.all(['part.html', 'part.css', 'part.js'].map((name) => readFile(workId, version, name)));
     if (html !== null) return { html, css: css ?? '', js, document: null };
-    const document = await readFile(workId, version, 'index.html');
-    return document === null ? null : { html: null, css: null, js: null, document };
+    return documentFirst ? null : asDocument();
   })();
   // 読めなかったものは覚えない（次に開いたときに読み直す）
   loading.catch(() => files.delete(key));

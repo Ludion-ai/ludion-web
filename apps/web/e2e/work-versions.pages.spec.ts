@@ -141,6 +141,13 @@ const pageData = async (visitor: Visitor | null, id: string) => {
   return { status: response.status, html: await response.text() };
 };
 
+/** ページのデータの版の一覧（worker/workAbout.ts の loadHistory）の版の番号。ページには、ほかの作品の版の番号も入るので、一覧だけを読む */
+const listed = (html: string): string[] => {
+  const list = /"versions":\[(.*?)\]/.exec(html);
+  expect(list, 'ページのデータに版の一覧がない').not.toBeNull();
+  return [...list![1].matchAll(/"version":"([^"]+)"/g)].map((match) => match[1]);
+};
+
 test.describe('一覧と違い', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -319,8 +326,7 @@ test.describe('この版に戻す', () => {
     // ほかの人：一覧は版 2 と版 1 のまま。審査中の版 3 は、中身も枠も 404
     const anon = await pageData(null, id);
     expect(anon.status).toBe(200);
-    expect(anon.html).toContain('"versions":[{"version":"2"');
-    expect(anon.html).not.toContain('"version":"3"');
+    expect(listed(anon.html)).toEqual(['2', '1']);
     for (const visitor of [new Visitor(), owner.visitor]) {
       expect(await statusOf(visitor.fetch(`/p/${id}/file/3/part.css`))).toBe(404);
       expect(await statusOf(visitor.fetch(`/frame/${id}/3/desktop.html`, { headers: FROM_IFRAME }))).toBe(404);
@@ -376,8 +382,7 @@ test.describe('戻すの口と、見せてよい版の決まり（HTTP）', () =
       const shown = await pageData(visitor, id);
       expect(shown.status).toBe(200);
       expect(shown.html).not.toContain(marker);
-      expect(shown.html).toContain('"versions":[{"version":"2"');
-      expect(shown.html).not.toContain('"version":"3"');
+      expect(listed(shown.html)).toEqual(['2', '1']);
       // 公開の作品のページには、版の id を入れない（人によって変えない）
       expect(shown.html).not.toContain('"rid"');
       const reader = visitor ?? new Visitor();
@@ -430,9 +435,121 @@ test.describe('戻すの口と、見せてよい版の決まり（HTTP）', () =
     expect(made.status, await made.clone().text()).toBe(200);
     await made.arrayBuffer();
     const mine = await pageData(owner.visitor, id);
-    expect(mine.html).toContain('"versions":[{"version":"2"');
-    expect(mine.html).toContain('{"version":"1"');
+    expect(listed(mine.html)).toEqual(['2', '1']);
     expect(await statusOf(owner.visitor.fetch(`/p/${id}/file/1/part.css`))).toBe(200);
     for (const visitor of [new Visitor(), (await person('wsvmadeother')).visitor]) expect(await statusOf(visitor.fetch(`/p/${id}/file/1/part.css`))).toBe(404);
+  });
+
+  test('自分だけの版と取り下げた版が残ったまま公開になった作品：ほかの人、ログインなし、持ち主のどれにも、承認済みの版だけ', async () => {
+    const owner = await person('wsvmix');
+    const other = await person('wsvmixo');
+    // 自分だけの版 1、2（中に marker）と、下書きの版 3（中に marker）。その後に、同じ作品へ承認済みの版 4 を置く（下書きは取り下げになる）
+    const id = unique('wsv-mix-');
+    const privateMarker = unique('SECRET-PRIVATE-');
+    const draftMarker = unique('SECRET-REVOKED-');
+    for (const [index, parts] of [v1(id), v2(id, privateMarker)].entries()) {
+      const revision = await draft(owner.visitor, id, parts, index === 0);
+      expect(await statusOf(owner.visitor.post(`/api/post/revisions/${revision.id}/place`, CONFIRM))).toBe(200);
+    }
+    const open = await draft(owner.visitor, id, v2(id, draftMarker), false);
+    expect(open.version).toBe('3');
+    await publishVersion(owner.handle, id, '4', v1(id));
+    const states = (await (await owner.visitor.fetch('/api/post/works')).json()) as { works: { id: string; public: boolean; version: string }[] };
+    expect(states.works.find((work) => work.id === id)).toMatchObject({ public: true, version: '4' });
+
+    for (const visitor of [null, other.visitor, owner.visitor]) {
+      const shown = await pageData(visitor, id);
+      expect(shown.status).toBe(200);
+      expect(listed(shown.html)).toEqual(['4']);
+      expect(shown.html).not.toContain(privateMarker);
+      expect(shown.html).not.toContain(draftMarker);
+      expect(shown.html).not.toContain('"rid"');
+      const reader = visitor ?? new Visitor();
+      for (const version of ['1', '2', '3']) {
+        const response = await reader.fetch(`/p/${id}/file/${version}/part.css`);
+        expect(response.status).toBe(404);
+        const text = await response.text();
+        expect(text).not.toContain(privateMarker);
+        expect(text).not.toContain(draftMarker);
+        expect(await statusOf(reader.fetch(`/frame/${id}/${version}/desktop.html`, { headers: FROM_IFRAME }))).toBe(404);
+      }
+      expect(await statusOf(reader.fetch(`/p/${id}/file/4/part.css`))).toBe(200);
+    }
+    // 持ち主も、見えない版には戻せない
+    for (const version of ['1', '2', '3']) expect(await statusOf(owner.visitor.post(`/api/post/works/${id}/revert`, { version, ...CONFIRM }))).toBe(404);
+  });
+});
+
+test.describe('文書の作品（index.html）', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  /** AI がふつうに書く1つの HTML 文書 */
+  const doc = (title: string, word: string) => `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>${title}</title>
+<style>
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #101418; color: #f4f4f5; font: 600 40px system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<p id="word">${word}</p>
+<script>
+document.getElementById('word').addEventListener('click', (event) => { event.currentTarget.textContent += '!'; });
+</script>
+</body>
+</html>
+`;
+
+  test('AI の口で置いた版どうしの違い（index.html）、下書きの枠、戻すと同じ文書の新しい版ができる', async ({ page }) => {
+    const owner = await person('wsvdoc');
+    const keyResponse = await owner.visitor.post('/api/account/ai-keys', { name: 'Claude Code', ...CONFIRM });
+    expect(keyResponse.status, await keyResponse.clone().text()).toBe(201);
+    const { secret } = (await keyResponse.json()) as { secret: string };
+    const title = unique('Doc Versions ');
+    const put = async (path: string, html: string) => {
+      const response = await fetch(new URL(path, ownOrigin()), { method: 'POST', headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ html }) });
+      expect([200, 201], await response.clone().text()).toContain(response.status);
+      return (await response.json()) as { id: string };
+    };
+    const first = doc(title, 'Hello');
+    const { id } = await put('/api/v1/works', first);
+    await put(`/api/v1/works/${id}/versions`, doc(title, 'Goodbye'));
+
+    // 版の中身は index.html だけを読む（部品のファイルを試さない）
+    const asked: string[] = [];
+    page.on('request', (request) => {
+      const path = new URL(request.url()).pathname;
+      if (path.startsWith(`/p/${id}/file/`)) asked.push(path.split('/').pop()!);
+    });
+    await openVersions(page, `/p/${id}`, owner.visitor);
+    const compare = page.locator('[data-version-compare="1..2"]');
+    await expect(compare.locator('[data-version-diff="ready"]')).toBeVisible();
+    const file = compare.locator('[data-version-file="index.html"]');
+    await expect(file.locator('[data-diff-cell="del"]')).toHaveText([/Hello/]);
+    await expect(file.locator('[data-diff-cell="add"]')).toHaveText([/Goodbye/]);
+    await expect(page.locator('[data-version-row="2"] [data-version-lines]')).toContainText('+1');
+    await expect(page.locator('[data-version-row="2"] [data-version-lines]')).toContainText('−1');
+    expect(new Set(asked)).toEqual(new Set(['index.html']));
+    const frames = page.locator('[data-version-frames] iframe[data-ld-frame]');
+    await expect(frames).toHaveCount(2);
+    for (let index = 0; index < 2; index++) await expect(frames.nth(index)).toHaveAttribute('src', /^\/draft-frame\/[0-9a-f]{32}\//);
+
+    await pressRevert(page, '1');
+    const dialog = page.getByRole('dialog', { name: '版 1 に戻す' });
+    await expect(dialog.locator('[data-revert-lead]')).toContainText('新しい版（版 3）');
+    for (const box of await dialog.getByRole('checkbox').all()) await box.check();
+    await Promise.all([page.waitForEvent('load'), dialog.getByRole('button', { name: '戻す', exact: true }).click()]);
+    await openVersions(page, `/p/${id}`);
+    await expect(page.locator('[data-version-row="3"]')).toContainText('今の版');
+    // 版 3 は版 1 と同じ文書で、文書の作品のまま（part.html はない）
+    const read = async (version: string, name: string) => {
+      const response = await owner.visitor.fetch(`/p/${id}/file/${version}/${name}`);
+      return { status: response.status, text: await response.text() };
+    };
+    expect(await read('3', 'index.html')).toEqual({ status: 200, text: first });
+    expect((await read('3', 'part.html')).status).toBe(404);
+    expect((await read('2', 'index.html')).status).toBe(200);
   });
 });

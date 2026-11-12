@@ -24,7 +24,7 @@ import { chipClass } from './chip';
 import { RevisionFrame } from './RevisionFrame';
 
 /** 一覧の1行に出す、変わったまとまりの数 */
-const SHOWN_SECTIONS = 4;
+const SHOWN_SECTIONS = 3;
 /** 1つのファイルの違いで、初めに描く行の数（全部を書き換えた 5,000 行でも、DOM を大きくしない） */
 const ROW_STEP = 400;
 /** 幅がこれより狭いときは、上下の1列だけ（スマホ 390） */
@@ -40,11 +40,18 @@ const DEL_BG = 'bg-[color-mix(in_oklab,var(--color-site-lang-html)_14%,transpare
 const ADD_TEXT = 'text-site-code-string';
 const DEL_TEXT = 'text-site-lang-html';
 
-const formatTime = (at: number, locale: string) =>
-  new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'UTC', hour12: false }).format(at) + ' UTC';
+/** 置いた時刻（UTC）。Worker の HTML とブラウザで同じ文字にするため、Intl を使わず ISO の形から作る */
+const formatTime = (at: number) => {
+  const iso = new Date(at).toISOString();
+  return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+};
 
-/** 版のタブの状態。WorkPage が持ち、一覧（右の列）と違い（下の幅いっぱい）に渡す */
-export function useVersions(work: Pick<Work, 'id' | 'version'>, versions: WorkVersion[]) {
+/**
+ * 版のタブの状態。WorkPage が持ち、一覧（右の列）と違い（下の幅いっぱい）に渡す。
+ * documentFirst：今の版が文書の作品（index.html）。版の中身を index.html から読む（部品のファイルを試して 404 を重ねない）
+ */
+export function useVersions(work: Pick<Work, 'id' | 'version'>, versions: WorkVersion[], documentFirst = false) {
+  const load = useCallback((version: string) => loadVersionFiles(work.id, version, documentFirst), [work.id, documentFirst]);
   // 初めは「今の版」と「その1つ前」（一覧で今の版のすぐ下の版）。新しい方を後に置く
   const initial = useMemo((): [string, string] | null => {
     if (versions.length < 2) return null;
@@ -77,7 +84,7 @@ export function useVersions(work: Pick<Work, 'id' | 'version'>, versions: WorkVe
       const version = queue.current.shift()!;
       const before = previousOf(version);
       try {
-        const [a, b] = await Promise.all([before === null ? Promise.resolve(EMPTY) : loadVersionFiles(work.id, before), loadVersionFiles(work.id, version)]);
+        const [a, b] = await Promise.all([before === null ? Promise.resolve(EMPTY) : load(before), load(version)]);
         if (!a || !b) throw new Error('unreadable');
         // 最初の版は、空と比べて行を数えるだけ（まとまりは全部が「増えた」になるので出さない）
         const diff = await requestDiff(a, b, before !== null);
@@ -87,7 +94,7 @@ export function useVersions(work: Pick<Work, 'id' | 'version'>, versions: WorkVe
       }
     }
     running.current = false;
-  }, [previousOf, work.id]);
+  }, [previousOf, load]);
 
   /** 行が見えたら数える（1つずつ）。数え始めた版は覚えておき、2回は頼まない */
   const requested = useRef(new Set<string>());
@@ -115,7 +122,7 @@ export function useVersions(work: Pick<Work, 'id' | 'version'>, versions: WorkVe
     return order(x) > order(y) ? [x, y] : [y, x];
   }, [picked, versions]);
 
-  return { picked, pair, toggle, stats, countRow, previousOf };
+  return { picked, pair, toggle, stats, countRow, previousOf, load };
 }
 
 export type VersionsState = ReturnType<typeof useVersions>;
@@ -153,6 +160,7 @@ function LineCounts({ added, removed }: { added: number; removed: number }) {
 function VersionRow({
   item,
   current,
+  oldest,
   picked,
   stats,
   canRevert,
@@ -162,6 +170,8 @@ function VersionRow({
 }: {
   item: WorkVersion;
   current: boolean;
+  /** 一覧のいちばん下（最初に見えている版）。前の版と比べないので、まとまりを出さない */
+  oldest: boolean;
   picked: boolean;
   stats: RowStats | undefined;
   canRevert: boolean;
@@ -170,7 +180,6 @@ function VersionRow({
   onRevert: () => void;
 }) {
   const copy = useCopy();
-  const locale = useLocale();
   const text = copy.work.versions;
   const ref = useRef<HTMLLIElement>(null);
   const checkId = useId();
@@ -207,10 +216,12 @@ function VersionRow({
             {copy.work.version(item.version)}
           </label>
           <time dateTime={new Date(item.at).toISOString()} className="text-small text-site-fg-2">
-            {formatTime(item.at, locale)}
+            {formatTime(item.at)}
           </time>
           {current && <span className={BADGE}>{text.current}</span>}
         </div>
+        {/* 数え終えると行が高くなって、下の違いが動かないように、数の行とまとまりの行の高さを先に取っておく（最初の版は、まとまりを出さないので2行） */}
+        <div className={oldest ? 'min-h-10' : 'min-h-14'}>
         <div data-version-stats={stats?.state ?? 'idle'} className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-small text-site-fg-3">
           {!stats || stats.state === 'loading' ? (
             <span className="text-site-fg-2">{text.counting}</span>
@@ -238,6 +249,7 @@ function VersionRow({
             {sections.length > SHOWN_SECTIONS && <span className="text-site-fg-2">{text.moreSections(String(sections.length - SHOWN_SECTIONS))}</span>}
           </p>
         )}
+        </div>
       </div>
       {canRevert && !current && (
         <button type="button" data-version-revert={item.version} aria-label={text.revert.openLabel(item.version)} onClick={onRevert} className={`${SMALL_BUTTON} self-start`}>
@@ -271,11 +283,12 @@ export function VersionList({
     <>
       {versions.length > 1 && <p className="mb-2 text-small text-site-fg-2">{text.pick}</p>}
       <ol aria-label={text.listLabel} data-version-list="" className="divide-y divide-site-line rounded-card border border-site-line">
-        {versions.map((item) => (
+        {versions.map((item, index) => (
           <VersionRow
             key={item.version}
             item={item}
             current={item.version === work.version}
+            oldest={index === versions.length - 1}
             picked={state.picked.includes(item.version)}
             stats={state.stats[item.version]}
             canRevert={canRevert}
@@ -360,7 +373,7 @@ export function VersionCompare({ work, title, versions, state, frameSize }: { wo
     let live = true;
     setLoaded({ state: 'loading' });
     (async () => {
-      const [a, b] = await Promise.all([loadVersionFiles(work.id, pair[0]), loadVersionFiles(work.id, pair[1])]);
+      const [a, b] = await Promise.all([state.load(pair[0]), state.load(pair[1])]);
       if (!a || !b) throw new Error('unreadable');
       const diff = known?.state === 'ready' ? known.diff : await requestDiff(a, b, false);
       if (live) setLoaded({ state: 'ready', diff, before: a, after: b });
