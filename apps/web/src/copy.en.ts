@@ -119,6 +119,11 @@ export const copyEn: Copy = {
     hideCode: 'Collapse code',
     share: 'Share',
     linkCopied: 'Link copied',
+    embed: {
+      open: 'Embed',
+      copy: 'Copy embed code',
+      codeLabel: (title: string) => `Embed code of ${title}`,
+    },
     report: {
       open: 'Report a problem',
       heading: 'Report a problem with this design',

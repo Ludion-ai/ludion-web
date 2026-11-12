@@ -8,6 +8,12 @@
  */
 export const PARENT_CSP = "frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'";
 
+/**
+ * 埋め込みの住所（/e/<id>。EMBED001、worker/embed.ts）の CSP。PARENT_CSP と違うのは frame-ancestors だけで、どのサイトの枠にも入れる。
+ * 中の作品の枠が外へ移るのは、PARENT_CSP と同じ frame-src 'self' で止める。
+ */
+export const EMBED_PAGE_CSP = "frame-src 'self'; frame-ancestors *; base-uri 'none'; object-src 'none'";
+
 /** 誰にも許さない機能。コードのコピーで使う clipboard-write は入れない。 */
 const DENIED_FEATURES = [
   'accelerometer',
