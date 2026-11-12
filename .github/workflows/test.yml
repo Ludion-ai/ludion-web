@@ -78,7 +78,7 @@ jobs:
           retention-days: 7
 
   packages:
-    name: packages (ld, render, rules)
+    name: packages (ld, render, rules, outline)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -114,7 +114,7 @@ jobs:
           exit 1
       - name: テスト
         # 報告の形だけを足す（render と rules の設定は node の型を持たないので、設定ではなく引数で渡す）
-        run: npm test -w @ludion/ld -w @ludion/render -w @ludion/rules -- --reporter=list,html
+        run: npm test -w @ludion/ld -w @ludion/render -w @ludion/rules -w @ludion/outline -- --reporter=list,html
       - name: スキルとプラグインのテスト（plugins/ludion、偽のサーバーで。docs/tasks/T038.md、MCP001）
         if: success() || failure()
         run: npm run test:skill

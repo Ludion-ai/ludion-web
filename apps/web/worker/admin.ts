@@ -8,6 +8,7 @@ import { Hono, type Context } from 'hono';
 import { CATALOG_TAG, workTag } from './cachePolicy';
 import type { Env } from './env';
 import { logError } from './log';
+import { OUTLINE_CONTENT_TYPE, OUTLINE_FILE, outlineFromBytes } from './outline';
 import { purgeWithRetry } from './purge';
 import { isRemixSource } from '../src/lib/isRemix';
 import { CONTENT_TYPES, checkUpload, compareVersions, contentTypeOf } from './upload';
@@ -121,11 +122,16 @@ admin.post('/works', async (c) => {
   const creatorId = linked?.id ?? existing?.id ?? crypto.randomUUID();
   const avatar = linked ? null : await avatarKey(creatorId, work.avatar);
 
+  // 中身の地図（WS002）。作れなくても置くことは止めない
+  const bytesOf = (name: string) => work.files.find((file) => file.name === name)?.bytes ?? null;
+  const outline = outlineFromBytes({ html: bytesOf('part.html'), css: bytesOf('part.css'), js: bytesOf('part.js'), document: null });
+
   // 先に R2 に置く。D1 に書けなかったときは、同じ版をもう一度送れば上書きされる
   await Promise.all([
     ...work.files.map((file) =>
       c.env.PARTS.put(workKey(meta.id, meta.version, file.name), file.bytes, { httpMetadata: { contentType: contentTypeOf(file.name) } }),
     ),
+    ...(outline !== null ? [c.env.PARTS.put(workKey(meta.id, meta.version, OUTLINE_FILE), outline, { httpMetadata: { contentType: OUTLINE_CONTENT_TYPE } })] : []),
     ...(avatar ? [c.env.PARTS.put(avatar, work.avatar, { httpMetadata: { contentType: CONTENT_TYPES['avatar.webp'] } })] : []),
   ]);
 

@@ -35,4 +35,4 @@
 - `X-Ludion-Client: ld` を付ける（AI の鍵で送ったとき、置き場に「ld」と出る。`auth.json` のつながりで送ったときは、つないだときの名前が出る）。
 - `npx ld login [--env prod|dev]`（既定は prod）：プラグインの login と同じ流れ。ブラウザで Ludion にログインし、「許可する」を1回押す。
 
-全作品の check とサムネイルの有無は `npx ld list` で見られる。中身を変えたら `meta.json` の version を上げて、4〜6 をやり直す。
+全作品の check とサムネイルの有無は `npx ld list` で見られる。作品の中身の地図（ファイル、シェーダー、設定、見出し、関数、技術、言語の帯。サイトが置くときに作る物と同じ）は `npx ld outline <id>` で見られる（`--functions` で関数も木に出す、`--json` で JSON、`--check` で行の確かめ。`.html` の文書やフォルダの場所も読む）。中身を変えたら `meta.json` の version を上げて、4〜6 をやり直す。

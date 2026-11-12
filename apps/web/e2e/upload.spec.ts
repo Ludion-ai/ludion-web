@@ -1,9 +1,10 @@
 // T004・T005：Worker、D1・R2、管理API と ld upload、送った作品がホームに出ること（docs/tasks/T004.md、T005.md の終わりの条件）。
 // このテストのサーバーは、毎回空の D1 と R2（LD_TEST_PERSIST_DIR）で動く（scripts/test-server.mjs）。
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { buildOutline } from '@ludion/outline';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import { copy } from '../src/copy';
 import type { Work } from '../src/data/works';
@@ -127,6 +128,11 @@ test('良い見本4つを ld upload --publish --env dev で送ると、D1 と R2
     }
   }
   expect(r2('works/fx-toggle/1/part.js')?.equals(readFileSync(join(REPO, 'fixtures/works/fx-toggle/part.js')))).toBe(true);
+  // 中身の地図（WS002）：ld upload で置いた版にも outline.json。手元のファイルから作る地図と同じ
+  for (const id of GOOD) {
+    const read = (name: string) => (existsSync(join(REPO, 'fixtures/works', id, name)) ? readFileSync(join(REPO, 'fixtures/works', id, name), 'utf8') : null);
+    expect(JSON.parse(r2(`works/${id}/1/outline.json`)!.toString()), id).toEqual(buildOutline({ html: read('part.html')!, css: read('part.css')!, js: read('part.js') }));
+  }
   expect(d1('SELECT COUNT(*) AS n FROM creators')[0].n).toBe(1);
   expect(d1<{ is_remix: number }>('SELECT is_remix FROM works').every((row) => row.is_remix === 0)).toBe(true);
 });

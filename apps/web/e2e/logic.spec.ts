@@ -9,6 +9,8 @@ import { layoutMasonry, thumbRatio } from '../src/lib/masonry';
 import { isRemixSource } from '../src/lib/isRemix';
 import { comparePopular } from '../src/lib/popular';
 import wwwWorker from '../www-redirect/worker';
+import { OUTLINE_VERSION, buildOutline } from '@ludion/outline';
+import { loadOutline, outlineFromBytes, type OutlineBucket } from '../worker/outline';
 
 const seed: Work[] = JSON.parse(readFileSync(new URL('../../../seed/works.json', import.meta.url), 'utf8'));
 const popular = seed.toSorted(comparePopular);
@@ -295,5 +297,57 @@ test.describe('石組みの計算（SPEC 6）', () => {
     const { positions, height } = layoutMasonry([{ thumb_w: 800, thumb_h: 800 }], options);
     expect(height).toBe(positions[0].height);
     expect(layoutMasonry([], options).height).toBe(0);
+  });
+});
+
+test.describe('中身の地図（WS002）：初めて要るときに作って置く', () => {
+  const work = { html: '<div data-ld-part="x"><button>押す</button></div>', css: '[data-ld-part="x"] { color: red; }', js: "export function mount(root) { root.addEventListener('click', () => {}); return () => {}; }" };
+  const fakeBucket = (initial: Record<string, string> = {}) => {
+    const store = new Map(Object.entries(initial));
+    const puts: string[] = [];
+    const bucket: OutlineBucket = {
+      get: async (key) => (store.has(key) ? { text: async () => store.get(key)! } : null),
+      put: async (key, value) => {
+        puts.push(key);
+        store.set(key, value);
+      },
+    };
+    return { bucket, store, puts };
+  };
+
+  test('置き場になければ版のファイルから作って置き、2回目は置いた物を読む', async () => {
+    const { bucket, store, puts } = fakeBucket();
+    let reads = 0;
+    const readFiles = async () => {
+      reads++;
+      return work;
+    };
+    const first = await loadOutline(bucket, 'revisions/a/b', readFiles);
+    expect(first).toEqual(buildOutline(work));
+    expect(puts).toEqual(['revisions/a/b/outline.json']);
+    expect(JSON.parse(store.get('revisions/a/b/outline.json')!)).toEqual(first);
+    const second = await loadOutline(bucket, 'revisions/a/b', readFiles);
+    expect(second).toEqual(first);
+    expect([reads, puts.length]).toEqual([1, 1]);
+  });
+
+  test('形の版が古い、または壊れた地図は作り直す。版のファイルがなければ null で、何も置かない', async () => {
+    for (const old of [JSON.stringify({ version: OUTLINE_VERSION - 1, files: [] }), '{"version":']) {
+      const { bucket, puts } = fakeBucket({ 'works/x/1/outline.json': old });
+      expect((await loadOutline(bucket, 'works/x/1', async () => work))?.version).toBe(OUTLINE_VERSION);
+      expect(puts).toEqual(['works/x/1/outline.json']);
+    }
+    const { bucket, puts } = fakeBucket();
+    expect(await loadOutline(bucket, 'works/none/1', async () => null)).toBeNull();
+    expect(puts).toEqual([]);
+  });
+
+  test('置けなくても地図は返す。バイト列からも同じ地図（文書の作品も）', async () => {
+    const failing: OutlineBucket = { get: async () => null, put: async () => Promise.reject(new Error('down')) };
+    expect(await loadOutline(failing, 'revisions/a/b', async () => work)).toEqual(buildOutline(work));
+    const bytes = (text: string) => new TextEncoder().encode(text);
+    expect(JSON.parse(outlineFromBytes({ html: bytes(work.html), css: bytes(work.css), js: bytes(work.js), document: null })!)).toEqual(buildOutline(work));
+    const doc = '<!doctype html><title>t</title><canvas></canvas><script>requestAnimationFrame(() => {})</script>';
+    expect(JSON.parse(outlineFromBytes({ html: null, css: null, js: null, document: bytes(doc) })!)).toEqual(buildOutline({ html: '', css: '', js: null, document: doc }));
   });
 });

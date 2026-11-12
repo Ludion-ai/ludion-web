@@ -1,0 +1,17 @@
+{
+  "name": "@ludion/outline",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "作品の1つの版から、中身の地図（ファイル、分け目、技術、言語）を作る。Worker、ld、テストが同じものを使う。DOM と Node の API を使わない純粋な関数。",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "tsc -p . && playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "acorn": "^8.19.0"
+  }
+}
