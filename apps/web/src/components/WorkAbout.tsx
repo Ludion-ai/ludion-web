@@ -108,7 +108,8 @@ function a11yRows(copy: Copy, about: About): Row[] {
     }));
 }
 
-const ITEM_CLASS = 'inline-flex min-h-8 shrink-0 items-center gap-1 rounded-chip px-2.5 text-small md:min-h-7 md:shrink md:text-left';
+/** 768px以上では、狭い右の列で長い言葉（requestAnimationFrame など）がはみ出さないよう、印の中で折り返す */
+const ITEM_CLASS = 'inline-flex min-h-8 shrink-0 items-center gap-1 rounded-chip px-2.5 text-small md:min-h-7 md:max-w-full md:shrink md:py-1 md:text-left';
 
 /**
  * 「この作品について」（WS003）。版を置いたときに機械がコードを読んで作った地図から出す。
@@ -142,7 +143,7 @@ export function WorkAbout({ about }: { about: About }) {
               const body = (
                 <>
                   {item.done && <Check size={14} strokeWidth={2.25} aria-hidden="true" className="shrink-0 text-site-fg-3" />}
-                  <span className={item.code ? 'font-mono wrap-anywhere' : undefined}>{item.text}</span>
+                  <span className={item.code ? 'font-mono md:wrap-anywhere' : 'md:wrap-anywhere'}>{item.text}</span>
                 </>
               );
               if (!item.spot) {

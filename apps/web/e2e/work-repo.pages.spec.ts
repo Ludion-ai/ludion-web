@@ -332,6 +332,85 @@ for (const { label, viewport, columns } of [
   });
 }
 
+test.describe('狭い列', () => {
+  /** ページの横のはみ出しと、文字が切れているタブの数 */
+  const fit = (page: Page) =>
+    page.evaluate(() => ({
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      clipped: [...document.querySelectorAll('[role="tab"]')].filter((tab) => tab.scrollWidth > tab.clientWidth).length,
+    }));
+
+  for (const width of [320, 1024, 1280]) {
+    test(`幅${width}：長い印（requestAnimationFrame）と英語のタブでも、ページは横にはみ出さず、タブの文字は切れない`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      for (const path of ['/en/p/fx-motion', '/p/fx-motion']) {
+        await page.goto(path);
+        await page.getByRole('heading', { level: 1 }).waitFor();
+        await expect(page.locator('[data-about-item="raf"]')).toBeVisible();
+        expect(await fit(page), path).toEqual({ overflow: 0, clipped: 0 });
+      }
+    });
+  }
+
+  test('幅1024、持ち主（左のナビが開き、タブが4つ）、英語：同じ', async ({ page, context, baseURL }) => {
+    await page.setViewportSize({ width: 1024, height: 900 });
+    await context.addCookies([{ name: 'ld_session', value: PRIVATE_OWNER.session, url: baseURL! }]);
+    await page.goto(`/en/p/${privateFixtureId('mal-doc')}`);
+    await expect(page.getByRole('tab')).toHaveCount(4);
+    // 左のナビは、本人の答えの後に開く
+    await expect(page.locator('html')).toHaveAttribute('data-nav', 'open');
+    expect(await fit(page)).toEqual({ overflow: 0, clipped: 0 });
+  });
+});
+
+// 持ち主の形（頭の右の「新しい版を置く」、設定のタブ、自分だけの知らせが足される）でも、同じ
+for (const { label, viewport, columns } of [
+  { label: '幅1440（2列）', viewport: { width: 1440, height: 900 }, columns: 2 },
+  { label: '幅390（1列）', viewport: { width: 390, height: 844 }, columns: 1 },
+]) {
+  test.describe(`順（持ち主）：${label}`, () => {
+    test.use({ viewport });
+
+    test('自分だけの作品を持ち主が開いた形でも、フォーカスできる物は HTML の順が見た目の順。CSS の order を使っていない', async ({ page, context, baseURL }) => {
+      await context.addCookies([{ name: 'ld_session', value: PRIVATE_OWNER.session, url: baseURL! }]);
+      await openWork(page, privateFixtureId('mal-doc'));
+      await expect(page.getByRole('tab', { name: '設定' })).toBeVisible();
+      const measured = await page.evaluate(() => {
+        const rect = (el: Element) => {
+          const { left, top, right, bottom } = el.getBoundingClientRect();
+          return { left, top: top + window.scrollY, right, bottom: bottom + window.scrollY };
+        };
+        const scope = [document.querySelector('[data-work-head]')!, document.querySelector('[data-work-stage]')!, document.querySelector('[data-work-side]')!];
+        const visible = (el: Element) => {
+          const box = el.getBoundingClientRect();
+          return box.width > 0 && box.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+        };
+        const focusable = scope.flatMap((root) => [...root.querySelectorAll<HTMLElement>('a[href], button, iframe, [tabindex]')]).filter((el) => visible(el) && el.tabIndex >= 0);
+        return {
+          stage: rect(document.querySelector('[data-work-stage]')!),
+          head: rect(document.querySelector('[data-work-head]')!),
+          focusable: focusable.map((el) => ({ name: (el.getAttribute('aria-label') ?? el.textContent ?? el.tagName).trim().slice(0, 20) || el.tagName, rect: rect(el) })),
+          ordered: scope.flatMap((root) => [root, ...root.querySelectorAll('*')]).filter((el) => getComputedStyle(el).order !== '0').length,
+        };
+      });
+      expect(measured.ordered).toBe(0);
+      const names = measured.focusable.map((item) => item.name);
+      expect(names).toContain('新しい版を置く');
+      expect(names).toContain('自分の作品へ');
+      // 頭（@作者、新しい版を置く）は、動く作品と右の列より上。その下は、2列なら左の列が先
+      const inHead = measured.focusable.filter((item) => item.rect.bottom <= measured.head.bottom + 1);
+      const below = measured.focusable.filter((item) => item.rect.bottom > measured.head.bottom + 1);
+      expect(measured.focusable.slice(0, inHead.length)).toEqual(inHead);
+      const boundary = columns === 2 ? measured.stage.right : null;
+      for (const list of [inHead, below]) {
+        for (let index = 1; index < list.length; index++) {
+          expect(after(list[index - 1].rect, list[index].rect, list === inHead ? null : boundary), `${list[index - 1].name} → ${list[index].name}`).toBe(true);
+        }
+      }
+    });
+  });
+}
+
 test.describe('スマホ（幅390）', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
