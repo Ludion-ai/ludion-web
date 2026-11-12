@@ -75,10 +75,10 @@ test('fx-counter：枠の中で読み込みに localStorage を読んでも投�
 
 test('対照：メモリだけの代わりを外した枠では、同じ作品が最初の読み込みで投げ、押しても増えない', async ({ page, request }) => {
   const html = await (await request.get(`/frame/${ID}/1/desktop.html`, { headers: FROM_IFRAME })).text();
-  const scripts = html.match(/<script>[\s\S]*?<\/script>/g)!;
-  // 最初の Ludion のスクリプトが storage の代わり
-  expect(scripts[0]).toContain('localStorage');
-  const bare = html.replace(scripts[0], '');
+  // storage の代わりのスクリプトだけを外す（その前の枠の守りは残す。FRAME002）
+  const storage = `<script>${STORAGE_SCRIPT}</script>`;
+  expect(html).toContain(storage);
+  const bare = html.replace(storage, '');
   const errors = watchErrors(page);
   await page.route('**/__storage_control__', (route) =>
     route.fulfill({
