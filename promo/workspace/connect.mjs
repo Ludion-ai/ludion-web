@@ -71,7 +71,7 @@ async function allowInBrowser(name, drop, waitMs = 120000) {
   rmSync(shots, { recursive: true, force: true });
   mkdirSync(shots, { recursive: true });
   const blocked = [];
-  const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost'] });
+  const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost', '--disable-lcd-text'] }) // 字のふちに色を付けない（大きく寄ると、色のにじみが見えるため）;
   try {
     const context = await browser.newContext({ locale: 'ja-JP', viewport: { width: SHOT.width, height: SHOT.height }, deviceScaleFactor: SHOT.scale });
     await context.addCookies([{ name: 'ld_session', value: PERSON.session, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);

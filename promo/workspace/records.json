@@ -11,5 +11,12 @@
     "prompt": "押すと波紋が広がるボタンを1つの HTML で作って",
     "budgetUsd": 1,
     "limitMinutes": 12
+  },
+  "scene4": {
+    "prompt": "雨の窓ぎわのシェーダーだけ読んで",
+    "mcp": true,
+    "tools": "",
+    "budgetUsd": 1,
+    "limitMinutes": 10
   }
 }

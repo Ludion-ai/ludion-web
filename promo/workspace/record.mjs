@@ -1,5 +1,6 @@
 // 動画の中のターミナルに出す、本物の記録を取る（V006「本物で作る」）。オーナーの裏方の道具（CLAUDE.md 原則1）。
 //   node promo/workspace/record.mjs --check            → お金のかからない確かめ（鍵、フックの空打ち、claude が何を読み込むか）
+//   node promo/workspace/record.mjs --check-read scene4 → お金のかからない確かめ（読む記録：手元の MCP につながり、読む道具が見えるか）
 //   node promo/workspace/record.mjs --run scene1       → claude -p を1回だけ流して記録する（お金がかかる。作り直しはしない）
 //   node promo/workspace/record.mjs --transcript scene1 → 生の記録（promo/out/）から promo/workspace/records/<名前>/ を作り直す（お金はかからない）
 //
@@ -13,6 +14,8 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, read
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PRIVATE_OWNER } from '../../apps/web/scripts/private-fixture.mjs';
+import { startDev } from './dev-server.mjs';
+import { PERSON } from './person.mjs';
 
 const argv = process.argv.slice(2);
 const has = (flag) => argv.includes(flag);
@@ -45,18 +48,18 @@ function assertLocal(url) {
 assertLocal(BASE);
 
 /** 見本のデータの人（seed-dev.mjs が入れる）の名前で、本物の口から AI の鍵を作る。鍵は、このプロセスの中だけで持つ。 */
-async function makeKey() {
+async function makeKey(session = PRIVATE_OWNER.session) {
   const response = await fetch(`${BASE}/api/account/ai-keys`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Origin: BASE, Cookie: `ld_session=${PRIVATE_OWNER.session}` },
+    headers: { 'Content-Type': 'application/json', Origin: BASE, Cookie: `ld_session=${session}` },
     body: JSON.stringify({ name: 'Claude Code', own: true, mit: true, terms: true }),
   });
   if (response.status !== 201) throw new Error(`鍵を作れなかった: ${response.status} ${await response.text()}`);
   const made = await response.json();
-  return { id: made.key.id, secret: made.secret };
+  return { id: made.key.id, secret: made.secret, session };
 }
-async function deleteKey(id) {
-  await fetch(`${BASE}/api/account/ai-keys/${encodeURIComponent(id)}/delete`, { method: 'POST', headers: { Origin: BASE, Cookie: `ld_session=${PRIVATE_OWNER.session}` } });
+async function deleteKey(key) {
+  await fetch(`${BASE}/api/account/ai-keys/${encodeURIComponent(key.id)}/delete`, { method: 'POST', headers: { Origin: BASE, Cookie: `ld_session=${key.session}` } });
 }
 
 /** claude とフックに渡す環境。このセッションの印（CLAUDE_CODE_…）は外し、Ludion の行き先は手元だけにする。 */
@@ -85,7 +88,13 @@ function findClaude() {
   const lines = r.stdout.split(/\r?\n/).filter(Boolean);
   return lines.find((l) => /\.exe$/i.test(l)) || lines[0];
 }
-const claudeArgs = (budget) => ['-p', '--permission-mode', 'acceptEdits', '--tools', 'Read,Write,Edit', '--output-format', 'stream-json', '--verbose', '--include-hook-events', '--no-session-persistence', '--strict-mcp-config', '--setting-sources', 'local', '--plugin-dir', PLUGIN, '--max-budget-usd', String(budget)];
+const READ_TOOLS = ['list_my_works', 'get_work', 'get_public_work', 'read_work_code'].map((name) => `mcp__ludion__${name}`);
+function claudeArgs(spec, key) {
+  const args = ['-p', '--permission-mode', 'acceptEdits', '--tools', spec.tools ?? 'Read,Write,Edit', '--output-format', 'stream-json', '--verbose', '--include-hook-events', '--no-session-persistence', '--strict-mcp-config', '--setting-sources', 'local', '--plugin-dir', PLUGIN, '--max-budget-usd', String(spec.budgetUsd)];
+  // 読むだけの記録：手元のサーバーの MCP（/mcp）を、動画に出す人の鍵でつなぐ。使ってよいのは、読む道具だけ（置く道具 save_work は渡さない）
+  if (spec.mcp) args.push('--mcp-config', JSON.stringify({ mcpServers: { ludion: { type: 'http', url: `${BASE}/mcp`, headers: { Authorization: `Bearer ${key}` } } } }), '--allowedTools', READ_TOOLS.join(','), '--disallowedTools', 'mcp__ludion__save_work');
+  return args;
+}
 
 // ---- お金のかからない確かめ
 async function check() {
@@ -108,7 +117,7 @@ async function check() {
     // 2. claude が何を読み込むか：API へは届かせない（行き先を閉じた口にする）。最初の知らせ（init）だけを読んで止める
     const dir2 = freshDir('check-claude');
     const init = await new Promise((done) => {
-      const child = spawn(findClaude(), [...claudeArgs(0.01), '--debug-file', resolve(OUT, 'check-debug.log')], { cwd: dir2, env: runEnv(key.secret, { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', HTTPS_PROXY: 'http://127.0.0.1:9', HTTP_PROXY: 'http://127.0.0.1:9', NO_PROXY: '' }), stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn(findClaude(), [...claudeArgs({ budgetUsd: 0.01 }, key.secret), '--debug-file', resolve(OUT, 'check-debug.log')], { cwd: dir2, env: runEnv(key.secret, { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', HTTPS_PROXY: 'http://127.0.0.1:9', HTTP_PROXY: 'http://127.0.0.1:9', NO_PROXY: '' }), stdio: ['pipe', 'pipe', 'pipe'] });
       let buffer = '';
       let found = null;
       const timer = setTimeout(() => child.kill(), 60000);
@@ -136,7 +145,47 @@ async function check() {
     writeFileSync(resolve(OUT, 'check-init.json'), JSON.stringify(init, null, 2));
     log({ step: 'check-claude', version: init.claude_code_version, model: init.model, tools: init.tools, plugins: (init.plugins ?? []).map((p) => p.name), skills: init.skills, mcp: (init.mcp_servers ?? []).map((m) => m.name), memory: init.memory_paths ?? null, keys: Object.keys(init) });
   } finally {
-    await deleteKey(key.id);
+    await deleteKey(key);
+  }
+}
+
+// ---- お金のかからない確かめ（読む記録）：claude が手元の MCP につながり、読む道具が見えるか。API へは届かせず、最初の知らせだけを読んで止める
+async function checkRead(name) {
+  const spec = RUNS[name];
+  if (!spec?.mcp) throw new Error(`records.json に、読む記録として書かれていない: ${name}`);
+  const key = await makeKey(PERSON.session);
+  try {
+    const dir = freshDir('check-read');
+    const init = await new Promise((done) => {
+      // Anthropic への道は閉じた口にし、手元（MCP）への道だけ開ける
+      const child = spawn(findClaude(), claudeArgs({ ...spec, budgetUsd: 0.01 }, key.secret), { cwd: dir, env: runEnv(key.secret, { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', HTTPS_PROXY: 'http://127.0.0.1:9', HTTP_PROXY: '', NO_PROXY: 'localhost,127.0.0.1' }), stdio: ['pipe', 'pipe', 'pipe'] });
+      let buffer = '';
+      let found = null;
+      const timer = setTimeout(() => child.kill(), 60000);
+      child.stdout.on('data', (chunk) => {
+        buffer += chunk.toString('utf8');
+        for (const line of buffer.split('\n')) {
+          try {
+            const event = JSON.parse(line);
+            if (event.type === 'system' && event.subtype === 'init') {
+              found = event;
+              child.kill();
+            }
+          } catch {
+            // 行の途中
+          }
+        }
+      });
+      child.stdin.end('確かめ');
+      child.on('close', () => {
+        clearTimeout(timer);
+        done(found);
+      });
+    });
+    if (!init) throw new Error('claude の最初の知らせ（init）が読めなかった');
+    log({ step: 'check-read', version: init.claude_code_version, model: init.model, mcp: init.mcp_servers, tools: init.tools, plugins: (init.plugins ?? []).filter((p) => p.path !== 'builtin').map((p) => p.name) });
+  } finally {
+    await deleteKey(key);
   }
 }
 
@@ -146,7 +195,7 @@ async function run(name) {
   if (!spec) throw new Error(`records.json にない名前: ${name}`);
   const rawPath = resolve(OUT, `${name}.jsonl`);
   if (existsSync(rawPath) && !has('--again')) throw new Error(`${name} は、もう流してある（${rawPath}）。作り直しはお金がかかる。CEO の許しがあるときだけ --again を付ける`);
-  const key = await makeKey();
+  const key = await makeKey(spec.mcp ? PERSON.session : PRIVATE_OWNER.session);
   const dir = freshDir(name);
   writeFileSync(rawPath, '');
   const started = Date.now();
@@ -154,7 +203,7 @@ async function run(name) {
   log({ step: 'run-start', name, prompt: spec.prompt, budgetUsd: spec.budgetUsd, limitMinutes: spec.limitMinutes });
   try {
     const result = await new Promise((done) => {
-      const child = spawn(findClaude(), claudeArgs(spec.budgetUsd), { cwd: dir, env: runEnv(key.secret), stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn(findClaude(), claudeArgs(spec, key.secret), { cwd: dir, env: runEnv(key.secret), stdio: ['pipe', 'pipe', 'pipe'] });
       let buffer = '';
       let stderr = '';
       let last = null;
@@ -197,7 +246,7 @@ async function run(name) {
     const list = await (await fetch(`${BASE}/api/v1/works`, { headers: { Authorization: `Bearer ${key.secret}` } })).json();
     log({ step: 'run-end', name, seconds: Number(result.seconds.toFixed(1)), timedOut: result.timedOut, costUsd: result.last?.total_cost_usd ?? null, turns: result.last?.num_turns ?? null, isError: result.last?.is_error ?? null, files, works: list.works.map((w) => `${w.id}（${w.visibility}、版 ${w.version}）`), stderr: result.stderr || undefined });
   } finally {
-    await deleteKey(key.id);
+    await deleteKey(key);
   }
   transcript(name);
 }
@@ -256,8 +305,18 @@ function transcript(name) {
           const file = String(input.file_path ?? '').split(/[\\/]/).pop();
           if (block.name === 'Write') lines.push(`### ${stamp(t)} 道具 Write ${file}`, '', `${String(input.content ?? '').split('\n').length} 行、${Buffer.byteLength(String(input.content ?? ''))} バイト`, '');
           else if (block.name === 'Edit') lines.push(`### ${stamp(t)} 道具 Edit ${file}`, '', fence(`- ${String(input.old_string ?? '').slice(0, 800)}\n+ ${String(input.new_string ?? '').slice(0, 800)}`), '');
+          else if (block.name.startsWith('mcp__')) lines.push(`### ${stamp(t)} 道具 ${block.name}`, '', fence(JSON.stringify(input)), '');
           else lines.push(`### ${stamp(t)} 道具 ${block.name} ${file}`, '');
         }
+      }
+    } else if (event.type === 'user') {
+      // 道具の答え。長いので、頭の 40 行と、全体の行の数だけを写す
+      for (const block of Array.isArray(event.message?.content) ? event.message.content : []) {
+        if (block.type !== 'tool_result') continue;
+        const text = (Array.isArray(block.content) ? block.content.map((c) => c.text ?? '').join('\n') : String(block.content ?? '')).trim();
+        if (!text || !spec.mcp) continue;
+        const all = text.split('\n');
+        lines.push(`### ${stamp(t)} 道具の答え`, '', `${all.length} 行、${Buffer.byteLength(text)} バイト。頭の ${Math.min(40, all.length)} 行：`, '', fence(all.slice(0, 40).join('\n')), '');
       }
     } else if (event.type === 'system' && event.subtype === 'hook_response') {
       // フックの答え（プラグインが返したもの）。systemMessage は画面に出る行、additionalContext は Claude に渡る文
@@ -285,7 +344,14 @@ function transcript(name) {
   log({ step: 'transcript', name, out: `promo/workspace/records/${name}/`, files: ['transcript.md', 'facts.json', ...htmlFiles] });
 }
 
-if (has('--check')) await check();
-else if (has('--run')) await run(valueOf('--run'));
-else if (has('--transcript')) transcript(valueOf('--transcript'));
-else console.log('使い方: node promo/workspace/record.mjs --check | --run <名前> | --transcript <名前>');
+// --persist <置き場> を付けると、手元の開発のサーバーを自分で起こし、終わったら止める（付けなければ、もう起きているものを使う）
+const dev = has('--persist') && !has('--transcript') ? await startDev({ persist: valueOf('--persist'), base: BASE }) : null;
+try {
+  if (has('--check-read')) await checkRead(valueOf('--check-read'));
+  else if (has('--check')) await check();
+  else if (has('--run')) await run(valueOf('--run'));
+  else if (has('--transcript')) transcript(valueOf('--transcript'));
+  else console.log('使い方: node promo/workspace/record.mjs [--persist <置き場>] --check | --check-read <名前> | --run <名前> | --transcript <名前>');
+} finally {
+  await dev?.stop();
+}
