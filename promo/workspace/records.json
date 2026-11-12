@@ -17,6 +17,7 @@
     "mcp": true,
     "tools": "",
     "budgetUsd": 1,
-    "limitMinutes": 10
+    "limitMinutes": 10,
+    "model": "claude-opus-5-5"
   }
 }

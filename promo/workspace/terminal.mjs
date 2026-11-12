@@ -161,8 +161,83 @@ function buildMake(TL, recordsDir) {
   };
 }
 
+/**
+ * 面3「読む」（2つ目のターミナルの板）：指示を打つ → 手元の MCP の読む道具を順に呼ぶ → 返ったコード（行の番号つき）→ Claude が伝える。
+ * 返ったコードは、道具の答え（JSON）の code から、頭の数行と、指定した行の番号から始まる数行と、最後の行だけを出す。間は ⋯。
+ */
+function buildRead(TL, recordsDir) {
+  const R = TL.terminal.read;
+  const r = readRecord(recordsDir, R.record);
+  if (r.prompt.includes('\n')) throw new Error('指示文が1行ではない');
+  const tools = r.sections.filter((s) => s.head.startsWith('道具 mcp__'));
+  const answers = r.sections.filter((s) => s.head === '道具の答え');
+  const done = r.sections.find((s) => s.head === '終わり');
+  if (tools.length === 0 || !done) throw new Error(`${R.record} の記録に、道具か、終わりがない`);
+  // コードを返した道具（read_work_code）と、その答え
+  const readTool = tools.find((s) => s.head.endsWith('read_work_code'));
+  if (!readTool) throw new Error(`${R.record} の記録に、read_work_code がない`);
+  const readAnswer = answers.find((s) => s.rec >= readTool.rec);
+  const answer = JSON.parse(fenced(readAnswer.text));
+  const codeLines = String(answer.code).split('\n');
+  const pick = [];
+  const credit = codeLines.findIndex((l) => l.startsWith('/* UI by'));
+  if (credit >= 0) pick.push(codeLines[credit]);
+  const numbered = codeLines.filter((l) => /^\d+\t/.test(l));
+  const head = numbered.slice(0, R.headLines);
+  pick.push(...head);
+  for (const from of R.jumpTo ?? []) {
+    const at = numbered.findIndex((l) => l.startsWith(`${from}\t`));
+    if (at < 0) throw new Error(`返ったコードに ${from} 行がない`);
+    pick.push(null, ...numbered.slice(at, at + R.jumpLines));
+  }
+  const last = numbered.at(-1);
+  if (!pick.includes(last)) pick.push(null, last);
+  // 行の番号と本文の間のタブは、空白2つにして出す（出どころの確かめは、元の行で）
+  const code = pick.map((line) => (line === null ? { kind: 'gap', text: '⋯' } : { kind: 'code', text: line.replace('\t', '  ').replace(/\t/g, '  '), parts: [line] }));
+  // Claude の最後の文の、最初の段落の頭から、文を R.say の数だけ（何を読んで、何を開かなかったか）
+  const finalLines = plain(done.text).split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#') && !l.startsWith('|'));
+  const sentences = finalLines[0].split(/(?<=。)/).map((x) => x.trim()).filter(Boolean);
+  const sayLines = sentences.slice(0, R.say.length);
+  if (sayLines.length < R.say.length) throw new Error('終わりの文の頭に、文が足りない');
+  const toolAt = (i) => R.tools[0] + ((R.tools[1] - R.tools[0]) * i) / Math.max(1, tools.length - 1);
+  const items = [
+    { id: 'ruser', kind: 'user', text: r.prompt, at: R.type[0], typeTo: R.type[1], enter: R.enter },
+    ...tools.flatMap((s, i) => {
+      const line = { id: `rtool${i + 1}`, kind: 'tool', text: s.head.replace('道具 ', ''), at: toolAt(i) };
+      // コードを返した道具には、渡した値（section）の行を添える
+      return s === readTool ? [line, { id: null, kind: 'code', text: fenced(s.text), at: toolAt(i) + 0.05 }] : [line];
+    }),
+    ...code.map((c, i) => ({ id: i === 0 ? 'rcode' : null, ...c, at: R.flow[0] + ((R.flow[1] - R.flow[0]) * i) / Math.max(1, code.length - 1) })),
+    ...sayLines.map((text, i) => ({ id: `rsay${i + 1}`, kind: 'say', text, at: R.say[i] })),
+  ];
+  const source = `${plain(r.transcriptText)}\n${answer.code}`;
+  assertFromSource(R.record, items, source);
+  const speed = done.rec / (R.say[0] - R.enter);
+  return {
+    id: 'read',
+    board: 'term2',
+    record: R.record,
+    in: null,
+    out: null,
+    items,
+    flow: R.flow,
+    clock: [{ at: R.enter, rec: 0 }, ...tools.map((s, i) => ({ at: toolAt(i), rec: s.rec })), { at: R.say[0], rec: done.rec }],
+    badge: [R.enter, ...R.badgeOut],
+    recEnd: done.rec,
+    speedAverage: Number(speed.toFixed(2)),
+    speedLabel: `×${Math.round(speed)}`,
+    codeLinesTotal: answer.total_lines,
+    codeRange: [answer.start, answer.end],
+    section: answer.section,
+    cut: { sayFull: finalLines[0] },
+    source: `promo/workspace/records/${R.record}/transcript.md`,
+    facts: r.facts,
+  };
+}
+
 export function buildTerminal(TL, recordsDir, root) {
-  const pages = [buildConnect(TL, recordsDir, root), buildMake(TL, recordsDir)];
+  const pages = [buildConnect(TL, recordsDir, root), buildMake(TL, recordsDir), ...(TL.terminal.read ? [buildRead(TL, recordsDir)] : [])];
+  for (const page of pages) page.board ??= 'term1';
   // 出来事の時刻は、コマの頭にそろえる（絵と音を同じコマに置く。表の数字は、いちばん近いコマに丸める）
   const snap = (t) => Math.round(t * TL.fps) / TL.fps;
   for (const page of pages) {

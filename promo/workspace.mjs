@@ -59,6 +59,10 @@ const ITEMS = terminal.pages.flatMap((page) => page.items);
 const SHOTS_DIR = resolve(OUT_DIR, 'v006-record', `${timeline.browser.shots}-shots`);
 if (!existsSync(resolve(SHOTS_DIR, 'manifest.json'))) throw new Error(`「許可する」の画面がない（promo/out/v006-record/${timeline.browser.shots}-shots/）。node promo/workspace/connect.mjs --persist <置き場> --check --as ${timeline.browser.shots} で撮る`);
 const shots = JSON.parse(readFileSync(resolve(SHOTS_DIR, 'manifest.json'), 'utf8'));
+// サイトの窓の画面（場面2と3。site.mjs で撮ったもの。コミットしない）
+const SITE_DIR = timeline.site ? resolve(OUT_DIR, 'v006-record', `${timeline.site.shots}-shots`) : null;
+if (SITE_DIR && !existsSync(resolve(SITE_DIR, 'manifest.json'))) throw new Error(`サイトの画面がない（promo/out/v006-record/${timeline.site.shots}-shots/）。node promo/workspace/site.mjs --persist <置き場> --as ${timeline.site.shots} で撮る`);
+const siteShots = SITE_DIR ? JSON.parse(readFileSync(resolve(SITE_DIR, 'manifest.json'), 'utf8')) : null;
 
 // ---- 表の決まりを確かめる（作る前に落とす）
 function checkTimeline() {
@@ -88,6 +92,19 @@ function checkTimeline() {
   const onGrid = (t) => Math.abs(t * timeline.fps - Math.round(t * timeline.fps)) < 1e-6;
   for (const [name, t] of [['browser.in', B.in[0]], ['browser.press', B.press], ['end.logoIn', timeline.end.logoIn[0]]]) if (!onGrid(t)) errors.push(`${name} の ${t} が、コマの頭にない`);
   if (timeline.audio.finalChord.at !== timeline.end.logoIn[0]) errors.push('最後の和音の時刻が、ロゴの出る時刻と違う');
+  if (timeline.site) {
+    const S = timeline.site;
+    for (const sw of S.switches) if (!onGrid(sw.at)) errors.push(`site.switches の ${sw.to} の ${sw.at} が、コマの頭にない`);
+    let last = -Infinity;
+    for (const c of S.cursor.clicks) {
+      if (!onGrid(c.press)) errors.push(`site.cursor の押す時刻 ${c.press} が、コマの頭にない`);
+      if (!(last <= c.move[0] && c.move[0] < c.move[1] && c.move[1] <= c.press)) errors.push(`site.cursor の ${c.state} の時刻の順が合わない`);
+      const sw = S.switches.find((x) => x.to === c.state);
+      if (!sw || sw.at < c.press) errors.push(`site.cursor の ${c.state} を押す前に、画面が替わっている`);
+      last = c.press;
+    }
+    for (const id of [S.first, ...S.switches.map((x) => x.to)]) if (!siteShots.states.some((st) => st.id === id)) errors.push(`サイトの画面に、状態 ${id} がない`);
+  }
   const keys = timeline.camera.keys;
   for (let i = 1; i < keys.length; i++) if (keys[i].t <= keys[i - 1].t) errors.push(`カメラのキー ${i} の時刻が前より早い`);
   if (errors.length) throw new Error(`表の決まりに合わない:\n- ${errors.join('\n- ')}`);
@@ -103,7 +120,11 @@ const MIME = { '.png': 'image/png', '.html': 'text/html; charset=utf-8', '.js': 
 const netLog = [];
 let onFrame = async () => {};
 if (!Array.isArray(shots.textRects)) throw new Error('「許可する」の画面に、字の四角がない（古い撮り方）。connect.mjs --check --as ' + timeline.browser.shots + ' で撮り直す');
-const pageData = { terminal, shots: { base: '/shots/', allowButton: shots.allowButton, viewport: shots.viewport, textRects: shots.textRects } };
+const pageData = {
+  terminal,
+  shots: { base: '/shots/', allowButton: shots.allowButton, viewport: shots.viewport, textRects: shots.textRects },
+  site: siteShots ? { base: '/site/', viewport: siteShots.viewport, states: siteShots.states.map((st) => ({ id: st.id, file: st.file, textRects: st.textRects, boxes: st.boxes, clicked: st.clicked ?? null })) } : null,
+};
 const rpc = { waiting: null, queue: [], pending: new Map(), nextId: 1, ready: null };
 function pumpRpc() {
   if (!rpc.waiting || rpc.queue.length === 0) return;
@@ -194,6 +215,7 @@ const server = createServer((req, res) => {
   else if (path.startsWith('/vendor/three/')) file = safeJoin(resolve(ROOT, 'node_modules/three'), path.slice('/vendor/three/'.length));
   else if (path.startsWith('/assets/')) file = safeJoin(ASSETS, path.slice('/assets/'.length));
   else if (path.startsWith('/shots/')) file = safeJoin(SHOTS_DIR, path.slice('/shots/'.length));
+  else if (path.startsWith('/site/') && SITE_DIR) file = safeJoin(SITE_DIR, path.slice('/site/'.length));
   if (!file || !existsSync(file) || statSync(file).isDirectory()) {
     netLog.push({ url: `local-missing:${path}`, allowed: false });
     res.writeHead(404);
@@ -266,6 +288,7 @@ async function openStage(width, height, samples) {
 async function checkOverlap(onlyTell) {
   const overlap = await stageCall('overlaps', 10);
   console.log(`見出しと字の重なり: 見出しの出ているコマ ${overlap.framesChecked}、重なり ${overlap.violations}、いちばん近いすきま ${overlap.min.gap}px（${overlap.min.t}秒、${overlap.min.what}「${overlap.min.text}」）`);
+  if (overlap.violations) for (const r of overlap.ranges) console.log(`  重なり ${r.fromT}〜${r.toT}秒「${r.caption}」：${r.texts.join(' / ')}（すきま ${r.minGap}px）`);
   if (overlap.violations && !onlyTell) throw new Error(`見出しが字に重なる（すきま ${overlap.margin}px 未満）:\n${overlap.first.map((v) => `  ${v.t}秒「${v.caption}」と ${v.what}「${v.text}」（すきま ${v.gap}px、見出しの濃さ ${v.alpha}）`).join('\n')}`);
   return overlap;
 }

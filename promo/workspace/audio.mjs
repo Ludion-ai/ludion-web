@@ -252,7 +252,17 @@ export function synthesize(tl, term) {
 
   // ---- カメラが板の間を動くときの風。動く区間は、カメラのキーから取る
   const keys = tl.camera.keys;
-  const keyX = (k) => (k.p ? k.p[0] : tl.world.boards.find((b) => b.id === 'term1').at[0]);
+  const boardX = (id) => tl.world.boards.find((b) => b.id === id).at[0];
+  const lineBoard = (id) => term.pages.find((page) => page.items.some((item) => item.id === id))?.board ?? 'term1';
+  const keyX = (k) => {
+    if (k.p) return k.p[0];
+    if (k.site) {
+      const b = tl.world.boards.find((x) => x.kind === 'site');
+      return b.at[0] - b.size[0] / 2 + k.site[0];
+    }
+    if (k.page) return boardX('term1');
+    return boardX(lineBoard(k.focus));
+  };
   for (let i = 1; i < keys.length; i++) {
     const dx = keyX(keys[i]) - keyX(keys[i - 1]);
     if (Math.abs(dx) < 1000 || keys[i].t > tl.duration) continue;
@@ -261,13 +271,13 @@ export function synthesize(tl, term) {
     events.push({ kind: 'move', t: keys[i - 1].t, to: keys[i].t });
   }
 
-  // ---- 場面2〜4の出来事（絵を撮ってから timeline.json の audio.events に入れる）
+  // ---- 場面2と3の出来事（サイトの窓：ナビに増える、押す、本文へ飛ぶ）。timeline.json の audio.events。id があれば、ずれを測る道具が絵の出来事と合わせる
   for (const e of A.events) {
     if (e.kind === 'bell') addBell(e.t, e.midi, (e.vel ?? 1) * lv.save * 0.6, e.pan ?? 0.5, e.length ?? 1.8);
     else if (e.kind === 'pluck') addPluck(e.t, e.midi, (e.vel ?? 1) * lv.say * 1.4, e.pan ?? 0.5);
     else if (e.kind === 'tick') addTick(e.t, (e.vel ?? 1) * lv.enter, 1320, 560, tl.seed + 600 + Math.round(e.t * 100), e.pan ?? 0.5);
     else throw new Error(`audio.events の kind が分からない: ${e.kind}`);
-    events.push({ kind: `event:${e.kind}`, t: e.t });
+    events.push({ kind: `event:${e.kind}`, id: e.id ?? null, t: e.t });
   }
 
   // ---- ずっと遠くで鳴るきらめき（場面2から）

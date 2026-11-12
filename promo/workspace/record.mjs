@@ -91,7 +91,8 @@ function findClaude() {
 }
 const READ_TOOLS = ['list_my_works', 'get_work', 'get_public_work', 'read_work_code'].map((name) => `mcp__ludion__${name}`);
 function claudeArgs(spec, key) {
-  const args = ['-p', '--permission-mode', 'acceptEdits', '--tools', spec.tools ?? 'Read,Write,Edit', '--output-format', 'stream-json', '--verbose', '--include-hook-events', '--no-session-persistence', '--strict-mcp-config', '--setting-sources', 'local', '--plugin-dir', PLUGIN, '--max-budget-usd', String(spec.budgetUsd)];
+  // モデルを名前で選ぶ（records.json の model。なければ claude の既定）
+  const args = ['-p', ...(spec.model ? ['--model', spec.model] : []), '--permission-mode', 'acceptEdits', '--tools', spec.tools ?? 'Read,Write,Edit', '--output-format', 'stream-json', '--verbose', '--include-hook-events', '--no-session-persistence', '--strict-mcp-config', '--setting-sources', 'local', '--plugin-dir', PLUGIN, '--max-budget-usd', String(spec.budgetUsd)];
   // 読むだけの記録：手元のサーバーの MCP（/mcp）を、動画に出す人の鍵でつなぐ。使ってよいのは、読む道具だけ（置く道具 save_work は渡さない）
   if (spec.mcp) args.push('--mcp-config', JSON.stringify({ mcpServers: { ludion: { type: 'http', url: `${BASE}/mcp`, headers: { Authorization: `Bearer ${key}` } } } }), '--allowedTools', READ_TOOLS.join(','), '--disallowedTools', 'mcp__ludion__save_work');
   return args;

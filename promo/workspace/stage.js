@@ -101,17 +101,18 @@ function boardMaterial(map) {
     ...PREMUL,
     depthWrite: true,
     depthTest: true,
-    uniforms: { map: { value: map }, uSize: { value: new THREE.Vector2(1, 1) }, uRadius: { value: 0 }, uAlpha: { value: 1 }, uBias: { value: -0.2 }, uEdge: { value: 0.07 } },
+    uniforms: { map: { value: map }, uSize: { value: new THREE.Vector2(1, 1) }, uRadius: { value: 0 }, uAlpha: { value: 1 }, uBias: { value: -0.2 }, uEdge: { value: 0.07 }, uVeil: { value: 0 } },
     vertexShader: BOARD_VERT,
     fragmentShader: /* glsl */ `
       ${SD}
-      varying vec2 vUv; uniform sampler2D map; uniform vec2 uSize; uniform float uRadius,uAlpha,uBias,uEdge;
+      varying vec2 vUv; uniform sampler2D map; uniform vec2 uSize; uniform float uRadius,uAlpha,uBias,uEdge,uVeil;
       void main(){
         vec2 p=(vUv-.5)*uSize;
         float d=sdBox(p,uSize*.5,uRadius);
         float aa=max(fwidth(d),1e-4)*.8;
         float a=1.-smoothstep(-aa,aa,d);
         vec3 c=texture2D(map,vec2(vUv.x,1.-vUv.y),uBias).rgb;
+        c=mix(c,vec3(1.),uVeil); // 白く薄める（手前に開いた画面の左右から、奥の字のかけらが読めないように）
         float line=1.-smoothstep(0.,max(aa*2.,1.6),abs(d+max(aa,.8)));
         c=mix(c,vec3(0.),line*uEdge);
         a*=uAlpha;
@@ -165,9 +166,9 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(TL.camera.fov, W / H, 10, 100000);
 const FWK = 2 * Math.tan(rad(TL.camera.fov / 2)) * (W / H); // 画面の幅 ＝ 距離 × FWK
 
-function makeBoard(map) {
+function makeBoard(map, material = null) {
   const group = new THREE.Group();
-  const mat = boardMaterial(map);
+  const mat = material ?? boardMaterial(map);
   const mesh = new THREE.Mesh(planeGeo, mat);
   group.add(mesh);
   const sh = new THREE.Mesh(planeGeo, shadowMaterial());
@@ -175,7 +176,7 @@ function makeBoard(map) {
   group.add(sh);
   scene.add(group);
   const b = { group, mesh, mat, sh };
-  b.set = (x, y, z, w, h, { radius = 0, alpha = 1, yaw = 0 } = {}) => {
+  b.set = (x, y, z, w, h, { radius = 0, alpha = 1, yaw = 0, veil = 0 } = {}) => {
     group.visible = alpha > 0.003;
     if (!group.visible) return;
     group.position.set(x, y, z);
@@ -187,6 +188,7 @@ function makeBoard(map) {
     mat.uniforms.uSize.value.set(w, h);
     mat.uniforms.uRadius.value = radius;
     mat.uniforms.uAlpha.value = alpha;
+    if (mat.uniforms.uVeil) mat.uniforms.uVeil.value = veil;
     const s = w / 1240;
     const blur = 86 * s;
     const m = blur * 1.7;
@@ -203,13 +205,12 @@ function makeBoard(map) {
   return b;
 }
 
-// ---- ターミナルの板（本物の記録を流す。面は2枚：つなぐ、作る）
+// ---- ターミナルの板（本物の記録を流す）。1枚目の板は面が2枚（つなぐ、作る）、2枚目の板は面が1枚（読む）。面の board が、どの板に出るか
 const TM = TL.terminal;
 const PAGES = DATA.terminal.pages;
 const BOARDS = TL.world.boards;
 const T1 = BOARDS.find((b) => b.id === 'term1');
 const TDW = TM.designW;
-const TDH = Math.round((TDW * T1.size[1]) / T1.size[0]);
 const TITLE_H = 58;
 const TPAD = 44;
 const BOX_X = 40; // 打つ欄の中で、字が始まる所
@@ -245,20 +246,33 @@ function terminalChrome(c, title) {
   c.fillText(title, TDW / 2, TITLE_H / 2 + 1);
   c.textAlign = 'left';
 }
-const termCanvas = drawCanvas(TDW * termK, TDH * termK, () => {});
-const termCtx = termCanvas.getContext('2d');
-const termTex = canvasTexture(termCanvas);
-const termBoard = makeBoard(termTex);
+/** 字の幅を測るだけの描き場 */
+const termCtx = drawCanvas(16, 16, () => {}).getContext('2d');
+const TERMS = BOARDS.filter((b) => b.kind === 'terminal').map((spec) => {
+  const dh = Math.round((TDW * spec.size[1]) / spec.size[0]);
+  const canvas = drawCanvas(TDW * termK, dh * termK, () => {});
+  const tex = canvasTexture(canvas);
+  return { spec, dh, canvas, ctx: canvas.getContext('2d'), tex, board: makeBoard(tex), stamp: '', pages: [] };
+});
+const termOf = (id) => {
+  const term = TERMS.find((x) => x.spec.id === id);
+  if (!term) throw new Error(`ターミナルの板がない: ${id}`);
+  return term;
+};
 
-// 長い文は、言葉の切れ目で折り返す（寄ったときの画面の幅に収める）
+// 長い文は、言葉の切れ目で折り返す（寄ったときの画面の幅に収める）。空白のない日本語は、字の切れ目で折り返す（行の頭に 、。）」 を置かない）
+const NO_HEAD = /^[、。）」』，．！？：]/;
 function wrapText(text, maxW) {
   if (termCtx.measureText(text).width <= maxW) return [text];
   const out = [];
   let cur = '';
-  for (const token of text.split(/(?<= )/)) {
-    if (cur && termCtx.measureText(cur + token).width > maxW) {
+  // 空白で切れるなら、空白で切る（前と同じ折り返し）。空白の間が1行より長いときだけ、字の切れ目でも切る
+  const words = text.split(/(?<= )/);
+  const tokens = words.some((w) => termCtx.measureText(w).width > maxW) ? text.split(/(?<= )|(?<=[^ -~])(?=[^ -~])|(?<=[^ -~])(?=[ -~])|(?<=[ -~])(?=[^ -~])/u).filter(Boolean) : words;
+  for (const token of tokens) {
+    if (cur && termCtx.measureText(cur + token).width > maxW && !NO_HEAD.test(token)) {
       out.push(cur.trimEnd());
-      cur = token;
+      cur = token.trimStart();
     } else cur += token;
   }
   if (cur) out.push(cur.trimEnd());
@@ -278,7 +292,7 @@ const LAID = PAGES.map((page) => {
     termCtx.font = st.font;
     const texts = item.kind === 'say' ? wrapText(item.text, TM.wrapW) : [item.text];
     texts.forEach((text, i) => {
-      lines.push({ ...item, id: i === 0 ? item.id : null, text, y, st, chars: [...text], first: lines.length === 0 });
+      lines.push({ ...item, id: i === 0 ? item.id : null, text, y, st, chars: [...text], first: lines.length === 0, board: page.board });
       y += st.lineH;
     });
     prev = item.kind;
@@ -289,7 +303,10 @@ const LINE = Object.fromEntries(LAID.flatMap((page) => page.lines.filter((l) => 
 const pageAlpha = (page, t) => (page.in ? q5(seg(t, page.in[0], page.in[1])) : 1) * (page.out ? 1 - q5(seg(t, page.out[0], page.out[1])) : 1);
 /** 打つ行の字が、いくつ打たれたか。 */
 const typedCount = (l, t) => clamp(Math.floor(((t - l.at) / (l.typeTo - l.at)) * l.chars.length + 1e-6) + 1, 0, l.chars.length);
-const LAST_CHANGE = Math.max(...LAID.flatMap((page) => [...(page.out ?? []), ...(page.in ?? []), ...page.badge, ...page.lines.flatMap((l) => [l.at, l.typeTo ?? 0, l.enter ?? 0])])) + 1.2;
+for (const term of TERMS) {
+  term.pages = LAID.filter((page) => page.board === term.spec.id);
+  term.lastChange = Math.max(0, ...term.pages.flatMap((page) => [...(page.out ?? []), ...(page.in ?? []), ...page.badge, ...page.lines.flatMap((l) => [l.at, l.typeTo ?? 0, l.enter ?? 0])])) + 1.2;
+}
 /** 記録の経過（秒）。面の時刻の対応から。 */
 function recAt(page, t) {
   const keys = page.clock;
@@ -299,20 +316,23 @@ function recAt(page, t) {
 }
 const clockText = (rec) => `${String(Math.floor(rec / 60)).padStart(2, '0')}:${String(Math.floor(rec % 60)).padStart(2, '0')}`;
 
-let termStamp = '';
 function paintTerminal(t) {
+  for (const term of TERMS) paintTerm(term, t);
+}
+function paintTerm(term, t) {
   // 文字は 1/60 秒より細かくは変わらないので、同じ絵なら描き直さない
-  const stamp = t > LAST_CHANGE ? 'done' : String(Math.round(t * 600));
-  if (stamp === termStamp) return;
-  termStamp = stamp;
-  const c = termCtx;
+  const stamp = t > term.lastChange ? 'done' : String(Math.round(t * 600));
+  if (stamp === term.stamp) return;
+  term.stamp = stamp;
+  const c = term.ctx;
+  const TDH = term.dh;
   c.setTransform(1, 0, 0, 1, 0, 0);
   c.fillStyle = '#ffffff';
-  c.fillRect(0, 0, termCanvas.width, termCanvas.height);
+  c.fillRect(0, 0, term.canvas.width, term.canvas.height);
   c.setTransform(termK, 0, 0, termK, 0, 0);
   const maxW = TDW - TPAD * 2;
   let shownPage = null;
-  for (const page of LAID) {
+  for (const page of term.pages) {
     const pa = pageAlpha(page, t);
     if (pa <= 0.003) continue;
     shownPage = page;
@@ -404,11 +424,11 @@ function paintTerminal(t) {
       c.globalAlpha = 1;
     }
   }
-  termTex.needsUpdate = true;
+  term.tex.needsUpdate = true;
 }
 
 // ---- まだ撮っていない場面の板（空のまま置く。偽の画面は描かない）
-const emptyBoards = BOARDS.filter((b) => b.kind !== 'terminal').map((b) => {
+const emptyBoards = BOARDS.filter((b) => b.kind === 'empty' || b.kind === 'terminal-empty').map((b) => {
   const dw = b.kind === 'terminal-empty' ? TDW : 1440;
   const dh = Math.round((dw * b.size[1]) / b.size[0]);
   const k = Math.max(1, K);
@@ -439,8 +459,8 @@ const emptyBoards = BOARDS.filter((b) => b.kind !== 'terminal').map((b) => {
 // 板の大きさは、撮った窓の大きさ（CSS の画素）
 const SHOTS = DATA.shots;
 const BR = { ...TL.browser, size: [SHOTS.viewport.width, SHOTS.viewport.height] };
-async function shotTexture(file) {
-  const blob = await (await fetch(`${SHOTS.base}${file}`)).blob();
+async function shotTexture(file, base = SHOTS.base) {
+  const blob = await (await fetch(`${base}${file}`)).blob();
   const bmp = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
   const t = new THREE.Texture(bmp);
   t.flipY = false;
@@ -484,17 +504,21 @@ const cursorTex = canvasTexture(
   }),
   true,
 );
-const cursorMat = new THREE.ShaderMaterial({
-  ...PREMUL,
-  depthTest: false,
-  depthWrite: false,
-  uniforms: { map: { value: cursorTex }, uAlpha: { value: 0 } },
-  vertexShader: BOARD_VERT,
-  fragmentShader: `varying vec2 vUv; uniform sampler2D map; uniform float uAlpha; void main(){ gl_FragColor=texture2D(map,vec2(vUv.x,1.-vUv.y))*uAlpha; }`,
-});
-const cursorMesh = new THREE.Mesh(planeGeo, cursorMat);
-cursorMesh.renderOrder = 100000;
-scene.add(cursorMesh);
+function makeCursor() {
+  const mat = new THREE.ShaderMaterial({
+    ...PREMUL,
+    depthTest: false,
+    depthWrite: false,
+    uniforms: { map: { value: cursorTex }, uAlpha: { value: 0 } },
+    vertexShader: BOARD_VERT,
+    fragmentShader: `varying vec2 vUv; uniform sampler2D map; uniform float uAlpha; void main(){ gl_FragColor=texture2D(map,vec2(vUv.x,1.-vUv.y))*uAlpha; }`,
+  });
+  const mesh = new THREE.Mesh(planeGeo, mat);
+  mesh.renderOrder = 100000;
+  scene.add(mesh);
+  return { mesh, mat };
+}
+const { mesh: cursorMesh, mat: cursorMat } = makeCursor();
 const CURSOR_HOT = [15 / 54, 9 / 54];
 const glide = (x) => 1 - Math.pow(1 - Math.pow(clamp(x), 1.6), 3); // 人の手のように、ゆっくり動き出して、なめらかに止まる
 /** カーソルの、世界の位置（矢印の先）と大きさ。押した時刻のコマで、もう縮み始めている。 */
@@ -521,10 +545,147 @@ function updateCursor(t, alpha) {
   cursorMat.uniforms.uAlpha.value = a;
 }
 
+// ---- サイトの窓（場面2と3）。手元のサーバーの本物の画面を、状態ごとに撮ったもの（site.mjs）。絵は手で描かない。
+// 状態の替わり目は、本物の画面の動きのとおり：ナビに作品が増える（ナビの所だけが替わる。作品の枠の中の雨は撮った時刻で少し違うので、ほかは前の絵のまま）、
+// 印や木を押す（本文へ飛ぶ。全部が替わる）。板の大きさは、撮った窓の大きさ（CSS の画素）
+const SITE = DATA.site ?? null;
+const SB = BOARDS.find((b) => b.kind === 'site') ?? null;
+const ST = TL.site ?? null;
+function siteMaterial() {
+  return new THREE.ShaderMaterial({
+    ...PREMUL,
+    depthWrite: true,
+    depthTest: true,
+    uniforms: { mapA: { value: null }, mapB: { value: null }, uMix: { value: 0 }, uRect: { value: new THREE.Vector4(0, 0, 1, 1) }, uSize: { value: new THREE.Vector2(1, 1) }, uRadius: { value: 0 }, uAlpha: { value: 1 }, uBias: { value: -0.4 }, uEdge: { value: 0.07 }, uVeil: { value: 0 } },
+    vertexShader: BOARD_VERT,
+    fragmentShader: /* glsl */ `
+      ${SD}
+      varying vec2 vUv; uniform sampler2D mapA,mapB; uniform vec4 uRect; uniform vec2 uSize; uniform float uMix,uRadius,uAlpha,uBias,uEdge,uVeil;
+      void main(){
+        vec2 p=(vUv-.5)*uSize;
+        float d=sdBox(p,uSize*.5,uRadius);
+        float aa=max(fwidth(d),1e-4)*.8;
+        float a=1.-smoothstep(-aa,aa,d);
+        vec2 q=vec2(vUv.x,1.-vUv.y);
+        vec3 ca=texture2D(mapA,q,uBias).rgb;
+        vec3 cb=texture2D(mapB,q,uBias).rgb;
+        float inside=step(uRect.x,q.x)*step(q.x,uRect.z)*step(uRect.y,q.y)*step(q.y,uRect.w);
+        vec3 c=mix(ca,cb,uMix*inside);
+        c=mix(c,vec3(1.),uVeil);
+        float line=1.-smoothstep(0.,max(aa*2.,1.6),abs(d+max(aa,.8)));
+        c=mix(c,vec3(0.),line*uEdge);
+        a*=uAlpha;
+        if(a<0.004) discard;
+        gl_FragColor=vec4(c*a,a);
+      }`,
+  });
+}
+const site = await (async () => {
+  if (!SITE || !SB || !ST) return null;
+  const V = SITE.viewport;
+  const k = SB.size[0] / V.width;
+  const states = Object.fromEntries(SITE.states.map((st) => [st.id, st]));
+  const tex = {};
+  for (const st of SITE.states) tex[st.id] = await shotTexture(st.file, SITE.base);
+  const board = makeBoard(null, siteMaterial());
+  const u = board.mat.uniforms;
+  /** 画面の中の位置（CSS の画素）→ 世界 */
+  const pt = (px, py, dz = 0) => [SB.at[0] - SB.size[0] / 2 + px * k, SB.at[1] + SB.size[1] / 2 - py * k, SB.at[2] + dz];
+  const union = (a, b) => {
+    const x = Math.min(a.x, b.x);
+    const y = Math.min(a.y, b.y);
+    return { x, y, width: Math.max(a.x + a.width, b.x + b.width) - x, height: Math.max(a.y + a.height, b.y + b.height) - y };
+  };
+  const FULL = { x: 0, y: 0, width: V.width, height: V.height };
+  /** 替わり目の所（CSS の画素）。nav ならナビの四角（前と後の和に、少し足す）、なければ全部 */
+  const regionOf = (from, to, region) => {
+    if (region !== 'nav') return FULL;
+    const r = union(states[from].boxes.nav, states[to].boxes.nav);
+    const pad = 14;
+    const y0 = Math.max(0, r.y - pad);
+    return { x: Math.max(0, r.x - pad), y: y0, width: r.width + pad * 2, height: Math.min(V.height, r.y + r.height + pad) - y0 };
+  };
+  const switches = ST.switches.map((sw, i) => ({ ...sw, from: i === 0 ? ST.first : ST.switches[i - 1].to }));
+  for (const sw of switches) sw.rect = regionOf(sw.from, sw.to, sw.region);
+  /** 時刻 t の状態：前の絵 a と、次の絵 b と、混ぜ方 m（替わる所 rect の中だけ） */
+  const stateAt = (t) => {
+    let cur = ST.first;
+    for (const sw of switches) {
+      if (t < sw.at - 1e-6) break;
+      // 替わる時刻のコマで、もう替わり始めている（音とのずれを1コマ以内にする）
+      const m = easeOut(seg(t + 1 / TL.fps, sw.at, sw.at + sw.dur));
+      if (m < 1) return { a: cur, b: sw.to, m, rect: sw.rect };
+      cur = sw.to;
+    }
+    return { a: cur, b: cur, m: 0, rect: FULL };
+  };
+  // カーソル：押す所は、撮ったときに押した物の四角（その物を押した後の状態の clicked）
+  const C = ST.cursor;
+  const cursor = makeCursor();
+  const targets = C.clicks.map((click) => {
+    const b = states[click.state].clicked?.box;
+    if (!b) throw new Error(`サイトの状態 ${click.state} に、押した物の四角がない`);
+    return { ...click, box: b, to: [b.x + b.width * C.at[0], b.y + b.height * C.at[1]] };
+  });
+  const start = [targets[0].to[0] + C.fromOffset[0], targets[0].to[1] + C.fromOffset[1]];
+  /** カーソルの矢印の先（CSS の画素）と大きさ。押した時刻のコマで、もう縮み始めている */
+  const cursorAt = (t) => {
+    let pos = start;
+    let squeeze = 0;
+    let from = start;
+    for (const target of targets) {
+      if (t < target.move[0]) break;
+      const w = glide(seg(t, target.move[0], target.move[1]));
+      pos = [mix(from[0], target.to[0], w), mix(from[1], target.to[1], w)];
+      const since = t - target.press + 1e-6;
+      const a = since + 1 / TL.fps;
+      if (since >= 0) squeeze = a < 0.06 ? a / 0.06 : a < 0.24 ? 1 - (a - 0.06) / 0.18 : 0;
+      from = target.to;
+    }
+    return { pos, size: C.size * (1 - 0.16 * squeeze), shown: q5(seg(t, C.show[0], C.show[1])) * (1 - q5(seg(t, C.hide[0], C.hide[1]))) };
+  };
+  const cursorWorld = (t) => {
+    const c = cursorAt(t);
+    const size = c.size * k;
+    const tip = pt(c.pos[0], c.pos[1], 6);
+    return { ...c, size, tip, center: [tip[0] + size * (0.5 - CURSOR_HOT[0]), tip[1] - size * (0.5 - CURSOR_HOT[1]), tip[2]] };
+  };
+  return {
+    V,
+    k,
+    pt,
+    states,
+    switches,
+    stateAt,
+    targets,
+    cursorWorld,
+    update(t, alpha) {
+      const s = stateAt(t);
+      u.mapA.value = tex[s.a];
+      u.mapB.value = tex[s.b];
+      u.uMix.value = s.m;
+      u.uRect.value.set(s.rect.x / V.width, s.rect.y / V.height, (s.rect.x + s.rect.width) / V.width, (s.rect.y + s.rect.height) / V.height);
+      board.set(SB.at[0], SB.at[1], SB.at[2], SB.size[0], SB.size[1], { radius: SB.radius, alpha, yaw: SB.yaw });
+      const c = cursorWorld(t);
+      const ca = alpha * c.shown;
+      cursor.mesh.visible = ca > 0.003;
+      if (cursor.mesh.visible) {
+        cursor.mesh.scale.set(c.size, c.size, 1);
+        cursor.mesh.position.set(c.center[0], c.center[1], c.center[2]);
+        cursor.mat.uniforms.uAlpha.value = ca;
+      }
+    },
+  };
+})();
+
+// 「許可する」の画面が手前にある間、奥のターミナルを白く薄める（窓の左右から、奥の字のかけらが読めないように）
+const veilAt = (t) => (TL.browser.veil ?? 0) * brAlpha(t);
+
 const boardsAlpha = (t) => 1 - q5(seg(t, END.boardsOut[0], END.boardsOut[1]));
 function updateBoards(t) {
   const a = boardsAlpha(t);
-  termBoard.set(T1.at[0], T1.at[1], T1.at[2], T1.size[0], T1.size[1], { radius: T1.radius, alpha: a, yaw: T1.yaw });
+  for (const term of TERMS) term.board.set(term.spec.at[0], term.spec.at[1], term.spec.at[2], term.spec.size[0], term.spec.size[1], { radius: term.spec.radius, alpha: a, yaw: term.spec.yaw, veil: term.spec.id === 'term1' ? veilAt(t) : 0 });
+  site?.update(t, a);
   for (const e of emptyBoards) e.board.set(e.spec.at[0], e.spec.at[1], e.spec.at[2], e.spec.size[0], e.spec.size[1], { radius: e.spec.radius, alpha: a, yaw: e.spec.yaw });
   const ba = brAlpha(t);
   const pop = brPop(t);
@@ -538,24 +699,30 @@ function updateBoards(t) {
 // キーに page（「許可する」の画面の中の位置）とあれば、そこを見る
 const FOCUS = (() => {
   termCtx.setTransform(1, 0, 0, 1, 0, 0);
-  const k = T1.size[0] / TDW; // 設計の画素 → 世界
   const measure = (line) => {
+    const spec = termOf(line.board).spec;
+    const k = spec.size[0] / TDW; // 設計の画素 → 世界
     termCtx.font = line.st.font;
     const m = termCtx.measureText(line.text);
     // 字の高さは、その書体で上に出る字と下に出る字（L と p）を並べた高さで測る（「Bash」のように下に出る字のない行でも、同じ物差しにする）。日本語の入る行は、その行の字で測る
     const r = /[^ -~]/.test(line.text) ? m : termCtx.measureText('Lp');
-    return { ink: (r.actualBoundingBoxAscent + r.actualBoundingBoxDescent) * k, width: (m.width + (isBox(line.kind) ? BOX_X : 0)) * k, cy: T1.at[1] + T1.size[1] / 2 - (TITLE_H + TPAD * 0.8 + line.y + line.st.lineH / 2) * k };
+    return { ink: (r.actualBoundingBoxAscent + r.actualBoundingBoxDescent) * k, width: (m.width + (isBox(line.kind) ? BOX_X : 0)) * k, cy: spec.at[1] + spec.size[1] / 2 - (TITLE_H + TPAD * 0.8 + line.y + line.st.lineH / 2) * k, left: spec.at[0] - spec.size[0] / 2 + TPAD * k, z: spec.at[2] };
   };
   const lines = Object.fromEntries(Object.entries(LINE).map(([id, line]) => [id, measure(line)]));
-  return { lines, fw: (lines.hook.ink * 1920) / (TL.camera.textInkRatio * 1080), left: T1.at[0] - T1.size[0] / 2 + TPAD * k };
+  return { lines, fw: (lines.hook.ink * 1920) / (TL.camera.textInkRatio * 1080) };
 })();
 const camKeys = TL.camera.keys.map((key) => {
   if (key.page) return { ...key, p: pagePt(key.page[0], key.page[1]) };
+  if (key.site) {
+    if (!site) throw new Error('カメラのキーに site があるが、サイトの窓がない');
+    return { ...key, p: site.pt(key.site[0], key.site[1]) };
+  }
   if (!key.focus) return key;
-  if (!FOCUS.lines[key.focus]) throw new Error(`カメラのキーの focus に、ない行がある: ${key.focus}`);
+  const line = FOCUS.lines[key.focus];
+  if (!line) throw new Error(`カメラのキーの focus に、ない行がある: ${key.focus}`);
   const fw = FOCUS.fw * (key.wide ?? 1);
   const frameH = (fw * 9) / 16;
-  return { ...key, p: [FOCUS.left + (0.5 - TL.camera.textLeftAt) * fw + (key.dx ?? 0), FOCUS.lines[key.focus].cy - (0.5 - key.lineAt) * frameH, T1.at[2]], fw };
+  return { ...key, p: [line.left + (0.5 - TL.camera.textLeftAt) * fw + (key.dx ?? 0), line.cy - (0.5 - key.lineAt) * frameH + (key.dy ?? 0), line.z], fw };
 });
 const FOCUSED = [...new Set(TL.camera.keys.filter((k) => k.focus).map((k) => k.focus))];
 
@@ -913,7 +1080,6 @@ const clip = (r) => {
   return w > 1 && h > 1 ? { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) } : null;
 };
 // ターミナルの行の四角（設計の画素）
-const K_T = T1.size[0] / TDW;
 const CONTENT_Y = TITLE_H + TPAD * 0.8;
 for (const page of LAID) {
   for (const l of page.lines) {
@@ -930,7 +1096,18 @@ function lineBox(l, part = 'text') {
   if (part === 'caret') return [x0 + l.w - 3, mid - half, 14, half * 2];
   return [x0, mid - half, l.w, half * 2];
 }
-const termRect = ([dx, dy, dw, dh]) => screenRect(T1.at[0] - T1.size[0] / 2 + dx * K_T, T1.at[1] + T1.size[1] / 2 - dy * K_T, T1.at[0] - T1.size[0] / 2 + (dx + dw) * K_T, T1.at[1] + T1.size[1] / 2 - (dy + dh) * K_T, T1.at[2]);
+/** ターミナルの板の中の四角（設計の画素）を、画面の四角にする */
+const termRect = (board, [dx, dy, dw, dh]) => {
+  const S = termOf(board).spec;
+  const k = S.size[0] / TDW;
+  return screenRect(S.at[0] - S.size[0] / 2 + dx * k, S.at[1] + S.size[1] / 2 - dy * k, S.at[0] - S.size[0] / 2 + (dx + dw) * k, S.at[1] + S.size[1] / 2 - (dy + dh) * k, S.at[2]);
+};
+/** サイトの窓の中の四角（CSS の画素）を、画面の四角にする */
+const siteRect = (r) => {
+  const a = site.pt(r.x, r.y);
+  const b = site.pt(r.x + r.width, r.y + r.height);
+  return screenRect(a[0], a[1], b[0], b[1], a[2]);
+};
 const lineVisible = (page, l, t) => pageAlpha(page, t) > 0.003 && (isBox(l.kind) ? typedCount(l, t) > 0 : l.at <= t + 1e-6);
 /** 「許可する」の画面の中の四角（CSS の画素）を、画面の四角にする。開くときの大きさの変わり方も入れる。 */
 function pageRect(r, t) {
@@ -968,15 +1145,24 @@ function readableTexts(t) {
     if (onScreen(r)) out.push({ what, text: text.slice(0, 30), x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h), ...more });
   };
   if (boardsAlpha(t) > 0.003) {
-    for (const page of LAID) {
-      for (const l of page.lines) {
-        if (l.kind === 'gap' || !lineVisible(page, l, t)) continue;
-        const r = termRect(lineBox(l));
-        if (!hidden(r)) push(`terminal:${l.id ?? l.kind}`, l.text, r);
+    for (const term of TERMS) {
+      // 白く薄めている間の奥のターミナルの字は、読めない
+      if (term.spec.id === 'term1' && veilAt(t) > 0.5) continue;
+      for (const page of term.pages) {
+        for (const l of page.lines) {
+          if (l.kind === 'gap' || !lineVisible(page, l, t)) continue;
+          const r = termRect(page.board, lineBox(l));
+          if (!hidden(r)) push(`terminal:${l.id ?? l.kind}`, l.text, r);
+        }
       }
+      const title = termRect(term.spec.id, [TDW / 2 - TITLE_W / 2, TITLE_H / 2 - 14, TITLE_W, 28]);
+      if (!hidden(title)) push('terminal:title', TM.title, title);
     }
-    const title = termRect([TDW / 2 - TITLE_W / 2, TITLE_H / 2 - 14, TITLE_W, 28]);
-    if (!hidden(title)) push('terminal:title', TM.title, title);
+    // サイトの窓：その時刻に見えている状態（替わる途中は、前と後の両方）の字
+    if (site) {
+      const st = site.stateAt(t);
+      for (const id of st.m > 0 ? [st.a, st.b] : [st.a]) for (const r of site.states[id].textRects) push(`site:${id}`, r.text, siteRect(r), { fontPx: r.fontPx, tag: r.tag });
+    }
     for (const e of emptyBoards) {
       for (const x of e.texts) {
         const [dx, dy, dw, dh] = x.box;
@@ -1021,7 +1207,17 @@ function checkOverlaps(margin) {
       }
     }
   }
-  return { framesChecked: checked, margin, violations: bad.length, first: bad.slice(0, 10), last: bad.slice(-3), min };
+  // 重なったコマを、続きの区間にまとめる（どこを直せばよいかを見るため）
+  const ranges = [];
+  for (const b of bad) {
+    const last = ranges.at(-1);
+    if (last && b.frame - last.to <= 1) {
+      last.to = b.frame;
+      if (!last.texts.includes(b.text) && last.texts.length < 6) last.texts.push(b.text);
+      last.minGap = Math.min(last.minGap, b.gap);
+    } else ranges.push({ from: b.frame, to: b.frame, caption: b.caption, texts: [b.text], minGap: b.gap });
+  }
+  return { framesChecked: checked, margin, violations: bad.length, first: bad.slice(0, 10), last: bad.slice(-3), min, ranges: ranges.map((r) => ({ ...r, fromT: Number((r.from / TL.fps).toFixed(3)), toT: Number((r.to / TL.fps).toFixed(3)) })) };
 }
 /** 音の付く出来事と、その絵が出る四角（時刻ごと）。ずれを測る道具（check-sync.mjs）が、この四角でコマを切り出す。 */
 function eventList() {
@@ -1030,9 +1226,9 @@ function eventList() {
     for (const l of page.lines) {
       if (!l.id) continue;
       if (isBox(l.kind)) {
-        ev.push({ id: `type:${l.id}`, t: l.at, rect: () => termRect(lineBox(l, 'first')) });
-        ev.push({ id: `enter:${l.id}`, t: l.enter, rect: () => termRect(lineBox(l, 'caret')) });
-      } else if (l.kind !== 'code') ev.push({ id: `line:${l.id}`, t: l.at, rect: () => termRect(lineBox(l)) });
+        ev.push({ id: `type:${l.id}`, t: l.at, rect: () => termRect(l.board, lineBox(l, 'first')) });
+        ev.push({ id: `enter:${l.id}`, t: l.enter, rect: () => termRect(l.board, lineBox(l, 'caret')) });
+      } else if (l.kind !== 'code') ev.push({ id: `line:${l.id}`, t: l.at, rect: () => termRect(l.board, lineBox(l)) });
     }
   }
   ev.push({ id: 'browser', t: BR.in[0], rect: (t) => pageRect({ x: 0, y: 0, width: BR.size[0], height: BR.size[1] }, Math.max(t, BR.in[0])) });
@@ -1044,6 +1240,25 @@ function eventList() {
       return screenRect(c.center[0] - c.size / 2, c.center[1] + c.size / 2, c.center[0] + c.size / 2, c.center[1] - c.size / 2, c.center[2]);
     },
   });
+  if (site) {
+    // サイトの窓：状態が替わる（ナビに増える、本文へ飛ぶ）。替わった所の四角で見る
+    for (const sw of site.switches) {
+      const to = site.states[sw.to].boxes;
+      // ナビに増えるときは、増えた行。本文へ飛ぶときは、窓の全部（画面に入っている所で見る）
+      const r = sw.region === 'nav' ? to.navRows[0].rect : { x: 0, y: 0, width: site.V.width, height: site.V.height };
+      ev.push({ id: `site:${sw.to}`, t: sw.at, rect: () => siteRect(r) });
+    }
+    site.targets.forEach((target, i) => {
+      ev.push({
+        id: `site:click${i + 1}`,
+        t: target.press,
+        rect: (t) => {
+          const c = site.cursorWorld(Math.min(t, target.press - 1 / TL.fps)); // 押す前の大きさの四角で切る
+          return screenRect(c.center[0] - c.size / 2, c.center[1] + c.size / 2, c.center[0] + c.size / 2, c.center[1] - c.size / 2, c.center[2]);
+        },
+      });
+    });
+  }
   ev.push({ id: 'logo', t: END.logoIn[0], rect: () => ({ x: 960 - lockup.w / 2, y: 1080 * END.logoY - lockup.h / 2, w: lockup.w, h: lockup.h }) });
   return ev;
 }
@@ -1095,7 +1310,7 @@ window.__stage = {
       end: { markRatio: END.markPx / 1080, wordmarkInkRatio: Number((lockup.capPx / H).toFixed(4)), domainInkRatio: endDomain ? Number((endDomain.inkPx / H).toFixed(4)) : null },
       terminal: {
         pages: LAID.map((page) => ({ id: page.id, lines: page.lines.length, height: page.height, speedLabel: page.speedLabel })),
-        viewHeight: TDH - TITLE_H - TPAD * 1.2,
+        viewHeight: Object.fromEntries(TERMS.map((term) => [term.spec.id, term.dh - TITLE_H - TPAD * 1.2])),
         // カメラが寄って追う行の、字の高さ（画面の高さとの比）と、行の右端（画面の幅との比）
         textInkRatio: Object.fromEntries(FOCUSED.map((id) => [id, Number(((FOCUS.lines[id].ink * 1920) / FOCUS.fw / 1080).toFixed(4))])),
         rightAt: Object.fromEntries(Object.entries(FOCUS.lines).map(([id, l]) => [id, Number((TL.camera.textLeftAt + l.width / FOCUS.fw).toFixed(3))])),

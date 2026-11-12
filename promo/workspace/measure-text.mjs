@@ -1,5 +1,6 @@
 // 描いた絵から、「許可する」の画面の字の高さを測る（V006）。計算ではなく、絵の画素を数える。
-//   node promo/workspace/measure-text.mjs [--at 3.88] [--video <mp4>] [--min 0.045 --need 許可する]
+//   node promo/workspace/measure-text.mjs [--at 3.88] [--video <mp4>] [--what browser] [--min 0.045 --need 許可する]
+// --what は、測る字の種類の頭（browser：「許可する」の画面、site：サイトの窓、terminal：ターミナルの行）
 // --video を付けると、静止画ではなく、その動画の同じ時刻のコマを測る（カメラが止まっている時刻だけ）。
 // 読むもの：置き場の workspace-stills-report.json（舞台が出した、その時刻に読める字の四角）と、workspace-frames/ のその時刻の静止画。
 // 測り方：字の四角を少し広げて切り出し、地の色（四角のふちの色）から離れた画素のある行を数える。上端の行から下端の行までが、字の高さ。
@@ -34,7 +35,8 @@ const gray = r.stdout;
 const k = W / 1920; // 四角は 1920×1080 の画素
 
 const rows = [];
-for (const t of texts.filter((x) => x.what === 'browser')) {
+const what = valueOf('--what') || 'browser';
+for (const t of texts.filter((x) => x.what === what || x.what.startsWith(`${what}:`))) {
   const x0 = Math.max(0, Math.floor(t.x * k));
   const x1 = Math.min(W, Math.ceil((t.x + t.w) * k));
   const pad = Math.round(t.h * 0.2 * k);
@@ -57,7 +59,7 @@ for (const t of texts.filter((x) => x.what === 'browser')) {
     }
   }
   const px = top === null ? 0 : bottom - top + 1;
-  rows.push({ text: t.text, tag: t.tag, fontPx: t.fontPx, inkPx: px, ratio: Number((px / H).toFixed(4)) });
+  rows.push({ what: t.what, text: t.text, tag: t.tag, fontPx: t.fontPx, inkPx: px, ratio: Number((px / H).toFixed(4)) });
 }
 console.log(JSON.stringify({ at: Number(at), still: file, size: `${W}x${H}`, rows }, null, 1));
 const min = Number(valueOf('--min') || 0);
