@@ -256,6 +256,63 @@ test.describe('一覧と違い', () => {
   });
 });
 
+test.describe('英語の画面と、タブの幅', () => {
+  /** 持ち主として開き、版のタブの行を数え終えるまで待つ（言葉に依らない形で） */
+  async function openOwned(page: Page, path: string, visitor: Visitor) {
+    await page.context().addCookies([{ name: 'ld_session', value: visitor.cookies.get('ld_session')!, url: ownOrigin() }]);
+    await page.goto(path);
+    await page.waitForFunction(() => Object.keys(document.getElementById('root')!).some((key) => key.startsWith('__reactContainer')));
+    // 持ち主とわかると設定のタブが出る（4つ）
+    await expect(page.getByRole('tab')).toHaveCount(4);
+  }
+  /** タブの列が横に入りきっている */
+  const tabsFit = (page: Page) => page.getByRole('tablist').evaluate((list) => list.scrollWidth <= list.clientWidth);
+
+  test('1440 の英語：まとまりの名前は語の途中で割らない。「Restore」のボタン。タブの「Settings」が切れない。戻すの窓の文', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const owner = await person('wsven');
+    const id = await publicWork(owner);
+    await openOwned(page, `/en/p/${id}`, owner.visitor);
+    expect(await tabsFit(page)).toBe(true);
+    await expect(page.getByRole('tab', { name: 'Settings' })).toBeVisible();
+    await page.getByRole('tab').nth(1).click();
+    await expect(page.locator('[data-version-stats="loading"], [data-version-stats="idle"]')).toHaveCount(0);
+
+    // まとまりの名前は1つの塊（折り返さない）。種類と名前の間は英語の区切り
+    const section = page.locator('[data-version-row="2"] [data-version-section="function:mount"]');
+    await expect(section).toHaveText('Function: mount');
+    expect(await section.evaluate((element) => getComputedStyle(element).whiteSpace)).toBe('nowrap');
+    // 「この版に戻す」は、英語では「Restore」。読み上げの名前は「Restore version N」
+    const restore = page.locator('[data-version-revert="1"]');
+    await expect(restore).toHaveText('Restore');
+    await expect(restore).toHaveAccessibleName('Restore version 1');
+    await pressRevert(page, '1');
+    const dialog = page.getByRole('dialog', { name: 'Restore version 1' });
+    await expect(dialog.locator('[data-revert-agreement]')).toHaveText(
+      "Same as when you posted this version: it's your own work (or you have the rights to it), it can be published under MIT, and you agree to the Terms.",
+    );
+    await expect(dialog.locator('[data-revert-agreement]').getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/en/terms');
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Restore', exact: true })).toBeEnabled();
+  });
+
+  test('タブは、どの幅でも4つが入る。日本語の 1440 は今の形のまま（印つき）', async ({ page }) => {
+    const owner = await person('wsvtab');
+    const id = await publicWork(owner);
+    for (const width of [1024, 1200, 1280, 1440, 1536]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const prefix of ['/en', '']) {
+        await openOwned(page, `${prefix}/p/${id}`, owner.visitor);
+        expect(await tabsFit(page), `${prefix || '/ja'} ${width}`).toBe(true);
+      }
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openOwned(page, `/p/${id}`, owner.visitor);
+    await expect(page.getByRole('tablist')).toHaveAttribute('data-tabs-fit', '0');
+    await expect(page.getByRole('tablist').locator('svg:visible')).toHaveCount(4);
+  });
+});
+
 test.describe('スマホ 390', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 

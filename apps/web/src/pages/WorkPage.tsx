@@ -20,6 +20,7 @@ import { useAccount } from '../hooks/useAccount';
 import { useOwnWorks } from '../hooks/useOwnWorks';
 import { usePageData } from '../hooks/usePageData';
 import { useResetTitle } from '../hooks/useResetTitle';
+import { useTabsFit } from '../hooks/useTabsFit';
 import { trackEvent } from '../lib/analytics';
 import { COPIED_MS, postCount } from '../lib/count';
 import { fileOfSplat } from '../lib/codeAddress';
@@ -221,6 +222,8 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
     ...(isOwner ? [{ id: 'settings' as const, label: copy.work.tabs.settings, icon: SlidersHorizontal }] : []),
   ];
   const shownTab = tabs.some((item) => item.id === tab) ? tab : 'code';
+  // タブが増えたら（持ち主とわかって設定が出たら）、入るかを測り直す
+  const tabsFit = useTabsFit<HTMLDivElement>(tabs.map((item) => `${item.id}${item.count ?? ''}`).join());
 
   const onTabKey = (event: KeyboardEvent<HTMLDivElement>) => {
     const index = tabs.findIndex((item) => item.id === shownTab);
@@ -380,27 +383,44 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
           )}
 
           {/* 幅が足りないとき（狭い右の列で、長い言葉のタブ）だけ、列の中で横に送る。縦には送らない（送れる入れ物は、Firefox が Tab で止まるため） */}
-          <div role="tablist" aria-label={copy.work.tabs.label} onKeyDown={onTabKey} className="mt-3 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-site-line">
-            {tabs.map(({ id: tabId, label, icon: Icon, count }) => (
-              <button
-                key={tabId}
-                id={`${tabsId}-tab-${tabId}`}
-                type="button"
-                role="tab"
-                aria-selected={shownTab === tabId}
-                aria-controls={`${tabsId}-panel-${tabId}`}
-                tabIndex={shownTab === tabId ? 0 : -1}
-                onClick={() => setTab(tabId)}
-                className={`inline-flex h-11 flex-auto shrink-0 items-center justify-center gap-2 border-b-2 px-2.5 text-body font-semibold whitespace-nowrap ${
-                  shownTab === tabId ? 'border-site-fg text-site-fg' : 'border-transparent text-site-fg-2 hover:text-site-fg'
-                }`}
-              >
-                {/* 印は、タブの列が広いときだけ（768〜1023px の1列と、1280px以上の右の列） */}
-                <Icon size={16} strokeWidth={1.75} aria-hidden="true" className="hidden md:max-lg:block xl:block" />
-                {label}
-                {count !== undefined && count > 0 && <span className="rounded-chip bg-site-key px-1.5 text-small font-normal text-site-fg-3">{count}</span>}
-              </button>
-            ))}
+          {/* 入りきらないときは、入るまで詰める（hooks/useTabsFit.ts。印を消す → 余白を詰める → 設定を印だけ → 文字を小さく） */}
+          <div
+            ref={tabsFit.ref}
+            role="tablist"
+            aria-label={copy.work.tabs.label}
+            onKeyDown={onTabKey}
+            data-tabs-fit={tabsFit.level}
+            className={`mt-3 flex overflow-x-auto overflow-y-hidden border-b border-site-line ${tabsFit.level >= 2 ? '' : 'gap-1'}`}
+          >
+            {tabs.map(({ id: tabId, label, icon: Icon, count }) => {
+              // 設定のタブは、いちばん詰めた段では印だけにする（名前は読み上げに残す）
+              const iconOnly = tabId === 'settings' && tabsFit.level >= 3;
+              return (
+                <button
+                  key={tabId}
+                  id={`${tabsId}-tab-${tabId}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={shownTab === tabId}
+                  aria-controls={`${tabsId}-panel-${tabId}`}
+                  tabIndex={shownTab === tabId ? 0 : -1}
+                  onClick={() => setTab(tabId)}
+                  className={`inline-flex h-11 flex-auto shrink-0 items-center justify-center border-b-2 font-semibold whitespace-nowrap ${tabsFit.level >= 2 ? 'gap-1.5 px-1.5' : 'gap-2 px-2.5'} ${
+                    tabsFit.level >= 4 ? 'text-meta' : 'text-body'
+                  } ${shownTab === tabId ? 'border-site-fg text-site-fg' : 'border-transparent text-site-fg-2 hover:text-site-fg'}`}
+                >
+                  {/* 印は、タブの列が広いときだけ（768〜1023px の1列と、1280px以上の右の列）。入りきらなければ消す */}
+                  <Icon
+                    size={16}
+                    strokeWidth={1.75}
+                    aria-hidden="true"
+                    className={iconOnly ? 'block' : tabsFit.level >= 1 ? 'hidden' : 'hidden md:max-lg:block xl:block'}
+                  />
+                  {iconOnly ? <span className="sr-only">{label}</span> : label}
+                  {count !== undefined && count > 0 && <span className="rounded-chip bg-site-key px-1.5 text-small font-normal text-site-fg-3">{count}</span>}
+                </button>
+              );
+            })}
           </div>
 
         <div className="mt-4 min-w-0">

@@ -159,10 +159,14 @@ const EMPTY: VersionFiles = { html: null, css: null, js: null, document: null };
 function SectionName({ section }: { section: ChangedSection }) {
   const text = useCopy().work.versions;
   return (
-    <span data-version-section={`${section.kind}:${section.name}`} className="inline-flex min-w-0 items-baseline gap-1">
-      <span className="text-site-fg-2">{text.kinds[section.kind] ?? section.kind}：</span>
-      <span className={`wrap-anywhere ${section.kind === 'shader' || section.kind === 'function' || section.kind === 'settings' ? 'font-mono' : ''}`}>{section.name}</span>
-      {section.change !== 'changed' && <span className="text-site-fg-2">（{text.change[section.change]}）</span>}
+    // まとまりごとに1つの塊にして、塊の間で折り返す（名前の途中で割らない）。行に収まらないほど長い名前だけ、末尾を … で切る
+    <span data-version-section={`${section.kind}:${section.name}`} title={section.name} className="inline-flex max-w-full min-w-0 items-baseline whitespace-nowrap">
+      <span className="shrink-0 text-site-fg-2">
+        {text.kinds[section.kind] ?? section.kind}
+        {text.kindSeparator}
+      </span>
+      <span className={`min-w-0 truncate ${section.kind === 'shader' || section.kind === 'function' || section.kind === 'settings' ? 'font-mono' : ''}`}>{section.name}</span>
+      {section.change !== 'changed' && <span className="shrink-0 text-site-fg-2">{text.change[section.change]}</span>}
     </span>
   );
 }
