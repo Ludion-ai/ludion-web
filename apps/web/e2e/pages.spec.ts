@@ -29,7 +29,7 @@ async function workFromApi(request: APIRequestContext, id: string): Promise<Work
   return (await worksFromApi(request)).find((work) => work.id === id)!;
 }
 
-/** 作品のページを開き、React が載るまで待つ（コードをコピーが押せる）。 */
+/** 作品のページを開き、React が載るまで待つ（全部をコピーが押せる）。 */
 async function openWork(page: Page, id: string) {
   await page.goto(`/p/${id}`);
   await page.getByRole('heading', { level: 1 }).waitFor();
@@ -110,7 +110,7 @@ test.describe('悪意のある見本は、作品のページで3つとも失敗�
     await expect(root).toHaveAttribute('data-parent', 'blocked:SecurityError');
     await expect(page.locator('#hacked')).toHaveCount(0);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Malicious: Rewrites Parent');
-    await expect(page.getByRole('button', { name: 'コードをコピー' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '全部をコピー' })).toBeVisible();
   });
 
   test('枠は sandbox="allow-scripts allow-forms" だけ。allow-same-origin がない', async ({ page }) => {
@@ -482,14 +482,14 @@ test.describe('プレビュー', () => {
 test.describe('コピー', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('コピーした文字列の1行目がクレジット行と1文字も違わない。「コードをコピー」を押すと、ボタンが1.5秒「コピーしました」になり、コピー数が1増える', async ({ context, page, request }) => {
+  test('コピーした文字列の1行目がクレジット行と1文字も違わない。「全部をコピー」を押すと、ボタンが1.5秒「コピーしました」になり、コピー数が1増える', async ({ context, page, request }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: ownOrigin() });
     const before = (await workFromApi(request, 'fx-button')).copies;
     await openWork(page, 'fx-button');
     await expect(page.getByTestId('copy-count')).toHaveText(String(before));
 
     const posted = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/count' && response.request().postDataJSON().type === 'copy');
-    const button = page.getByRole('button', { name: 'コードをコピー' });
+    const button = page.getByRole('button', { name: '全部をコピー' });
     const box = (await button.boundingBox())!;
     expect(box.height).toBe(44);
     await button.click();
@@ -509,7 +509,7 @@ test.describe('コピー', () => {
     await expect(page.getByTestId('copy-count')).toHaveText(String(before + 1));
     expect((await workFromApi(request, 'fx-button')).copies).toBe(before + 1);
 
-    await expect(page.getByRole('button', { name: 'コードをコピー' })).toBeVisible({ timeout: 3000 });
+    await expect(page.getByRole('button', { name: '全部をコピー' })).toBeVisible({ timeout: 3000 });
     const elapsed = Date.now() - pressed;
     expect(elapsed).toBeGreaterThan(1000);
     expect(elapsed).toBeLessThan(2500);
@@ -949,13 +949,13 @@ test.describe('axe-core（critical と serious が0件）', () => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: ownOrigin() });
     await page.setViewportSize({ width: 1440, height: 900 });
     await openWork(page, 'fx-toggle');
-    await page.getByRole('button', { name: 'コードをコピー' }).click();
+    await page.getByRole('button', { name: '全部をコピー' }).click();
     expect(await runAxe(page, '1440 押した後')).toEqual([]);
   });
 });
 
 test.describe('キーボード', () => {
-  test('デスクトップ／モバイル、いいね、しおり、コードをコピー、コードの箱にフォーカスが入り、枠が見える', async ({ page }) => {
+  test('デスクトップ／モバイル、いいね、しおり、全部をコピー、コードの箱にフォーカスが入り、枠が見える', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openWork(page, 'fx-landing');
     for (const target of [
@@ -963,7 +963,7 @@ test.describe('キーボード', () => {
       page.getByRole('button', { name: /^いいね/ }),
       page.getByRole('button', { name: '保存', exact: true }),
       page.getByRole('button', { name: '共有', exact: true }),
-      page.getByRole('button', { name: 'コードをコピー' }),
+      page.getByRole('button', { name: '全部をコピー' }),
       page.locator('pre'),
     ]) {
       await target.focus();
@@ -1022,12 +1022,12 @@ test.describe('コードの箱のたたみ', () => {
     });
   }
 
-  test('幅390：たたんだままでも「コードをコピー」は全部をコピーする', async ({ page, context }) => {
+  test('幅390：たたんだままでも「全部をコピー」は全部をコピーする', async ({ page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await page.setViewportSize({ width: 390, height: 844 });
     await openWork(page, 'fx-landing');
     await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
-    await page.getByRole('button', { name: 'コードをコピー' }).click();
+    await page.getByRole('button', { name: '全部をコピー' }).click();
     await expect(page.getByRole('button', { name: 'コピーしました' })).toBeVisible();
     const clipboard = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n');
     expect(clipboard).toBe(await (await page.request.get('/p/fx-landing/code')).text());
@@ -1164,15 +1164,15 @@ test.describe('GA4 のイベント（SPEC 15）', () => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     const sent = await watchEvents(page);
     await openWork(page, 'fx-toggle');
-    await page.getByRole('button', { name: 'コードをコピー' }).click();
+    await page.getByRole('button', { name: '全部をコピー' }).click();
     await expect.poll(() => sent).toEqual([['copy_code', { work_id: 'fx-toggle' }]]);
 
     sent.length = 0;
     await page.evaluate(() => {
       navigator.clipboard.writeText = () => Promise.reject(new Error('stub'));
     });
-    await expect(page.getByRole('button', { name: 'コードをコピー' })).toBeVisible({ timeout: 3000 });
-    await page.getByRole('button', { name: 'コードをコピー' }).click();
+    await expect(page.getByRole('button', { name: '全部をコピー' })).toBeVisible({ timeout: 3000 });
+    await page.getByRole('button', { name: '全部をコピー' }).click();
     await expect(page.getByRole('button', { name: 'コピーできませんでした' })).toBeVisible();
     expect(sent).toEqual([]);
   });
@@ -1238,7 +1238,7 @@ test.describe('下のタブ（幅390）', () => {
   test('コピーのボタンの上に、下のタブが重ならない位置までスクロールできる', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openWork(page, 'fx-toggle');
-    const button = page.getByRole('button', { name: 'コードをコピー' });
+    const button = page.getByRole('button', { name: '全部をコピー' });
     await button.scrollIntoViewIfNeeded();
     await button.evaluate((el) => el.scrollIntoView({ block: 'center' }));
     const hit = await button.evaluate((el) => {

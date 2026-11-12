@@ -42,6 +42,10 @@ export const CACHE_RULES: CacheRule[] = [
   { route: '/p/:id', path: /^\/p\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   // 作品のコードの文字（docs/tasks/T031.md「1」）。作品のページと同じ扱いで、取り下げと版の差し替えのときに消える
   { route: '/p/:id/code', path: /^\/p\/[^/]+\/code$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
+  // 行の住所（WS003）。作品のページと同じ HTML。本文の読み口も、作品のページと同じ扱いにする：同じ版の中身は ld upload で置き直せるので、
+  // 版の番号だけでは「変わらない」と言えない。取り下げと置き直しは一覧の札で消え、消すのに失敗しても 60 秒で消える
+  { route: '/p/:id/code/:file', path: /^\/p\/[^/]+\/code\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
+  { route: '/p/:id/file/:version/:file', path: /^\/p\/[^/]+\/file\/[^/]+\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   // 全画面の住所（WALL001）。作品のページと同じ扱い。中の枠（/frame/...）はキャッシュしない
   { route: '/p/:id/wall', path: /^\/p\/[^/]+\/wall$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   { route: '/c/:handle', path: /^\/c\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
@@ -52,6 +56,7 @@ export const CACHE_RULES: CacheRule[] = [
   // 英語のページ。道が違うので、日本語と混ざらない（SPEC.md 9）
   { route: '/en', path: /^\/en$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   { route: '/en/p/:id', path: /^\/en\/p\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
+  { route: '/en/p/:id/code/:file', path: /^\/en\/p\/[^/]+\/code\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   { route: '/en/c/:handle', path: /^\/en\/c\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   { route: '/en/privacy', path: /^\/en\/privacy$/, cacheControl: PAGE_CACHE_CONTROL },
   { route: '/en/about', path: /^\/en\/about$/, cacheControl: PAGE_CACHE_CONTROL },

@@ -25,7 +25,7 @@ const sheet = (page: Page, name = text.heading) => page.getByRole('dialog', { na
 const briefField = (page: Page, label = text.briefLabel) => page.getByRole('textbox', { name: label });
 const copyPrompt = (page: Page, name = text.copyPrompt) => page.getByRole('button', { name, exact: true });
 
-/** 開いている作品の、コピーされるコード（「コードをコピー」と同じもの。/p/:id/code）。 */
+/** 開いている作品の、コピーされるコード（「全部をコピー」と同じもの。/p/:id/code）。 */
 const snippetOf = async (page: Page) => (await page.request.get(`/p/${/\/p\/([^/?#]+)/.exec(page.url())![1]}/code`)).text();
 
 /** Windows のクリップボードは改行を CRLF にする。行の中身は1文字も変わらない */
@@ -51,7 +51,7 @@ test.describe('指示文', () => {
     await page.addInitScript(() => window.localStorage.setItem('ld-remix-mode', 'full'));
   });
 
-  test('ボタン → シート → 入力 → コピー：クリップボードが型どおり（クレジット行つき、入力が入る、元のコードは「コードをコピー」と同じ）', async ({ page }) => {
+  test('ボタン → シート → 入力 → コピー：クリップボードが型どおり（クレジット行つき、入力が入る、元のコードは「全部をコピー」と同じ）', async ({ page }) => {
     await openWork(page, 'fx-toggle');
     await expect(page.locator('dialog')).toHaveCount(0);
 
@@ -729,7 +729,7 @@ https://ludion.ai/p/fx-toggle/code
 // ---------------------------------------------------------------- コードを返す口（docs/tasks/T031.md「1」）
 
 test.describe('GET /p/:id/code', () => {
-  test('「コードをコピー」と1文字も違わない。text/plain、nosniff、作品のページと同じキャッシュ', async ({ page, request }) => {
+  test('「全部をコピー」と1文字も違わない。text/plain、nosniff、作品のページと同じキャッシュ', async ({ page, request }) => {
     await openWork(page, 'fx-toggle');
     const snippet = await snippetOf(page);
     expect(snippet.split('\n')[0]).toBe(credit('fx-toggle'));

@@ -105,14 +105,14 @@ test.describe('コードは HTML に1回だけ', () => {
     await context.close();
   });
 
-  test('「コードをコピー」で書かれる文字が /p/:id/code と1文字も違わない（全部の見本の作品）', async ({ context, page }) => {
+  test('「全部をコピー」で書かれる文字が /p/:id/code と1文字も違わない（全部の見本の作品）', async ({ context, page }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     // コピー数と閲覧数を動かさない（ほかのテストが数を見る）
     await page.route('**/api/count**', (route) => route.fulfill({ status: 204 }));
     for (const id of ids) {
       await page.goto(`/p/${id}`);
       await page.waitForFunction(() => Object.keys(document.getElementById('root')!).some((key) => key.startsWith('__reactContainer')));
-      await page.getByRole('button', { name: 'コードをコピー' }).click();
+      await page.getByRole('button', { name: '全部をコピー' }).click();
       await expect(page.getByRole('button', { name: 'コピーしました' })).toBeVisible();
       // Windows のクリップボードは改行を CRLF にする。行の中身は1文字も変わらない
       const clipboard = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n');

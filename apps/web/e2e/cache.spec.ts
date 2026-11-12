@@ -29,6 +29,7 @@ const ALLOWED_ROUTES = [
   'GET /en/about',
   'GET /en/c/:handle',
   'GET /en/p/:id',
+  'GET /en/p/:id/code/:file',
   'GET /en/privacy',
   'GET /en/terms',
   'GET /',
@@ -36,6 +37,9 @@ const ALLOWED_ROUTES = [
   'GET /c/:handle',
   'GET /p/:id',
   'GET /p/:id/code',
+  // 行の住所と、本文のための読み口（WS003）
+  'GET /p/:id/code/:file',
+  'GET /p/:id/file/:version/:file',
   'GET /p/:id/raw/:file',
   'GET /p/:file{[a-z0-9-]+\\.json}',
   'GET /p/:id/wall',

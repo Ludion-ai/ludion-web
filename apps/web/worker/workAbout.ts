@@ -2,46 +2,20 @@
 // 地図（outline.json。packages/outline、WS002）から、画面に出す分だけを作る。作品のファイルは変えない。
 // 人によって変えない：公開の作品では、承認済みの版と、承認済みのリミックスだけを数える。
 
-import type { Outline, OutlineInput, Tech } from '@ludion/outline';
-import type { AboutSpot, WorkAbout, WorkLineage, WorkVersion } from '../src/data/pages';
+import type { Outline, Section, Tech } from '@ludion/outline';
+import type { AboutSpot, WorkAbout, WorkLineage, WorkTree, WorkVersion } from '../src/data/pages';
 
-/** 印を押したときに見せる行：その行と、前後の行の数 */
-const AROUND = 2;
-/** 見せる1行の長さの上限（1行に詰めたコードで、ページが大きくならないように） */
-const MAX_LINE = 160;
 /** 「この作品について」に出す技術のまとまり */
 const SHOWN_GROUPS = new Set(['draw', 'motion', 'sound', 'input', 'care', 'a11y', 'storage', 'external']);
 
-function fileLines(files: OutlineInput): Map<string, string[]> {
-  const map = new Map<string, string[]>();
-  const add = (name: string, text: string) => map.set(name, text.split('\n'));
-  if (typeof files.document === 'string') add('index.html', files.document);
-  else {
-    add('part.html', files.html);
-    add('part.css', files.css);
-    if (typeof files.js === 'string') add('part.js', files.js);
-  }
-  return map;
-}
+/** ページに入れる分け目の上限（作り手の入れた文字で、ページが大きくならないように）。関数のほかを先に入れ、残りに関数を入れる */
+export const MAX_TREE_SECTIONS = 1500;
+const MAX_TREE_NAME = 80;
 
-/** 地図と版のファイルから「この作品について」を作る。コードから読んだ事実だけ。 */
-export function buildAbout(outline: Outline, files: OutlineInput): WorkAbout {
-  const lines = fileLines(files);
-  const spot = (file: string, line: number): AboutSpot | null => {
-    const all = lines.get(file);
-    if (!all || line < 1 || line > all.length) return null;
-    const first = Math.max(1, line - AROUND);
-    const last = Math.min(all.length, line + AROUND);
-    return {
-      file,
-      line,
-      first,
-      lines: all.slice(first - 1, last).map((text) => {
-        const clean = text.replace(/\r$/, '');
-        return clean.length > MAX_LINE ? `${clean.slice(0, MAX_LINE)}…` : clean;
-      }),
-    };
-  };
+/** 地図から「この作品について」を作る。コードから読んだ事実だけ。印の行は、本当のファイルの行（本文のその行へ飛ぶ）。 */
+export function buildAbout(outline: Outline): WorkAbout {
+  const lineCount = new Map(outline.files.map((file) => [file.name, file.lines]));
+  const spot = (file: string, line: number): AboutSpot | null => (line >= 1 && line <= (lineCount.get(file) ?? 0) ? { file, line } : null);
   const techSpot = (tech: Tech) => (tech.hits[0] ? spot(tech.hits[0].file, tech.hits[0].line) : null);
 
   const shaders = outline.sections.filter((section) => section.kind === 'shader');
@@ -71,6 +45,39 @@ export function buildAbout(outline: Outline, files: OutlineInput): WorkAbout {
         ...(tech.hosts ? { hosts: tech.hosts } : {}),
         spot: techSpot(tech),
       })),
+  };
+}
+
+/**
+ * ファイルの木と目次のデータ（WS003）：本当のファイルと、地図の分け目（設定の塊、シェーダー、見出し、関数、文書の style と script、素材）。
+ * 並びは地図のまま（ファイルの順、行の順）。上限を超えた分は入れず、数だけ返す。
+ */
+export function buildTree(outline: Outline): WorkTree {
+  const keep = new Set<Section>();
+  const others = outline.sections.filter((section) => section.kind !== 'function');
+  for (const section of others.slice(0, MAX_TREE_SECTIONS)) keep.add(section);
+  for (const section of outline.sections) {
+    if (keep.size >= MAX_TREE_SECTIONS) break;
+    if (section.kind === 'function') keep.add(section);
+  }
+  return {
+    files: outline.files.map(({ name, bytes, lines, language }) => ({ name, bytes, lines, language })),
+    sections: outline.sections
+      .filter((section) => keep.has(section))
+      .map(({ file, kind, name, start, end, depth, language, bytes, glsl, stage, mime }) => ({
+        file,
+        kind,
+        name: name.length > MAX_TREE_NAME ? `${name.slice(0, MAX_TREE_NAME)}…` : name,
+        start,
+        end,
+        depth,
+        language,
+        ...(bytes !== undefined ? { bytes } : {}),
+        ...(glsl !== undefined ? { glsl } : {}),
+        ...(stage !== undefined ? { stage } : {}),
+        ...(mime !== undefined ? { mime } : {}),
+      })),
+    dropped: outline.sections.length - keep.size,
   };
 }
 

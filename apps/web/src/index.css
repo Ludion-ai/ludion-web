@@ -26,6 +26,10 @@
   --color-site-lang-glsl: #2f6f9f;
   --color-site-lang-css: #7c4dba;
   --color-site-lang-html: #c9431e;
+  --color-site-code-keyword: #a31f6b;
+  --color-site-code-string: #1a6b37;
+  --color-site-code-number: #8f4700;
+  --color-site-code-name: #0b6477;
 
   --radius-*: initial;
   --radius-control: 12px;
@@ -96,6 +100,10 @@
   --color-site-lang-glsl: #6fa8cc;
   --color-site-lang-css: #b18ceb;
   --color-site-lang-html: #f0764f;
+  --color-site-code-keyword: #ff7ab2;
+  --color-site-code-string: #9fd99a;
+  --color-site-code-number: #f2a65a;
+  --color-site-code-name: #7ad7e0;
 }
 
 /* index.html が最初の描画の前に付ける */

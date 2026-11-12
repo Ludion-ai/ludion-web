@@ -8,6 +8,7 @@ import { RemixSheet } from '../components/RemixSheet';
 import { ThumbCapture } from '../components/ThumbCapture';
 import { WallpaperSheet } from '../components/WallpaperSheet';
 import { WorkAbout } from '../components/WorkAbout';
+import { WorkFiles } from '../components/WorkFiles';
 import { ReportIssue } from '../components/ReportIssue';
 import { XLink } from '../components/XLink';
 import { useCopy, useLocale } from '../hooks/useCopy';
@@ -20,6 +21,7 @@ import { usePageData } from '../hooks/usePageData';
 import { useResetTitle } from '../hooks/useResetTitle';
 import { trackEvent } from '../lib/analytics';
 import { COPIED_MS, postCount } from '../lib/count';
+import { fileOfSplat } from '../lib/codeAddress';
 import { isWallpaper } from '../lib/homeQuery';
 import { stateOf, type WorkState } from '../lib/workState';
 import { NotFound } from './NotFound';
@@ -47,7 +49,9 @@ type TabId = 'code' | 'versions' | 'lineage' | 'settings';
 
 export function WorkPage() {
   const page = usePageData();
-  const { id } = useParams();
+  const { id, '*': rest } = useParams();
+  // 道の残りは、空か、行の住所（code/<file>）だけ。ほかは、ないページ（Worker も 404 を返す）
+  if (rest && fileOfSplat(rest) === null) return <NotFound />;
   // 作品のページは、どのリンクからでも読み込み直して開く（Worker が描く）。データが違うのは、Worker を通らなかったときだけ
   if (page?.kind !== 'work' || page.work.id !== id) return <NotFound />;
   return <WorkDetail key={page.work.id} page={page} />;
@@ -62,6 +66,8 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
   const { handle } = creator;
   const { isBookmarked, isLiked, likeDelta, toggleBookmark, toggleLike } = useAccount();
   const ownWorks = useOwnWorks();
+  /** 開いているファイル（道の /code/<file>）。なければ null */
+  const openFile = fileOfSplat(useParams()['*']);
   // 初めはいつも「コード」。URL からは選ばない（Worker の HTML と同じ形で載せる）
   const [tab, setTab] = useState<TabId>('code');
   const tabsId = useId();
@@ -107,6 +113,14 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
     copyTimer.current = setTimeout(() => setCopyState('idle'), COPIED_MS);
   };
 
+  // コピーできた時に数える（「全部をコピー」と、本文の「ファイルをコピー」）。自分だけの作品では数えない
+  const countCopy = () => {
+    if (isPrivate) return;
+    setCopies((count) => count + 1);
+    postCount(work.id, 'copy');
+    trackEvent('copy_code', { work_id: work.id });
+  };
+
   const onCopy = async () => {
     try {
       await navigator.clipboard.writeText(snippet);
@@ -118,10 +132,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
       return;
     }
     showCopyState('copied');
-    if (isPrivate) return;
-    setCopies((count) => count + 1);
-    postCount(work.id, 'copy');
-    trackEvent('copy_code', { work_id: work.id });
+    countCopy();
   };
 
   const toggleCode = () => {
@@ -405,7 +416,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
             <p className="mt-2 text-meta text-site-fg-2">{copy.work.license}</p>
             {page.about && (
               <div className="mt-4">
-                <WorkAbout about={page.about} />
+                <WorkAbout about={page.about} workId={work.id} />
               </div>
             )}
             {!isPrivate && <ReportIssue workId={work.id} />}
@@ -529,6 +540,13 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
         </div>
         </div>
       </div>
+
+      {/* ファイルの木と本文（コードのタブの続き。2列の下に、幅いっぱい）。木がなければ（地図が作れない）出さない */}
+      {page.tree && (
+        <div data-work-files-panel="" hidden={shownTab !== 'code'}>
+          <WorkFiles workId={work.id} version={work.version} tree={page.tree} credit={page.credit} snippet={snippet} file={openFile} onCopied={countCopy} />
+        </div>
+      )}
 
       <WorkList heading={copy.work.moreFrom(handle)} works={more} onSelect={onSelectWork} />
       <WorkList heading={copy.work.moreOthers} works={others} onSelect={onSelectWork} />

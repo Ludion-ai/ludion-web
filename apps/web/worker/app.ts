@@ -25,6 +25,7 @@ import { rateLimit } from './rateLimit';
 import { publicHandleCheck, signup } from './signup';
 import { renderSitemap } from './sitemap';
 import { renderWallPage } from './wall';
+import { renderWorkFile } from './workFile';
 import { renderWorkMap, renderWorkRaw } from './workSite';
 import { WINDOWS_DOWNLOAD_URL } from './download';
 
@@ -87,6 +88,10 @@ app.get(WORK_MAP_ROUTE, renderWorkMap);
 app.get('/p/:id', renderWorkPage);
 app.get('/p/:id/raw/:file', renderWorkRaw);
 app.get('/p/:id/code', renderWorkCode);
+// 行の住所（WS003）：作品のページを、そのファイルを開いた形で描く。行（#L204-L760）はブラウザが当てる
+app.get('/p/:id/code/:file', renderWorkPage);
+// ページの本文のための読み口（WS003）。クレジット行なしで、行の番号は本物のファイルと同じ。回数の制限はかけない
+app.get('/p/:id/file/:version/:file', renderWorkFile);
 // 全画面の住所（WALL001）。壁紙のアプリが開く。言語の文字がないので、英語の道は作らない
 app.get('/p/:id/wall', renderWallPage);
 // Windows アプリのダウンロード（APP001）。今の配り先へ送る
@@ -111,6 +116,7 @@ app.get('/sitemap.xml', renderSitemap);
 app.get('/en', renderHome);
 app.get('/en/', (c) => c.redirect(`/en${new URL(c.req.url).search}`, 301));
 app.get('/en/p/:id', renderWorkPage);
+app.get('/en/p/:id/code/:file', renderWorkPage);
 app.get('/en/c/:handle', renderCreatorPage);
 app.get('/en/login', renderLoginPage);
 app.get('/en/signup', renderSignupPage);

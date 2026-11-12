@@ -130,38 +130,22 @@ test.describe('この作品について', () => {
     await expect(box.locator('[data-about-languages]')).toContainText('CSS');
   });
 
-  test('印を押すと、その行が出る。行の番号と文字は、本当のファイルのその行。もう一度押すか「閉じる」で閉じる', async ({ page }) => {
+  test('印は、本文のその行へのリンク（/p/<id>/code/<file>#L<行>）。行は、本当のファイルのその行', async ({ page }) => {
     await openWork(page, TOGGLE);
     const box = about(page);
-    const peek = box.locator('[data-about-peek]');
-    await expect(peek).toBeHidden();
-
     // 役目：part.html の role="switch" の最初の行
     const html = fixture('part.html');
     const roleLine = html.findIndex((line) => line.includes('role="switch"')) + 1;
-    const role = box.locator('[data-about-item="aria-role:switch"]');
-    await role.click();
-    await expect(role).toHaveAttribute('aria-expanded', 'true');
-    await expect(peek).toBeVisible();
-    await expect(peek).toContainText(`part.html の ${roleLine} 行目`);
-    await expect(peek).toContainText('全部で 3 か所');
-    const current = peek.locator('[aria-current="true"]');
-    await expect(current).toHaveAttribute('data-line', String(roleLine));
-    expect((await current.textContent())!.replace(/^\d+/, '').trimEnd()).toBe(html[roleLine - 1].trimEnd());
-
-    // フォーカスの枠：part.css の :focus-visible の行へ替わる
+    await expect(box.locator('[data-about-item="aria-role:switch"]')).toHaveAttribute('href', `/p/${TOGGLE}/code/part.html#L${roleLine}`);
+    // フォーカスの枠：part.css の :focus-visible の行
     const css = fixture('part.css');
     const focusLine = css.findIndex((line) => line.includes(':focus-visible')) + 1;
+    await expect(box.locator('[data-about-item="focus-visible::focus-visible"]')).toHaveAttribute('href', `/p/${TOGGLE}/code/part.css#L${focusLine}`);
+    // 押すと本文が開く（飛んだ先の確かめは e2e/work-files.pages.spec.ts）
     await box.locator('[data-about-item="focus-visible::focus-visible"]').click();
-    await expect(role).toHaveAttribute('aria-expanded', 'false');
-    await expect(peek).toContainText(`part.css の ${focusLine} 行目`);
-    await expect(peek.locator('[aria-current="true"]')).toContainText(css[focusLine - 1].trim());
-    // 前後の行も、ファイルの行の番号で出る
-    await expect(peek.locator(`[data-line="${focusLine - 1}"]`)).toHaveCount(1);
-    await expect(peek.locator(`[data-line="${focusLine + 1}"]`)).toHaveCount(1);
-
-    await peek.getByRole('button', { name: '閉じる' }).click();
-    await expect(peek).toBeHidden();
+    await expect(page).toHaveURL(`/p/${TOGGLE}/code/part.css#L${focusLine}`);
+    await expect(page.locator(`[data-code-body] [data-line="${focusLine}"][data-selected]`)).toContainText(css[focusLine - 1].trim());
+    await expect(box.locator('[data-about-item="focus-visible::focus-visible"]')).toHaveAttribute('aria-current', 'true');
   });
 
   test('動きと保存の行：requestAnimationFrame と localStorage。保存には「枠の中では読み直すと消える」を添える。押すとその行', async ({ page }) => {
@@ -169,7 +153,7 @@ test.describe('この作品について', () => {
     const motion = about(page).locator('[data-about-item="raf"]');
     await expect(motion).toHaveText('requestAnimationFrame');
     await motion.click();
-    await expect(about(page).locator('[data-about-peek] [aria-current="true"]')).toContainText('requestAnimationFrame');
+    await expect(page.locator('[data-code-body] [data-line][data-selected]')).toContainText('requestAnimationFrame');
 
     await openWork(page, 'fx-counter');
     const box = about(page);
@@ -177,8 +161,8 @@ test.describe('この作品について', () => {
     await expect(storage).toHaveText('localStorage');
     await expect(box).toContainText('Ludion の枠の中では読み直すと消える');
     await storage.click();
-    await expect(box.locator('[data-about-peek]')).toContainText(/part\.js の \d+ 行目/);
-    await expect(box.locator('[data-about-peek] [aria-current="true"]')).toContainText('localStorage');
+    await expect(page).toHaveURL(/\/p\/fx-counter\/code\/part\.js#L\d+$/);
+    await expect(page.locator('[data-code-body] [data-line][data-selected]')).toContainText('localStorage');
     // 保存を使わない作品には、行も、添える文も出さない
     await openWork(page, TOGGLE);
     await expect(about(page)).not.toContainText('読み直すと消える');
@@ -188,9 +172,7 @@ test.describe('この作品について', () => {
     await openWork(page, 'mal-doc');
     const box = about(page);
     await expect(box).toContainText('1 ファイル');
-    const first = box.locator('[data-about-item]').first();
-    await first.click();
-    await expect(box.locator('[data-about-peek]')).toContainText(/index\.html の \d+ 行目/);
+    await expect(box.locator('[data-about-item]').first()).toHaveAttribute('href', /^\/p\/mal-doc\/code\/index\.html#L\d+$/);
   });
 });
 
@@ -309,20 +291,26 @@ for (const { label, viewport, columns } of [
         });
         if (!now) break;
         if (!now.container) seen.push(now);
-        // 「この作品について」の最初の印まで来たら終わり
-        if (seen.length > 1 && (await page.evaluate(() => document.activeElement?.hasAttribute('data-about-item') ?? false))) break;
+        // 「全部をコピー」の次（「この作品について」の最初の印。リンクを飛ばす WebKit では別の物）まで来たら終わり
+        const onItem = await page.evaluate(() => document.activeElement?.hasAttribute('data-about-item') ?? false);
+        if (seen.length > 1 && seen[seen.length - 2].name === '全部をコピー') {
+          if (!onItem) seen.pop();
+          break;
+        }
+        if (onItem) break;
         await page.keyboard.press('Tab');
       }
       const names = seen.map((item) => item.name);
-      // リミックス → いいね → 保存 → 共有 → 作者の名前 → 選んだタブ（コード）→ コードをコピー → 最初の印
+      // リミックス → いいね → 保存 → 共有 → 作者の名前 → 選んだタブ（コード）→ 全部をコピー → 最初の印
       expect(names.slice(0, 4)).toEqual(['リミックス', expect.stringMatching(/^いいね/), '保存', '共有']);
       // WebKit は、端末によって Tab でリンクを飛ばす（Safari の初めの設定と同じ。Windows の WebKit は飛ばし、Linux の WebKit は止まる）。
       // 止まるなら、共有とタブの間。ボタン、タブ、印の順は、どのブラウザでも同じ
       if (browserName !== 'webkit') expect(names).toContain('Fixture');
       if (names.includes('Fixture')) expect(names.indexOf('Fixture')).toBe(4);
-      expect(names.filter((name) => name !== 'Fixture')).toEqual(['リミックス', expect.stringMatching(/^いいね/), '保存', '共有', 'コード', 'コードをコピー', 'DOM + CSS']);
-      expect(names.at(-1)).toBe('DOM + CSS');
-      expect(names.indexOf('DOM + CSS')).toBe(names.indexOf('コード') + 2);
+      // 「この作品について」の印はリンク。WebKit がリンクを飛ばす端末では、印には止まらない
+      const stops = names.filter((name) => name !== 'Fixture' && name !== 'DOM + CSS');
+      expect(stops.slice(0, 6)).toEqual(['リミックス', expect.stringMatching(/^いいね/), '保存', '共有', 'コード', '全部をコピー']);
+      if (names.includes('DOM + CSS')) expect(names.indexOf('DOM + CSS')).toBe(names.indexOf('全部をコピー') + 1);
       const stage = (await page.locator('[data-work-stage]').boundingBox())!;
       const boundary = columns === 2 ? stage.x + stage.width : null;
       for (let index = 1; index < seen.length; index++) {
@@ -332,7 +320,7 @@ for (const { label, viewport, columns } of [
   });
 }
 
-test.describe('コードをコピーの場所', () => {
+test.describe('全部をコピーの場所', () => {
   for (const viewport of [
     { width: 1440, height: 900 },
     { width: 1366, height: 768 },
@@ -340,7 +328,7 @@ test.describe('コードをコピーの場所', () => {
     test(`幅${viewport.width}×高さ${viewport.height}：タブのすぐ下（「この作品について」の上）で、最初の画面に入る。ライセンスの行はそのすぐ下`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await openWork(page, 'fx-landing');
-      const button = (await page.getByRole('button', { name: 'コードをコピー', exact: true }).boundingBox())!;
+      const button = (await page.getByRole('button', { name: '全部をコピー', exact: true }).boundingBox())!;
       const tabs = (await page.getByRole('tablist', { name: '作品の中身' }).boundingBox())!;
       const license = (await page.getByText('MIT · コードの1行目に作者の名前が残ります', { exact: true }).boundingBox())!;
       const box = (await about(page).boundingBox())!;
