@@ -229,7 +229,9 @@ test.describe('画像を付ける（DOC002）', () => {
     const before = await editable(owner.visitor, id);
 
     await openAs(page, owner.visitor, `/p/${id}`);
-    await page.locator('[data-private-notice]').getByRole('button', { name: `${title}に画像を付ける` }).click();
+    // 「画像を付ける」は、作品のページの「設定」のタブの中（持ち主だけ。WS003）
+    await page.getByRole('tab', { name: '設定' }).click();
+    await page.locator('[data-work-panel="settings"]').getByRole('button', { name: `${title}に画像を付ける` }).click();
     const dialog = page.getByRole('dialog', { name: '画像を付ける' });
     const take = dialog.getByRole('button', { name: 'この絵にする' });
     await expect(take).toBeEnabled();
@@ -241,7 +243,8 @@ test.describe('画像を付ける（DOC002）', () => {
     await expect(dialog.locator('img[data-thumb-preview]')).toBeVisible();
     await dialog.getByRole('button', { name: 'この絵を送る' }).click();
     // 付けたら作品のページを読み込み直す（新しい版が今の版）
-    await expect(page.locator('[data-private-notice]').getByRole('button', { name: `${title}に画像を付ける` })).toHaveText('画像を変える');
+    // 読み込み直すと、初めのタブ（コード）に戻る。設定のタブの中のボタンは「画像を変える」になっている
+    await expect(page.locator(`[data-work-panel="settings"] button[aria-label="${title}に画像を付ける"]`)).toHaveText('画像を変える');
     const after = await editable(owner.visitor, id);
     expect(after.revision.id).not.toBe(before.revision.id);
     expect(after.revision.thumb_w).toBe(800);
