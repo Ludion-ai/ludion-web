@@ -3,6 +3,7 @@
 // AI が書く HTML によくある「読み込みで localStorage を読み、押すたびに書く」作品（fixtures/works/fx-counter）が、枠の中で動くこと。
 // playwright.config.ts の frame-storage-chromium、-webkit、-firefox で流す。サーバーは pages と同じ（見本が入っている）。
 import { expect, test, type Frame, type Page } from '@playwright/test';
+import { FRAME_GUARD_SCRIPT, STORAGE_SCRIPT } from '@ludion/render';
 import { PRIVATE_OWNER, privateFixtureId, privateRevisionId } from '../scripts/private-fixture.mjs';
 import { framePath } from './helpers';
 
@@ -96,7 +97,8 @@ test('対照：メモリだけの代わりを外した枠では、同じ作品�
 });
 
 test('作品を動かす枠は全部、作品のスクリプトより先にメモリだけの代わりを持つ（作品のページ、スマホの幅、ヘッダーのスイッチ、全画面、下書き）', async ({ request, context }) => {
-  const firstScript = (html: string) => /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
+  // 最初は枠の守り（FRAME002）、次がメモリだけの代わり
+  const firstScripts = (html: string) => [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].slice(0, 2).map((m) => m[1]);
   const workScript = (html: string) => html.indexOf('<script type="module">');
   const all: string[] = [];
   for (const file of ['desktop', 'mobile', 'inline', 'wall']) {
@@ -110,10 +112,8 @@ test('作品を動かす枠は全部、作品のスクリプトより先にメ�
   expect(draft.status(), privateFixtureId('mal-cookie')).toBe(200);
   all.push(await draft.text());
 
-  const expected = firstScript(all[0]);
-  expect(expected).toContain('sessionStorage');
   for (const html of all) {
-    expect(firstScript(html)).toBe(expected);
-    expect(html.indexOf(expected)).toBeLessThan(workScript(html));
+    expect(firstScripts(html)).toEqual([FRAME_GUARD_SCRIPT, STORAGE_SCRIPT]);
+    expect(html.indexOf(STORAGE_SCRIPT)).toBeLessThan(workScript(html));
   }
 });
