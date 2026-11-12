@@ -297,8 +297,14 @@ test.describe('見分け方', () => {
 test.describe('作り手の入れた文字で遅くならない', () => {
   // 文書の上限（768 KB）の、わざと読みにくい文書
   const SIZE = 768 * 1024;
-  const fill = (unit: string) => unit.repeat(Math.ceil(SIZE / unit.length)).slice(0, SIZE);
+  const fill = (unit: string, size = SIZE) => unit.repeat(Math.ceil(size / unit.length)).slice(0, size);
   const cases: [string, string][] = [
+    ['開いていない名前の閉じタグだらけ', fill('<a>', SIZE / 2) + fill('</b>', SIZE / 2)],
+    ['名前の付いた矢印の連なり', `<script>${fill('x=a=>')}0</script>`],
+    ['字下げの違う見出しと、たくさんの空の行', `<script>${Array.from({ length: 800 }, (_, i) => `${' '.repeat(i)}// ---- h${i}`).join('\n')}${'\n'.repeat(SIZE - 800 * 420)}</script>`],
+    ['長い閉じ行の前のたくさんのコメント', `<script>f(\n${fill('/*c*/\n', SIZE / 2)}${'x'.repeat(SIZE / 2)})</script>`],
+    ['頭のたくさんの設定の塊', `<script>${fill('const a = {\n a: 1,\n b: 2,\n c: 3,\n\n\n\n\n\n\n};\n// x\n')}</script>`],
+    ['CSS の長い閉じ行の前のたくさんのコメント', `<style>a {\n${fill('/*c*/\n', SIZE / 2)}${'x'.repeat(SIZE / 2)}}</style>`],
     ['閉じない /*', `<script>${fill('/*')}</script>`],
     ['閉じないテンプレートと ${', `<script>${fill('`${')}</script>`],
     ['割り算と正規表現が交互', `<script>${fill('a / b / c /x/g; ')}</script>`],
@@ -318,7 +324,8 @@ test.describe('作り手の入れた文字で遅くならない', () => {
       const start = performance.now();
       const outline = buildOutline({ html: '', css: '', js: null, document: text });
       const ms = performance.now() - start;
-      expect(ms, `${name}：${ms.toFixed(0)} ms`).toBeLessThan(2000);
+      console.log(`読みにくい文書「${name}」：${ms.toFixed(0)} ms`);
+      expect(ms, `${name}：${ms.toFixed(0)} ms`).toBeLessThan(1000);
       expect(outline.sections.length).toBeLessThanOrEqual(6000);
     });
   }

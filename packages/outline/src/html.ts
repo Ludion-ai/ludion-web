@@ -71,6 +71,8 @@ export function analyzeHtml(unit: Unit): HtmlResult {
   const { start, end } = unit;
   const comments: CommentLike[] = [];
   const stack: Open[] = [];
+  /** 積み重ねの中の、名前ごとの数 */
+  const openCount = new Map<string, number>();
   const result: HtmlResult = { dom: null, styleAttr: false, styleTag: false };
   let shaders = 0;
   let i = start;
@@ -106,9 +108,14 @@ export function analyzeHtml(unit: Unit): HtmlResult {
       const name = text.slice(lt + 2, j).toLowerCase();
       const close = text.indexOf('>', j);
       i = close === -1 || close >= end ? end : close + 1;
+      // 開いていない名前の閉じタグは、積み重ねを探さない（閉じタグだらけの文書で遅くならないように）
+      if (!openCount.get(name)) continue;
       for (let k = stack.length - 1; k >= 0; k--) {
         if (stack[k].name === name) {
-          for (let m = stack.length - 1; m >= k; m--) popped(stack[m], lt);
+          for (let m = stack.length - 1; m >= k; m--) {
+            popped(stack[m], lt);
+            openCount.set(stack[m].name, openCount.get(stack[m].name)! - 1);
+          }
           stack.length = k;
           break;
         }
@@ -238,7 +245,10 @@ export function analyzeHtml(unit: Unit): HtmlResult {
       i = Math.min(end, (text.indexOf('>', close) + 1) || end);
       continue;
     }
-    if (!selfClosing && !VOID.has(name)) stack.push({ name, start: lt, inSvg: inSvg || svgRoot, svgRoot });
+    if (!selfClosing && !VOID.has(name)) {
+      stack.push({ name, start: lt, inSvg: inSvg || svgRoot, svgRoot });
+      openCount.set(name, (openCount.get(name) ?? 0) + 1);
+    }
     i = tagEnd;
   }
   for (let m = stack.length - 1; m >= 0; m--) popped(stack[m], end);

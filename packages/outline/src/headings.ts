@@ -139,8 +139,8 @@ export function headingRanges(index: LineIndex, marks: HeadingMark[], unitEnd: n
     const level = levelOf.get(marks[k].indent)!;
     const next = nextAtOrAbove[level];
     let end = Math.min(next === Infinity ? unitEnd : next - 1, marks[k].limit, unitEnd);
-    while (end > marks[k].line && index.lineText(end).trim().length === 0) end--;
-    ends[k] = Math.max(end, marks[k].line);
+    // 後ろの空の行を外す（空の行の表で1回で）
+    ends[k] = Math.max(index.lastNonBlank(end), marks[k].line);
     for (let l = level; l < indents.length; l++) nextAtOrAbove[l] = marks[k].line;
   }
   for (let k = 0; k < marks.length; k++) out.push({ mark: marks[k], level: levelOf.get(marks[k].indent)!, end: ends[k] });

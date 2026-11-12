@@ -74,7 +74,10 @@ const STATEMENT_WORDS = new Set(['const', 'let', 'var', 'function', 'class', 're
 const NOT_METHOD = new Set(['if', 'for', 'while', 'switch', 'catch', 'function', 'with', 'return', 'typeof', 'new', 'await', 'yield', 'else', 'do', 'try', 'super', 'import', 'delete', 'void', 'in', 'of', 'instanceof', 'case']);
 const METHOD_PREV = new Set(['{', ',', '}', ';', 'static', 'async', 'get', 'set', '*']);
 
-const isStringish = (token: Token | undefined) => token !== undefined && (token.type === 'string' || (token.type === 'template' && !token.hasExpr));
+/** 式の本体の矢印の関数の終わりを探すのに、1つの塊で見る字句の数の上限 */
+const ARROW_BUDGET = 400_000;
+
+const isStringish =(token: Token | undefined) => token !== undefined && (token.type === 'string' || (token.type === 'template' && !token.hasExpr));
 
 interface FoundFunction {
   name: string;
@@ -194,7 +197,21 @@ export function analyzeJs(unit: Unit): number {
     if (end - start + 1 < 10 || keys < 3) continue;
     col.section({ file, kind: 'settings', name: nameToken.value, start, end, depth: 0, language: 'js', bytes: utf8Bytes(text, token.start, close.end) });
     // 中に線の見出しがなければ、オブジェクトを値に持つ名前を見出しにする
-    const hasHeading = comments.some((comment) => comment.start > brace.start && comment.start < close.start && /^\/\/\s*([-=─━═~*#_+])\1\1/.test(comment.value));
+    // コメントは位置の順なので、塊の中のものだけを見る（塊はたがいに重ならないので、全部で1回ずつ）
+    let lo = 0;
+    let hi = comments.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (comments[mid].start <= brace.start) lo = mid + 1;
+      else hi = mid;
+    }
+    let hasHeading = false;
+    for (let c = lo; c < comments.length && comments[c].start < close.start; c++) {
+      if (/^\/\/\s*([-=─━═~*#_+])\1\1/.test(comments[c].value)) {
+        hasHeading = true;
+        break;
+      }
+    }
     if (!hasHeading) {
       inner = 0;
       for (let m = open + 1; m < brace.match; m++) {
@@ -233,15 +250,17 @@ export function analyzeJs(unit: Unit): number {
   const found: FoundFunction[] = [];
   const consumed = new Set<number>();
   /** 矢印の関数の本体の最後の字句 */
+  let arrowBudget = ARROW_BUDGET;
   const arrowEnd = (arrow: number): Token => {
     const body = sig[arrow + 1];
     if (!body) return sig[arrow];
     if (isPunct(body, '{') && body.match !== undefined && body.match >= 0) return sig[body.match];
     let m = arrow + 1;
     let lastTok = sig[arrow];
-    // 式の本体は、長くても 4000 字句までを見る（矢印の入れ子で遅くならないように）
+    // 式の本体は、1つで 4000 字句まで、塊の全部で ARROW_BUDGET 字句までを見る（矢印の連なりで遅くならないように）
     const stop = Math.min(sig.length, arrow + 4000);
-    while (m < stop) {
+    while (m < stop && arrowBudget > 0) {
+      arrowBudget--;
       const t = sig[m];
       if (t.type === 'punct' && (t.value === ',' || t.value === ';' || t.value === ')' || t.value === ']' || t.value === '}')) break;
       if (m > arrow + 1 && t.type === 'ident' && STATEMENT_WORDS.has(t.value) && lineOf(t.start) > lineOf(lastTok.end - 1) && !isPunct(sig[m - 1], '.') && !isPunct(sig[m - 1], '=>')) break;

@@ -33,6 +33,31 @@ export class LineIndex {
     return this.text.slice(start, end).replace(/\r$/, '');
   }
 
+  private nonBlank: Int32Array | null = null;
+
+  /** line から前へ見て、空白だけでない最後の行（なければ 0）。表は初めて要るときに1回だけ作る */
+  lastNonBlank(line: number): number {
+    if (!this.nonBlank) {
+      const table = new Int32Array(this.starts.length + 1);
+      for (let l = 1; l <= this.starts.length; l++) {
+        const start = this.starts[l - 1];
+        const next = this.starts[l];
+        const end = next === undefined ? this.text.length : next - 1;
+        let blank = true;
+        for (let i = start; i < end; i++) {
+          const c = this.text.charCodeAt(i);
+          if (!(c === 32 || c === 9 || c === 13 || c === 12 || c === 11 || c === 0xa0 || c === 0x3000 || c === 0xfeff)) {
+            blank = false;
+            break;
+          }
+        }
+        table[l] = blank ? table[l - 1] : l;
+      }
+      this.nonBlank = table;
+    }
+    return this.nonBlank[Math.min(Math.max(line, 0), this.starts.length)];
+  }
+
   /** 列（行の頭からの文字の数） */
   column(offset: number): number {
     return offset - this.starts[this.line(offset) - 1];
