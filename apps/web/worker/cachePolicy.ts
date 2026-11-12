@@ -115,7 +115,8 @@ export function canonicalCacheUrl(method: string, url: URL): string | null {
   if (!rule) return null;
   const allowed = new Set(rule.params ?? []);
   const kept = new URLSearchParams();
-  let dropped = false;
+  // 空の区切り（?&、&&、終わりの &）も、値を変えずにキーだけを増やせるので外す
+  let dropped = url.search.slice(1).split('&').some((part) => part === '');
   for (const [name, value] of url.searchParams) {
     if (allowed.has(name) && !kept.has(name)) kept.append(name, value);
     else dropped = true;

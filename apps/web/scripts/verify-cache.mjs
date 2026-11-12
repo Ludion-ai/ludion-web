@@ -73,7 +73,7 @@ async function checkHits() {
   const script = /src="(\/assets\/index-[^"]+\.js)"/.exec(home.body)[1];
   const avatar = /(\/files\/creators\/[^"\\]+\.webp)/.exec((await read(`${PROD}/c/${work.creator.handle}`)).body)?.[1];
 
-  for (const path of ['/', '/?c=web', '/?sort=new', `/?q=${encodeURIComponent(work.title.slice(0, 3))}`, `/p/${work.id}`, `/c/${work.creator.handle}`]) {
+  for (const path of ['/', '/?c=web', '/?sort=new', `/?q=${encodeURIComponent(work.title.slice(0, 3))}`, `/p/${work.id}`, `/c/${work.creator.handle}`, '/api/works']) {
     const seen = await readUntilHit(`${PROD}${path}`);
     check(`HTML ${path}`, seen.status === 200 && seen.cache === 'HIT' && seen.control === PAGE && !seen.tag && !seen.cookie, `${seen.status}、cf-cache-status=${seen.cache}（${seen.tries}回目）、${seen.control}、札は客に見えない=${!seen.tag}`);
   }
@@ -84,7 +84,6 @@ async function checkHits() {
 
   const frame = `/frame/${work.id}/${work.version}/desktop.html`;
   for (const [label, path, init] of [
-    ['API', '/api/works'],
     ['API', '/api/me'],
     ['枠', frame, { headers: { 'Sec-Fetch-Dest': 'iframe' } }],
     ['枠の外から', frame],

@@ -532,8 +532,14 @@ test.describe('知らない URL の値は外して、同じキャッシュに当
     expect(canon('/p/abc/file/1/part.html?x=1')).toBe('/p/abc/file/1/part.html');
     expect(canon('/w/abc/1/thumb.webp?x=1')).toBe('/w/abc/1/thumb.webp');
     expect(canon('/sitemap.xml?x=1')).toBe('/sitemap.xml');
-    // 同じ名前の2つ目は外す（キーを増やさない）
+    // 同じ名前の2つ目と、空の区切りは外す（キーを増やさない）
     expect(canon('/?c=web&c=ui')).toBe('/?c=web');
+    expect(canon('/api/works?&')).toBe('/api/works');
+    expect(canon('/api/works?&&')).toBe('/api/works');
+    expect(canon('/p/abc?&')).toBe('/p/abc');
+    expect(canon('/?c=web&')).toBe('/?c=web');
+    expect(canon('/?&c=web')).toBe('/?c=web');
+    expect(canon('/p/abc?=')).toBe('/p/abc');
     // 人が開くページは UTM を残す（GA4 がどこから来たかを見る）。テキストや API の道は残さない
     expect(canon('/p/abc?utm_source=x&fbclid=y')).toBe('/p/abc?utm_source=x');
     expect(canon('/api/works?utm_source=x')).toBe('/api/works');
