@@ -800,6 +800,8 @@ async function readThumbOnly(c: PostContext): Promise<Uint8Array | Response> {
  * 自分だけの作品に、画像だけを足す（DOC002「1」）。今の版のファイルを写し、画像を足した新しい版を作って、作品の今の版にする。
  * 今の版は書き換えない（承認は中身のハッシュで結ぶので、中身の違う版にする）。画像は投稿と同じ道で読み直す（thumb.ts）。
  * 持ち主だけ。ほかの人には、ない作品と同じ 404。数え方は自分だけの版（MCP001）。公開に回すのは、今の「公開する」（/works/:id/publish）。
+ * ?only_missing=1：自動で撮った絵（THUMB001）。今の版に画像がないときだけ足す（あれば 409 has_thumb。人が選んだ画像を置き換えない）。
+ * 中身を変えていないので、最後に変えた日（updated_at）は今の版のまま（一覧の並びを動かさない）。
  */
 post.post('/works/:id/thumb', async (c) => {
   const db = c.env.DB;
@@ -813,6 +815,8 @@ post.post('/works/:id/thumb', async (c) => {
   // 直している途中の版（下書き、審査待ち）があるときは足さない（版の番号が前後し、直している版が今の版より古くなるため）
   const open = await db.prepare(`SELECT status FROM revisions WHERE work_id = ? AND status IN ('draft', 'submitted') LIMIT 1`).bind(work.id).first<{ status: string }>();
   if (open) return c.json({ error: open.status === 'submitted' ? 'in_review' : 'has_draft' }, 409);
+  const onlyMissing = c.req.query('only_missing') === '1';
+  if (onlyMissing && current.thumb_w > 0) return c.json({ error: 'has_thumb' }, 409);
 
   const source = await readThumbOnly(c);
   if (source instanceof Response) return source;
@@ -863,12 +867,12 @@ post.post('/works/:id/thumb', async (c) => {
       db
         .prepare(
           `INSERT INTO revisions (id, work_id, version, status, r2_prefix, content_hash, title, type, platform, category, subtype, tags, made_with, thumb_w, thumb_h, tokens_ok, created_by, created_at, updated_at, is_remix, remix_of, via)
-           SELECT ?1, work_id, ?2, 'private', ?3, ?4, title, type, platform, category, subtype, tags, made_with, ?5, ?6, tokens_ok, ?7, ?8, ?8, is_remix, remix_of, NULL
+           SELECT ?1, work_id, ?2, 'private', ?3, ?4, title, type, platform, category, subtype, tags, made_with, ?5, ?6, tokens_ok, ?7, ?8, CASE WHEN ?12 = 1 THEN updated_at ELSE ?8 END, is_remix, remix_of, NULL
            FROM revisions WHERE id = ?9
              AND EXISTS (SELECT 1 FROM works WHERE id = ?10 AND status = 'private' AND version = ?11)
              AND NOT EXISTS (SELECT 1 FROM revisions WHERE work_id = ?10 AND status IN ('draft', 'submitted'))`,
         )
-        .bind(revisionId, version, prefix, contentHash, made.width, made.height, user.id, now, current.id, work.id, current.version),
+        .bind(revisionId, version, prefix, contentHash, made.width, made.height, user.id, now, current.id, work.id, current.version, onlyMissing ? 1 : 0),
       db
         .prepare(`UPDATE works SET version = ?1, thumb_key = ?2, thumb_w = ?3, thumb_h = ?4 WHERE id = ?5 AND status = 'private' AND version = ?6 AND changes() > 0`)
         .bind(version, revisionFile(prefix, 'thumb.webp'), made.width, made.height, work.id, current.version),

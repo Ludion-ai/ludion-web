@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { deflateSync, crc32 } from 'node:zlib';
+import { AUTO_THUMB_SKIP_KEY } from '../src/lib/autoThumb';
 import { Visitor, ownOrigin } from './visitor';
 
 const WEB = join(import.meta.dirname, '..');
@@ -452,6 +453,8 @@ test.describe('自分の置き場（/account/works）', () => {
         lang === 'ja'
           ? { private: '自分だけ', submitted: '審査待ち', public: '公開', rejected: '差し戻し', draft: '下書き', all: 'すべて' }
           : { private: 'Only me', submitted: 'In review', public: 'Public', rejected: 'Sent back', draft: 'Draft', all: 'All' };
+      // この試験は札と並びを見るので、画像を自動で撮る方（THUMB001。thumb-capture.spec.ts）は「前に撮れなかった版」として止めておく
+      await page.addInitScript(([key, rid]) => localStorage.setItem(key, JSON.stringify([rid])), [AUTO_THUMB_SKIP_KEY, own.revision.id] as const);
       await logInPage(page, lang === 'ja' ? '/account/works' : '/en/account/works', login);
       const rows = page.locator('[data-own-work]');
       await expect(rows).toHaveCount(5);

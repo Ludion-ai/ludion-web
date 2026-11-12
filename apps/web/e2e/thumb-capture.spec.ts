@@ -1,13 +1,14 @@
 // DOC002：文書の作品に、枠から撮った画像を付けて、公開に回せるようにする。
 // playwright.config.ts の thumb-capture-* で、Chromium、WebKit、Firefox の全部で流す。サーバーは pages と同じ（悪意のある見本 mal-doc が入っている）。
 // 人と作品は HTTP だけで作る（偽の GitHub でログイン、AI の鍵、/api/v1）。手元の D1 のファイルを直に開かないので、ほかの pages のテストと並んで走ってよい。
-import { buildDocumentFrameHtml, CAPTURE_READY, CAPTURE_REQUEST, CAPTURE_RESULT, CAPTURE_SCRIPT, FRAME_RESPONSE_CSP } from '@ludion/render';
-import { expect, test, type Page } from '@playwright/test';
+import { buildDocumentFrameHtml, CAPTURE_FIT_SIZE, CAPTURE_READY, CAPTURE_REQUEST, CAPTURE_RESULT, CAPTURE_SCRIPT, FRAME_RESPONSE_CSP } from '@ludion/render';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deflateSync, crc32 } from 'node:zlib';
 import { PRIVATE_OWNER, privateRevisionId } from '../scripts/private-fixture.mjs';
+import { AUTO_FIT_SIZE, AUTO_THUMB_SKIP_KEY, canAutoCapture } from '../src/lib/autoThumb';
 import * as site from '../src/lib/post';
 import { Visitor, ownOrigin } from './visitor';
 
@@ -100,7 +101,7 @@ async function putDocument(visitor: Visitor, html: string): Promise<string> {
   return body.id;
 }
 
-type Editable = { private: boolean; public_version: string; revision: { id: string; version: string; status: string; thumb: string | null; thumb_w: number } };
+type Editable = { private: boolean; public_version: string; revision: { id: string; version: string; status: string; thumb: string | null; thumb_w: number; thumb_h: number } };
 const editable = async (visitor: Visitor, id: string) => (await (await visitor.fetch(`/api/post/works/${id}`)).json()) as Editable;
 
 /**
@@ -112,6 +113,10 @@ async function openAs(page: Page, visitor: Visitor, path: string) {
   await page.goto(path);
   await expect(page).toHaveURL(path);
 }
+
+/** 自動で撮る方（THUMB001）を、この版では止める（「前に撮れなかった版」としてブラウザに覚えさせる。サイトと同じ鍵）。 */
+const skipAuto = (page: Page, revisionId: string) =>
+  page.addInitScript(([key, rid]) => localStorage.setItem(key, JSON.stringify([rid])), [AUTO_THUMB_SKIP_KEY, revisionId] as const);
 
 /**
  * 画像を送る（multipart の thumb だけ）。断られる試しの画像は小さくする（口は本文を読む前に断る。
@@ -154,9 +159,12 @@ test.describe('画像を付ける（DOC002）', () => {
     expect((await sendThumb(owner.visitor, id, 'https://evil.example')).status).toBe(403);
 
     // 「自分の作品」で「画像を付ける」→ 枠を 1280×800 で見せる →「この絵にする」→ 撮った絵を見せる →「この絵を送る」
+    // この試験は人が撮る道を見るので、自動で撮る方（THUMB001）は「この版は前に撮れなかった」として止めておく
+    await skipAuto(page, before.revision.id);
     await openAs(page, owner.visitor, '/account/works');
     const row = page.locator(`[data-own-work="${id}"]`);
     await expect(row.locator('[data-no-thumb]')).toBeVisible();
+    await expect(row.locator('[data-auto-thumb]')).toHaveAttribute('data-auto-thumb', 'stopped');
     await row.getByRole('button', { name: `${title}に画像を付ける` }).click();
     const dialog = page.getByRole('dialog', { name: '画像を付ける' });
     await expect(dialog).toBeVisible();
@@ -264,5 +272,299 @@ test.describe('画像を付ける（DOC002）', () => {
     expect([site.CAPTURE_REQUEST, site.CAPTURE_RESULT, site.CAPTURE_READY]).toEqual([CAPTURE_REQUEST, CAPTURE_RESULT, CAPTURE_READY]);
     // 枠の外から開くと、今までどおり戻す
     expect((await owner.fetch(`${draft}?capture=1`)).status).toBe(302);
+  });
+});
+
+// THUMB001：画像のない自分だけの作品は、持ち主が「自分の作品」を開くと、枠から自動で撮って付ける。
+
+/** 契約の形の部品。WebGL で1回だけ描く（描いた絵は、画面に出た後に消える。撮る枠では読めるようにしてある）。WebGL がなければ、canvas は空のまま。 */
+const glPart = (part: string, title: string) => `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>${title}</title>
+</head>
+<body>
+<div data-ld-part="${part}"><canvas class="stage" width="320" height="200"></canvas><p>GL</p></div>
+<style>
+[data-ld-part="${part}"] { --_bg: var(--ld-bg, #0b1020); --_fg: var(--ld-fg, #f4f4f5); --_radius: var(--ld-radius, 10px); --_space: var(--ld-space, 8px); width: 320px; padding: calc(var(--_space) * 2); background: var(--_bg); color: var(--_fg); }
+[data-ld-part="${part}"] .stage { display: block; width: 320px; height: 200px; border-radius: var(--_radius); }
+[data-ld-part="${part}"] p { margin: calc(var(--_space) * 1) 0 0; }
+</style>
+<script type="module">
+function mount(root) {
+  const gl = root.querySelector('.stage').getContext('webgl');
+  if (gl) {
+    gl.clearColor(1, 0.416, 0.239, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.SCISSOR_TEST);
+    gl.scissor(0, 0, 160, 200);
+    gl.clearColor(0.2, 0.4, 1, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+  return () => {};
+}
+mount(document.querySelector('[data-ld-part="${part}"]'));
+</script>
+</body>
+</html>
+`;
+
+const ORANGE = [0xff, 0x6a, 0x3d];
+const NAVY = [0x0b, 0x10, 0x20];
+const BLUE = [0x33, 0x66, 0xff];
+
+/** 画像の大きさと、それぞれの色に近い画素の割合。 */
+const colorShares = (image: Locator, colors: number[][]) =>
+  image.evaluate(async (img: HTMLImageElement, colors: number[][]) => {
+    await img.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const g = canvas.getContext('2d')!;
+    g.drawImage(img, 0, 0);
+    const data = g.getImageData(0, 0, canvas.width, canvas.height).data;
+    const counts = colors.map(() => 0);
+    let samples = 0;
+    for (let at = 0; at < data.length; at += 4 * 7) {
+      samples += 1;
+      const hit = colors.findIndex((rgb) => rgb.every((value, index) => Math.abs(data[at + index] - value) <= 24));
+      if (hit !== -1) counts[hit] += 1;
+    }
+    return { size: [canvas.width, canvas.height], shares: counts.map((count) => count / samples) };
+  }, colors);
+
+type Listed = { id: string; updated_at: number; versions: number; thumb: string | null };
+const listedWork = async (visitor: Visitor, id: string) => ((await (await visitor.fetch('/api/post/works')).json()) as { works: Listed[] }).works.find((work) => work.id === id)!;
+
+/** そのページが読んだ、下書きの枠の URL（道と ?）。 */
+function watchDraftFrames(page: Page): string[] {
+  const seen: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith('/draft-frame/')) seen.push(url.pathname + url.search);
+  });
+  return seen;
+}
+
+test.describe('サムネイルを自動で撮る（THUMB001）', () => {
+  test('画像のない自分だけの作品は、「自分の作品」を開くと枠から撮られて、新しい版に画像が付く。前の版も、最後に変えた日も変わらない。開き直しても撮り直さない', async ({ page, browserName }) => {
+    test.skip(browserName === 'webkit', 'WebKit では自動で撮らない（下の試験）');
+    test.setTimeout(120_000);
+    const owner = await person('autodoc');
+    const title = unique('Auto Card ');
+    const doc = plainDoc(title);
+    const id = await putDocument(owner.visitor, doc);
+    const before = await editable(owner.visitor, id);
+    expect(before.revision).toMatchObject({ status: 'private', thumb: null, thumb_w: 0 });
+    const listedBefore = await listedWork(owner.visitor, id);
+    const oldFrame = `/draft-frame/${before.revision.id}/desktop.html`;
+
+    const frames = watchDraftFrames(page);
+    await openAs(page, owner.visitor, '/account/works');
+    const row = page.locator(`[data-own-work="${id}"]`);
+    // 何も押さない。頭文字 → 枠（1280×800。縮めて見せる。守りは今の枠と同じ）→ 画像
+    const thumb = row.locator('img:not([data-auto-thumb-shot])');
+    await expect(thumb).toBeVisible({ timeout: 60_000 });
+    expect(frames).toEqual([`${oldFrame}?capture=1`]);
+    await expect(row.locator('[data-auto-thumb]')).toHaveCount(0);
+    await expect(row.getByRole('button', { name: `${title}に画像を付ける` })).toHaveText('画像を変える');
+
+    // 新しい版に画像が付き、今の版になった。枠の全部（1280×800）の絵なので、サムネイルは 800×500
+    const after = await editable(owner.visitor, id);
+    expect(after.private).toBe(true);
+    expect(after.revision.id).not.toBe(before.revision.id);
+    expect(after.revision).toMatchObject({ status: 'private', thumb_w: 800, thumb_h: 500 });
+    expect(Number(after.revision.version)).toBe(Number(before.revision.version) + 1);
+    expect(after.public_version).toBe(after.revision.version);
+    // 作品の色（地の紺と、カードの橙）が写っている
+    const colors = await colorShares(thumb, [NAVY, ORANGE]);
+    expect(colors.size).toEqual([800, 500]);
+    expect(colors.shares[0], JSON.stringify(colors)).toBeGreaterThan(0.5);
+    expect(colors.shares[1], JSON.stringify(colors)).toBeGreaterThan(0.02);
+    // 前の版は書き換わらない（枠の HTML も同じ、画像もないまま）。新しい版の中身は前の版と同じ文書
+    expect(await (await owner.visitor.fetch(oldFrame, { headers: FROM_IFRAME })).text()).toBe(buildDocumentFrameHtml(doc));
+    expect((await owner.visitor.fetch(`/draft-thumb/${before.revision.id}.webp`)).status).toBe(404);
+    expect(await (await owner.visitor.fetch(`/draft-frame/${after.revision.id}/desktop.html`, { headers: FROM_IFRAME })).text()).toBe(buildDocumentFrameHtml(doc));
+    // 中身は変えていないので、最後に変えた日はそのまま（一覧の並びが動かない）
+    const listedAfter = await listedWork(owner.visitor, id);
+    expect(listedAfter.updated_at).toBe(listedBefore.updated_at);
+    expect(listedAfter.versions).toBe(listedBefore.versions + 1);
+
+    // 開き直しても、もう撮らない（枠を読まない、版が増えない）
+    frames.length = 0;
+    await page.reload();
+    await expect(thumb).toBeVisible();
+    await page.waitForTimeout(1500);
+    expect(frames).toEqual([]);
+    expect((await editable(owner.visitor, id)).revision.id).toBe(after.revision.id);
+
+    // 画像が付いたので、今の「公開する」（審査に出す）がそのまま通る
+    const publish = await owner.visitor.post(`/api/post/works/${id}/publish`, CONFIRM);
+    expect(publish.status, await publish.clone().text()).toBe(200);
+  });
+
+  test('契約の形の部品（WebGL の canvas）も撮れて、部品のまわりを切り出した絵になる。撮れないブラウザでは、付けずに頭文字のまま', async ({ page, browserName }) => {
+    test.setTimeout(120_000);
+    const owner = await person('autogl');
+    const title = unique('Auto GL ');
+    const id = await putDocument(owner.visitor, glPart(unique('auto-gl-'), title));
+    const before = await editable(owner.visitor, id);
+    expect(before.revision).toMatchObject({ status: 'private', thumb: null, thumb_w: 0 });
+
+    await openAs(page, owner.visitor, '/account/works');
+    const hasWebgl = await page.evaluate(() => document.createElement('canvas').getContext('webgl') !== null);
+    const row = page.locator(`[data-own-work="${id}"]`);
+    const thumb = row.locator('img:not([data-auto-thumb-shot])');
+    const stopped = row.locator('[data-auto-thumb="stopped"]');
+    await expect(thumb.or(stopped)).toBeVisible({ timeout: 60_000 });
+    const after = await editable(owner.visitor, id);
+    if (await stopped.isVisible()) {
+      // 撮れなかった（WebKit では撮らない。WebGL のないブラウザでは canvas が空）：何も付けない。版も増えない。頭文字のまま、人が付ける道が残る
+      expect(browserName === 'webkit' || !hasWebgl, 'Chromium と Firefox で WebGL があれば、撮れる').toBe(true);
+      expect(after.revision.id).toBe(before.revision.id);
+      await expect(row.locator('[data-no-thumb]')).toBeVisible();
+      await expect(row.getByRole('button', { name: `${title}に画像を付ける` })).toHaveText('画像を付ける');
+      return;
+    }
+    // 撮れた：部品のまわりを 4:3 で切り出した絵（800×600）。WebGL で描いた2色（橙と青）が写っている
+    expect(after.revision.id).not.toBe(before.revision.id);
+    expect(after.revision).toMatchObject({ status: 'private', thumb_w: 800, thumb_h: 600 });
+    const colors = await colorShares(thumb, [ORANGE, BLUE]);
+    expect(colors.size).toEqual([800, 600]);
+    expect(colors.shares[0], JSON.stringify(colors)).toBeGreaterThan(0.08);
+    expect(colors.shares[1], JSON.stringify(colors)).toBeGreaterThan(0.08);
+    // 部品は絵の中央にある。部品の幅（352px）が絵の幅の6割なので、canvas（320×200）は 436×273 で、左右は 181〜618。左半分が青、右半分が橙
+    // （絵の中の並びが、動いている枠と同じ。絵を広げて描くと中身を並べ直すブラウザがあるため、場所も見る）
+    const box = await thumb.evaluate(async (img: HTMLImageElement, colors: number[][]) => {
+      await img.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const g = canvas.getContext('2d')!;
+      g.drawImage(img, 0, 0);
+      const data = g.getImageData(0, 0, canvas.width, canvas.height).data;
+      return colors.map((rgb) => {
+        const range = { left: canvas.width, right: -1, top: canvas.height, bottom: -1 };
+        for (let y = 0; y < canvas.height; y += 1) {
+          for (let x = 0; x < canvas.width; x += 1) {
+            const at = (y * canvas.width + x) * 4;
+            if (!rgb.every((value, index) => Math.abs(data[at + index] - value) <= 24)) continue;
+            range.left = Math.min(range.left, x);
+            range.right = Math.max(range.right, x);
+            range.top = Math.min(range.top, y);
+            range.bottom = Math.max(range.bottom, y);
+          }
+        }
+        return range;
+      });
+    }, [BLUE, ORANGE]);
+    const near = (value: number, expected: number, slack: number) => Math.abs(value - expected) <= slack;
+    const [blue, orange] = box;
+    expect(near(blue.left, 181, 10) && near(blue.right, 400, 10) && near(orange.left, 400, 10) && near(orange.right, 618, 10), JSON.stringify(box)).toBe(true);
+    // 上下は、文字の行の高さがブラウザで少し違う分だけ許す
+    for (const range of box) expect(near(range.bottom - range.top, 273, 10) && near((range.top + range.bottom) / 2, 300, 40), JSON.stringify(box)).toBe(true);
+  });
+
+  test('撮れない作品（Shadow DOM の中がある）は、頭文字のまま。版を作らず、その版はもう試さない', async ({ page, browserName }) => {
+    test.skip(browserName === 'webkit', 'WebKit では自動で撮らない（下の試験）');
+    test.setTimeout(90_000);
+    const owner = await person('autoshadow');
+    const title = unique('Auto Shadow ');
+    const id = await putDocument(owner.visitor, shadowDoc(title));
+    const before = await editable(owner.visitor, id);
+
+    const frames = watchDraftFrames(page);
+    await openAs(page, owner.visitor, '/account/works');
+    const row = page.locator(`[data-own-work="${id}"]`);
+    await expect(row.locator('[data-auto-thumb="stopped"]')).toBeVisible({ timeout: 60_000 });
+    expect(frames).toEqual([`/draft-frame/${before.revision.id}/desktop.html?capture=1`]);
+    await expect(row.locator('[data-no-thumb]')).toBeVisible();
+    await expect(row.locator('iframe')).toHaveCount(0);
+    expect((await editable(owner.visitor, id)).revision.id).toBe(before.revision.id);
+    expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? '[]') as string[], AUTO_THUMB_SKIP_KEY)).toContain(before.revision.id);
+
+    // 開き直しても、枠を読まない
+    frames.length = 0;
+    await page.reload();
+    await expect(row.locator('[data-auto-thumb="stopped"]')).toBeVisible();
+    await page.waitForTimeout(1500);
+    expect(frames).toEqual([]);
+    // 人が付ける道は残る
+    await expect(row.getByRole('button', { name: `${title}に画像を付ける` })).toBeVisible();
+  });
+
+  test('WebKit では自動で撮らない（canvas が写らないことがあるため）。頭文字のまま、枠を読まず、版も増えない。人が付ける道は残る', async ({ page, browserName }) => {
+    test.skip(browserName !== 'webkit', 'WebKit だけの確かめ');
+    const owner = await person('autowebkit');
+    const title = unique('Auto Webkit ');
+    const id = await putDocument(owner.visitor, plainDoc(title));
+    const before = await editable(owner.visitor, id);
+    const frames = watchDraftFrames(page);
+    await openAs(page, owner.visitor, '/account/works');
+    const row = page.locator(`[data-own-work="${id}"]`);
+    await expect(row.locator('[data-auto-thumb="stopped"]')).toHaveAttribute('data-auto-thumb-why', 'browser');
+    await expect(row.locator('[data-no-thumb]')).toBeVisible();
+    await page.waitForTimeout(3000);
+    expect(frames).toEqual([]);
+    expect((await editable(owner.visitor, id)).revision.id).toBe(before.revision.id);
+    // ほかのブラウザで開けば撮れるように、「撮れなかった版」としては覚えない
+    expect(await page.evaluate((key) => localStorage.getItem(key), AUTO_THUMB_SKIP_KEY)).toBeNull();
+    await expect(row.getByRole('button', { name: `${title}に画像を付ける` })).toHaveText('画像を付ける');
+  });
+
+  test('自動の絵は、今の版に画像がないときだけ足される。撮る仕掛けは、契約の形の作品でも、持ち主が ?capture=1 で開いた下書きの枠だけ', async () => {
+    test.skip(test.info().project.use.browserName !== 'chromium', 'HTTP だけの確かめなので、1つのブラウザで');
+    const owner = await person('autohttp');
+    const id = await putDocument(owner.visitor, glPart(unique('auto-http-'), unique('Auto Http ')));
+    const before = await editable(owner.visitor, id);
+    const frame = `/draft-frame/${before.revision.id}/desktop.html`;
+
+    // capture のない枠は今のまま。?capture=1 は、頭の最後に撮る仕掛けを1つ足すだけ（作品の JS より先）
+    const plain = await (await owner.visitor.fetch(frame, { headers: FROM_IFRAME })).text();
+    expect(plain).not.toContain(CAPTURE_SCRIPT);
+    const withCapture = await owner.visitor.fetch(`${frame}?capture=1`, { headers: FROM_IFRAME });
+    expect(withCapture.headers.get('content-security-policy')).toBe(FRAME_RESPONSE_CSP);
+    expect(plain.split('\n</head>')).toHaveLength(2);
+    expect(await withCapture.text()).toBe(plain.replace('\n</head>', () => `\n<script>${CAPTURE_SCRIPT}</script>\n</head>`));
+    // ほかの人には、ない作品と同じ 404。枠の外から開くと、今までどおり戻す
+    const other = await person('autoother');
+    expect((await other.visitor.fetch(`${frame}?capture=1`, { headers: FROM_IFRAME })).status).toBe(404);
+    expect((await owner.visitor.fetch(`${frame}?capture=1`)).status).toBe(302);
+    // 画面（src/lib/autoThumb.ts）の切り出しの大きさは、撮る仕掛けと同じ
+    expect(AUTO_FIT_SIZE).toEqual(CAPTURE_FIT_SIZE);
+    // 自動で撮るブラウザ：Chromium の系統と Firefox。WebKit（Safari、iPhone の全部のブラウザ）では撮らない
+    const agents: [string, boolean][] = [
+      ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', true],
+      ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0', true],
+      ['Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36', true],
+      ['Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0', true],
+      ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15', false],
+      ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/141.0.0.0 Mobile/15E148 Safari/604.1', false],
+      ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/141.0.0.0 Mobile/15E148 Safari/605.1.15', false],
+      ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/144.0 Mobile/15E148 Safari/605.1.15', false],
+      ['', false],
+    ];
+    for (const [agent, expected] of agents) expect(canAutoCapture(agent), agent).toBe(expected);
+
+    // 断られる試しの画像は小さくする（上の sendThumb と同じ理由）
+    const send = (query: string, image = png(400, 300)) => {
+      const form = new FormData();
+      form.append('thumb', new Blob([new Uint8Array(image)], { type: 'image/png' }), 'x.png');
+      return owner.visitor.fetch(`/api/post/works/${id}/thumb${query}`, { method: 'POST', body: form, headers: { Origin: ownOrigin() } });
+    };
+    // 画像がないうちは、自動の絵が付く
+    const first = await send('?only_missing=1');
+    expect(first.status, await first.clone().text()).toBe(200);
+    const withThumb = await editable(owner.visitor, id);
+    expect(withThumb.revision.id).not.toBe(before.revision.id);
+    expect(withThumb.revision.thumb_w).toBe(800);
+    // 画像があれば、自動の絵は足さない（409）。版も増えない。人が選んだ画像は、今までどおり足せる
+    const second = await send('?only_missing=1', png(8, 8));
+    expect(second.status).toBe(409);
+    expect(await second.json()).toEqual({ error: 'has_thumb' });
+    expect((await editable(owner.visitor, id)).revision.id).toBe(withThumb.revision.id);
+    expect((await send('')).status).toBe(200);
+    expect((await editable(owner.visitor, id)).revision.id).not.toBe(withThumb.revision.id);
   });
 });
