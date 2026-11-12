@@ -149,7 +149,7 @@ const listed = (html: string): string[] => {
 };
 
 test.describe('一覧と違い', () => {
-  test.use({ viewport: { width: 1440, height: 900 } });
+  test.use({ viewport: { width: 1440, height: 900 }, timezoneId: 'Asia/Tokyo' });
 
   test('一覧の数（増えた行、減った行、変わったファイル、変わったまとまり）。初めは今の版と1つ前の違い。左右と上下、行の番号、たたむ', async ({ page }) => {
     const owner = await person('wsvlist');
@@ -171,6 +171,20 @@ test.describe('一覧と違い', () => {
     await expect(rows.nth(1).locator('[data-version-lines]')).toContainText(`+${total}`);
     // ほかの人には「この版に戻す」を出さない
     await expect(page.locator('[data-version-revert]')).toHaveCount(0);
+
+    // 時刻は見る人の時刻（ここでは日本、UTC の 9 時間先）。Worker の HTML には日付だけ（時刻と UTC は入れない）
+    const time = rows.nth(0).locator('time');
+    await expect(time).toHaveAttribute('data-version-time', 'local');
+    const at = new Date((await time.getAttribute('datetime'))!);
+    const tokyo = new Date(at.getTime() + 9 * 60 * 60 * 1000).toISOString();
+    await expect(time).toHaveText(`${tokyo.slice(0, 10).replaceAll('-', '/')} ${tokyo.slice(11, 16)}`);
+    const served = (await pageData(null, id)).html;
+    const times = [...served.matchAll(/<time[^>]*data-version-time="([^"]+)"[^>]*>([^<]*)<\/time>/g)].map((match) => [match[1], match[2]]);
+    expect(times).toHaveLength(2);
+    for (const [kind, text] of times) {
+      expect(kind).toBe('date');
+      expect(text).toMatch(/^\d{4}\/\d{2}\/\d{2}$/);
+    }
 
     // 初めは今の版（2）とその1つ前（1）が選ばれていて、違いが出る
     await expect(rows.nth(0).getByRole('checkbox')).toBeChecked();
@@ -253,6 +267,16 @@ test.describe('スマホ 390', () => {
     await expect(compare.locator('[data-version-diff="ready"]')).toBeVisible();
     await expect(compare.getByRole('button', { name: '左右' })).toHaveCount(0);
     await expect(compare.locator('[data-diff-layout="unified"]')).toHaveCount(2);
+    await expect(compare.getByRole('button', { name: '折り返す' })).toHaveAttribute('aria-pressed', 'true');
+    const row = compare.locator('[data-version-file="part.css"] [data-diff-row="add"]').first();
+    await expect(row.locator('[data-diff-number]')).toHaveCount(1);
+    const codeWidth = await row.locator('[data-diff-code]').evaluate((element) => element.getBoundingClientRect().width);
+    expect(codeWidth).toBeGreaterThanOrEqual(390 * 0.75);
+    // 折り返すので、長い行も枠の幅に収まる（横に送らない）
+    for (const layout of await compare.locator('[data-diff-layout="unified"]').all()) {
+      const [scroll, client] = await layout.evaluate((element) => [element.parentElement!.scrollWidth, element.parentElement!.clientWidth]);
+      expect(scroll).toBeLessThanOrEqual(client);
+    }
     const frames = page.locator('[data-version-frames] iframe[data-ld-frame]');
     await expect(frames).toHaveCount(1);
     await expect(frames).toHaveAttribute('src', new RegExp(`^/frame/${id}/2/`));
@@ -285,9 +309,12 @@ test.describe('この版に戻す', () => {
     await expect(dialog).toHaveAttribute('data-revert-dialog', 'ready');
     await expect(dialog.locator('[data-revert-lead]')).toHaveText('版 1 の中身で、新しい版（版 3）を作ります。今までの版は消えず、書き換えません。');
     await expect(dialog.locator('[data-revert-mode="private"]')).toBeVisible();
+    // 同意は1行の文（チェックはない）。確かめが済めば、すぐ押せる
+    await expect(dialog.getByRole('checkbox')).toHaveCount(0);
+    await expect(dialog.locator('[data-revert-agreement]')).toHaveText('この版を置いた時と同じく、自分で作った（権利がある）物で、MIT で公開してよく、利用規約に同意したものとして扱います。');
+    await expect(dialog.locator('[data-revert-agreement]').getByRole('link', { name: '利用規約' })).toHaveAttribute('href', '/terms');
+    await expect(dialog.getByRole('button', { name: 'やめる' })).toBeVisible();
     const confirm = dialog.getByRole('button', { name: '戻す', exact: true });
-    await expect(confirm).toBeDisabled();
-    for (const box of await dialog.getByRole('checkbox').all()) await box.check();
     await expect(confirm).toBeEnabled();
     await Promise.all([page.waitForEvent('load'), confirm.click()]);
 
@@ -316,7 +343,6 @@ test.describe('この版に戻す', () => {
     const dialog = page.getByRole('dialog', { name: '版 1 に戻す' });
     await expect(dialog.locator('[data-revert-lead]')).toContainText('新しい版（版 3）');
     await expect(dialog.locator('[data-revert-mode="review"]')).toContainText('審査に回ります');
-    for (const box of await dialog.getByRole('checkbox').all()) await box.check();
     await dialog.getByRole('button', { name: '戻す', exact: true }).click();
     await expect(dialog.locator('[data-revert-message]')).toHaveText('版 3 を作り、審査に出しました。結果は「自分の作品」に出ます');
     await expect(dialog).toHaveAttribute('data-revert-dialog', 'done');
@@ -539,7 +565,6 @@ document.getElementById('word').addEventListener('click', (event) => { event.cur
     await pressRevert(page, '1');
     const dialog = page.getByRole('dialog', { name: '版 1 に戻す' });
     await expect(dialog.locator('[data-revert-lead]')).toContainText('新しい版（版 3）');
-    for (const box of await dialog.getByRole('checkbox').all()) await box.check();
     await Promise.all([page.waitForEvent('load'), dialog.getByRole('button', { name: '戻す', exact: true }).click()]);
     await openVersions(page, `/p/${id}`);
     await expect(page.locator('[data-version-row="3"]')).toContainText('今の版');

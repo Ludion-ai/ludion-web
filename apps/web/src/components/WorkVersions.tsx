@@ -40,11 +40,37 @@ const DEL_BG = 'bg-[color-mix(in_oklab,var(--color-site-lang-html)_14%,transpare
 const ADD_TEXT = 'text-site-code-string';
 const DEL_TEXT = 'text-site-lang-html';
 
-/** 置いた時刻（UTC）。Worker の HTML とブラウザで同じ文字にするため、Intl を使わず ISO の形から作る */
-const formatTime = (at: number) => {
-  const iso = new Date(at).toISOString();
-  return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+/**
+ * 置いた日付（Worker の HTML と、載せる最初の描画）。どの環境でも同じ文字になるよう、Intl を使わず ISO の形から作る（UTC の日付）
+ */
+const formatDate = (at: number, locale: string) => {
+  const date = new Date(at).toISOString().slice(0, 10);
+  return locale === 'en' ? date : date.replaceAll('-', '/');
 };
+
+/** 置いた日時を、見る人の時刻で（読み込みの後だけ。例：日本なら 2026/11/12 17:05） */
+const formatLocalTime = (at: number, locale: string) =>
+  new Intl.DateTimeFormat(
+    locale === 'en' ? 'en-US' : 'ja-JP',
+    locale === 'en'
+      ? { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }
+      : { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' },
+  ).format(at);
+
+/**
+ * 置いた日時。Worker の HTML では日付だけを出し、読み込みの後に見る人の時刻を足す
+ * （Worker は見る人のタイムゾーンを知らない。最初の描画を同じ文字にして、載せるときの食い違いを起こさない）
+ */
+function VersionTime({ at }: { at: number }) {
+  const locale = useLocale();
+  const [local, setLocal] = useState<string | null>(null);
+  useEffect(() => setLocal(formatLocalTime(at, locale)), [at, locale]);
+  return (
+    <time dateTime={new Date(at).toISOString()} data-version-time={local === null ? 'date' : 'local'} className="text-small whitespace-nowrap text-site-fg-2">
+      {local ?? formatDate(at, locale)}
+    </time>
+  );
+}
 
 /**
  * 版のタブの状態。WorkPage が持ち、一覧（右の列）と違い（下の幅いっぱい）に渡す。
@@ -215,9 +241,7 @@ function VersionRow({
           <label htmlFor={checkId} className="text-body font-semibold text-site-fg">
             {copy.work.version(item.version)}
           </label>
-          <time dateTime={new Date(item.at).toISOString()} className="text-small text-site-fg-2">
-            {formatTime(item.at)}
-          </time>
+          <VersionTime at={item.at} />
           {current && <span className={BADGE}>{text.current}</span>}
         </div>
         {/* 数え終えると行が高くなって、下の違いが動かないように、数の行とまとまりの行の高さを先に取っておく（最初の版は、まとまりを出さないので2行） */}
@@ -356,7 +380,8 @@ export function VersionCompare({ work, title, versions, state, frameSize }: { wo
   const text = copy.work.versions;
   const narrow = useMediaQuery(NARROW_QUERY, false);
   const [layout, setLayout] = useState<'split' | 'unified'>('split');
-  const [wrap, setWrap] = useState(false);
+  // スマホ（390）では初めから折り返す（横に送らずにコードを読めるように）。比べる所はブラウザでだけ描くので、初めの値を幅から決めてよい
+  const [wrap, setWrap] = useState(() => typeof window !== 'undefined' && window.matchMedia(NARROW_QUERY).matches);
   const [loaded, setLoaded] = useState<Loaded>({ state: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const headingId = useId();
@@ -431,13 +456,13 @@ export function VersionCompare({ work, title, versions, state, frameSize }: { wo
             </button>
           </p>
         )}
-        {loaded.state === 'ready' && <DiffFiles diff={loaded.diff} before={loaded.before} after={loaded.after} layout={shownLayout} wrap={wrap} />}
+        {loaded.state === 'ready' && <DiffFiles diff={loaded.diff} before={loaded.before} after={loaded.after} layout={shownLayout} wrap={wrap} compact={narrow} />}
       </div>
     </section>
   );
 }
 
-function DiffFiles({ diff, before, after, layout, wrap }: { diff: VersionDiff; before: VersionFiles; after: VersionFiles; layout: 'split' | 'unified'; wrap: boolean }) {
+function DiffFiles({ diff, before, after, layout, wrap, compact }: { diff: VersionDiff; before: VersionFiles; after: VersionFiles; layout: 'split' | 'unified'; wrap: boolean; compact: boolean }) {
   const text = useCopy().work.versions;
   const lines = useMemo(() => {
     const of = (files: VersionFiles) => new Map(namedFiles(files).map((file) => [file.name, splitLines(file.text)]));
@@ -448,7 +473,7 @@ function DiffFiles({ diff, before, after, layout, wrap }: { diff: VersionDiff; b
   return (
     <div className="flex flex-col gap-4">
       {changed.map((file) => (
-        <FileBlock key={file.name} file={file} before={lines.before.get(file.name) ?? []} after={lines.after.get(file.name) ?? []} layout={layout} wrap={wrap} />
+        <FileBlock key={file.name} file={file} before={lines.before.get(file.name) ?? []} after={lines.after.get(file.name) ?? []} layout={layout} wrap={wrap} compact={compact} />
       ))}
       {same.length > 0 && <p className="text-small text-site-fg-2">{text.sameFiles(same.map((file) => file.name).join(', '))}</p>}
     </div>
@@ -456,7 +481,22 @@ function DiffFiles({ diff, before, after, layout, wrap }: { diff: VersionDiff; b
 }
 
 /** 1つのファイルの違い。たためる。行の番号、折り返し、左右か上下 */
-const FileBlock = memo(function FileBlock({ file, before, after, layout, wrap }: { file: FileDiff; before: string[]; after: string[]; layout: 'split' | 'unified'; wrap: boolean }) {
+const FileBlock = memo(function FileBlock({
+  file,
+  before,
+  after,
+  layout,
+  wrap,
+  compact,
+}: {
+  file: FileDiff;
+  before: string[];
+  after: string[];
+  layout: 'split' | 'unified';
+  wrap: boolean;
+  /** 狭い画面：行の番号を1列にして詰める */
+  compact: boolean;
+}) {
   const text = useCopy().work.versions;
   const [open, setOpen] = useState(true);
   const [opened, setOpened] = useState<Set<number>>(() => new Set());
@@ -489,7 +529,7 @@ const FileBlock = memo(function FileBlock({ file, before, after, layout, wrap }:
         {file.replaced && <p className="border-t border-site-line px-3 py-2 text-small text-site-fg-2">{text.replaced}</p>}
         <div className={`border-t border-site-line font-mono text-small ${layout === 'unified' ? 'overflow-x-auto' : ''}`}>
           {layout === 'unified' ? (
-            <UnifiedRows rows={shown} before={before} after={after} lineClass={lineClass} onUnfold={unfold} />
+            <UnifiedRows rows={shown} before={before} after={after} lineClass={lineClass} wrap={wrap} compact={compact} onUnfold={unfold} />
           ) : (
             <SplitRows rows={shown} before={before} after={after} lineClass={lineClass} wrap={wrap} onUnfold={unfold} />
           )}
@@ -507,6 +547,8 @@ const FileBlock = memo(function FileBlock({ file, before, after, layout, wrap }:
 });
 
 const NUMBER = 'w-12 shrink-0 select-none px-2 text-right text-site-fg-2';
+/** スマホの行の番号（1列。幅は桁の数から style で決める） */
+const NARROW_NUMBER = 'shrink-0 select-none pr-1 pl-0.5 text-right text-site-fg-2';
 
 function FoldRow({ row, onUnfold, wide }: { row: Extract<DiffRow, { kind: 'fold' }>; onUnfold: (row: Extract<DiffRow, { kind: 'fold' }>) => void; wide?: boolean }) {
   const text = useCopy().work.versions;
@@ -519,22 +561,58 @@ function FoldRow({ row, onUnfold, wide }: { row: Extract<DiffRow, { kind: 'fold'
   );
 }
 
-/** 上下の1列：前の版の行の番号、後の版の行の番号、印、行 */
-function UnifiedRows({ rows, before, after, lineClass, onUnfold }: { rows: DiffRow[]; before: string[]; after: string[]; lineClass: string; onUnfold: (row: Extract<DiffRow, { kind: 'fold' }>) => void }) {
+/**
+ * 上下の1列：前の版の行の番号、後の版の行の番号、印、行。
+ * compact（スマホ）：行の番号は1列だけにする（消えた行は前の版の番号、ほかは後の版の番号）。幅は桁の数だけ取り、コードに幅を回す
+ */
+function UnifiedRows({
+  rows,
+  before,
+  after,
+  lineClass,
+  wrap,
+  compact,
+  onUnfold,
+}: {
+  rows: DiffRow[];
+  before: string[];
+  after: string[];
+  lineClass: string;
+  wrap: boolean;
+  compact: boolean;
+  onUnfold: (row: Extract<DiffRow, { kind: 'fold' }>) => void;
+}) {
+  const digits = String(Math.max(before.length, after.length, 1)).length;
+  const narrowNumber = { width: `calc(${digits}ch + 6px)` };
   return (
-    <div data-diff-layout="unified" className="min-w-full w-max">
+    // 折り返すときは枠の幅に収める。折り返さないときは、いちばん長い行の幅にして横に送る
+    <div data-diff-layout="unified" className={wrap ? 'w-full' : 'w-max min-w-full'}>
       {rows.map((row, index) => {
         if (row.kind === 'fold') return <FoldRow key={`f${row.a}`} row={row} onUnfold={onUnfold} />;
         const [sign, bg, a, b, line] =
           row.kind === 'del' ? ['−', DEL_BG, row.a + 1, '', before[row.a]] : row.kind === 'add' ? ['+', ADD_BG, '', row.b + 1, after[row.b]] : [' ', '', row.a + 1, row.b + 1, before[row.a]];
         return (
           <div key={index} data-diff-row={row.kind} className={`flex leading-5 ${bg}`}>
-            <span className={NUMBER}>{a}</span>
-            <span className={NUMBER}>{b}</span>
-            <span aria-hidden="true" className={`w-4 shrink-0 select-none text-center ${row.kind === 'add' ? ADD_TEXT : row.kind === 'del' ? DEL_TEXT : ''}`}>
+            {compact ? (
+              <span data-diff-number="" style={narrowNumber} className={NARROW_NUMBER}>
+                {row.kind === 'del' ? a : b}
+              </span>
+            ) : (
+              <>
+                <span data-diff-number="" className={NUMBER}>
+                  {a}
+                </span>
+                <span data-diff-number="" className={NUMBER}>
+                  {b}
+                </span>
+              </>
+            )}
+            <span aria-hidden="true" className={`${compact ? 'w-2.5' : 'w-4'} shrink-0 select-none text-center ${row.kind === 'add' ? ADD_TEXT : row.kind === 'del' ? DEL_TEXT : ''}`}>
               {sign}
             </span>
-            <span className={`min-w-0 flex-1 pr-3 text-site-fg ${lineClass}`}>{line}</span>
+            <span data-diff-code="" className={`min-w-0 flex-1 ${compact ? 'pr-2' : 'pr-3'} text-site-fg ${lineClass}`}>
+              {line}
+            </span>
           </div>
         );
       })}
@@ -639,7 +717,7 @@ const errorOf = (body: { error?: string } | null, status: number) => {
   return error;
 };
 
-/** 「この版に戻す」の確かめの窓。何版の中身で何版を作るかと、自分だけの版になるか審査に回るかを出す。同意の3つは「新しい版を置く」と同じ */
+/** 「この版に戻す」の確かめの窓。何版の中身で何版を作るかと、自分だけの版になるか審査に回るかを出す。同意は、その版を置いた時と同じとして1行の文で知らせる */
 function RevertDialog({ workId, title, current, version, onClose }: { workId: string; title: string; current: string; version: string; onClose: () => void }) {
   const copy = useCopy();
   const locale = useLocale();
@@ -649,7 +727,6 @@ function RevertDialog({ workId, title, current, version, onClose }: { workId: st
   const headingId = useId();
   const [plan, setPlan] = useState<Plan>({ state: 'loading' });
   const [sent, setSent] = useState<Sent>({ state: 'idle' });
-  const [confirm, setConfirm] = useState({ own: false, mit: false, terms: false });
 
   useLayoutEffect(() => {
     const dialog = dialogRef.current!;
@@ -671,17 +748,17 @@ function RevertDialog({ workId, title, current, version, onClose }: { workId: st
   }, [workId, version]);
 
   const close = () => dialogRef.current?.close();
-  const confirmed = confirm.own && confirm.mit && confirm.terms;
 
   const onRevert = async () => {
-    if (plan.state !== 'ready' || !confirmed || sent.state === 'sending') return;
+    if (plan.state !== 'ready' || sent.state === 'sending') return;
     setSent({ state: 'sending' });
     try {
       const response = await fetch(`/api/post/works/${encodeURIComponent(workId)}/revert`, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ version, ...confirm }),
+        // 同意の3つは、窓の1行の文（agreement）のとおりに付ける。戻すのは、前に同じ同意で置いた版なので（今の「新しい版を置く」の口が要る値）
+        body: JSON.stringify({ version, own: true, mit: true, terms: true }),
       });
       const body = (await response.json().catch(() => null)) as { version?: string; status?: string; error?: string } | null;
       if (response.ok && body?.version) {
@@ -735,26 +812,13 @@ function RevertDialog({ workId, title, current, version, onClose }: { workId: st
             {plan.mode === 'private' ? text.private : text.review(current)}
           </p>
           {sent.state !== 'done' && (
-            <fieldset className="mt-4 flex flex-col gap-2.5 text-small">
-              <label className="flex items-start gap-2.5">
-                <input type="checkbox" checked={confirm.own} onChange={(event) => setConfirm({ ...confirm, own: event.target.checked })} className="mt-px size-[18px] shrink-0" />
-                {submit.own}
-              </label>
-              <label className="flex items-start gap-2.5">
-                <input type="checkbox" checked={confirm.mit} onChange={(event) => setConfirm({ ...confirm, mit: event.target.checked })} className="mt-px size-[18px] shrink-0" />
-                {submit.mit}
-              </label>
-              <label className="flex items-start gap-2.5">
-                <input type="checkbox" checked={confirm.terms} onChange={(event) => setConfirm({ ...confirm, terms: event.target.checked })} className="mt-px size-[18px] shrink-0" />
-                <span>
-                  {submit.termsBefore}
-                  <a href={localizedPath(locale, '/terms')} target="_blank" rel="noopener" className="underline">
-                    {submit.termsLink}
-                  </a>
-                  {submit.termsAfter}
-                </span>
-              </label>
-            </fieldset>
+            <p data-revert-agreement="" className="mt-4 text-small text-site-fg-3">
+              {text.agreementBefore}
+              <a href={localizedPath(locale, '/terms')} target="_blank" rel="noopener" className="underline">
+                {text.agreementTerms}
+              </a>
+              {text.agreementAfter}
+            </p>
           )}
         </>
       )}
@@ -774,7 +838,7 @@ function RevertDialog({ workId, title, current, version, onClose }: { workId: st
           <button
             type="button"
             data-revert-confirm=""
-            disabled={plan.state !== 'ready' || !confirmed || sent.state === 'sending'}
+            disabled={plan.state !== 'ready' || sent.state === 'sending'}
             onClick={onRevert}
             className="inline-flex h-11 items-center justify-center gap-2 rounded-control bg-site-primary px-4 font-semibold text-site-bg disabled:opacity-40"
           >
