@@ -235,7 +235,7 @@ function transcript(name) {
   const lines = [
     `# ${spec.prompt}：記録`,
     '',
-    `- 動かした道具：Claude Code ${init?.claude_code_version ?? '?'}（モデル ${init?.model ?? '?'}）を \`claude -p\` で。空のフォルダで動かした。渡した道具は ${(init?.tools ?? []).join('、')}。足したプラグインは ${(init?.plugins ?? []).filter((p) => p.path !== 'builtin').map((p) => p.name).join('、') || '?'}（このリポジトリの \`plugins/ludion\`）だけ`,
+    `- 動かした道具：Claude Code ${init?.claude_code_version ?? '?'}（モデル ${init?.model ?? '?'}）を \`claude -p\` で。どのファイルがどの作品かの覚え（.ludion.json。中身は空）だけを先に置いたフォルダで動かした。渡した道具は ${(init?.tools ?? []).join('、')}。足したプラグインは ${(init?.plugins ?? []).filter((p) => p.path !== 'builtin').map((p) => p.name).join('、') || '?'}（このリポジトリの \`plugins/ludion\`）だけ`,
     '- つないだ先：手元の開発のサーバー（見本のデータ）。本番には送っていない',
     `- 掛かった時間：${result ? result.t.toFixed(1) : '?'} 秒、ターン数：${result?.event.num_turns ?? '?'}、できたファイル：${htmlFiles.join('、') || 'なし'}`,
     '- 下の「答え」は stream-json の出力から機械で取り出した。時刻は始まりからの経過。Write の中身はここには行数だけを書く（中身は隣の HTML）。手元のパスは `<作業フォルダ>` に置き換えた。',
