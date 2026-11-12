@@ -436,8 +436,9 @@ const emptyBoards = BOARDS.filter((b) => b.kind !== 'terminal').map((b) => {
 });
 
 // ---- 「許可する」の画面（手元のサーバーの本物の画面を撮ったもの）。ターミナルの手前に開き、押したら閉じる
-const BR = TL.browser;
+// 板の大きさは、撮った窓の大きさ（CSS の画素）
 const SHOTS = DATA.shots;
+const BR = { ...TL.browser, size: [SHOTS.viewport.width, SHOTS.viewport.height] };
 async function shotTexture(file) {
   const blob = await (await fetch(`${SHOTS.base}${file}`)).blob();
   const bmp = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
@@ -456,7 +457,9 @@ const brBoard = makeBoard(consentTex);
 brBoard.mat.uniforms.uBias.value = -0.4;
 // 開く時刻のコマで、もう見えている（音とのずれを1コマ以内にする）
 const brIn = (t) => (t < BR.in[0] - 1e-6 ? 0 : easeOut(seg(t + 1 / TL.fps, BR.in[0], BR.in[1])));
-const brAlpha = (t) => brIn(t) * (1 - q5(seg(t, BR.out[0], BR.out[1])));
+// 開いたら、BR.opaque 秒以内に不透明になる（透けた画面の字と、後ろのターミナルの字が重なって読めないコマを作らない）。大きさが変わって開く動きは brIn
+const brOpaque = (t) => (t < BR.in[0] - 1e-6 ? 0 : easeOut(seg(t + 1 / TL.fps, BR.in[0], BR.in[0] + BR.opaque)));
+const brAlpha = (t) => brOpaque(t) * (1 - q5(seg(t, BR.out[0], BR.out[1])));
 // 開くときは少し小さい所から、閉じるときは少し小さくなりながら
 const brPop = (t) => mix(0.94, 1, brIn(t)) * mix(1, 0.96, q5(seg(t, BR.out[0], BR.out[1])));
 /** 画面の中の位置（CSS の画素）→ 世界 */
@@ -504,7 +507,8 @@ function cursorState(t) {
   const a = since + 1 / TL.fps;
   const squeeze = since < 0 ? 0 : a < 0.06 ? a / 0.06 : a < 0.24 ? 1 - (a - 0.06) / 0.18 : 0;
   const size = C.size * (1 - 0.16 * squeeze);
-  const tip = pagePt(mix(C.from[0], to[0], u), mix(C.from[1], to[1], u), 6);
+  const from = [to[0] + C.fromOffset[0], to[1] + C.fromOffset[1]]; // 押す所から見た、動き始めの位置
+  const tip = pagePt(mix(from[0], to[0], u), mix(from[1], to[1], u), 6);
   return { tip, size, center: [tip[0] + size * (0.5 - CURSOR_HOT[0]), tip[1] - size * (0.5 - CURSOR_HOT[1]), tip[2]], shown: q5(seg(t, C.move[0] - 0.15, C.move[0] + 0.1)) };
 }
 function updateCursor(t, alpha) {
@@ -1096,7 +1100,22 @@ window.__stage = {
         textInkRatio: Object.fromEntries(FOCUSED.map((id) => [id, Number(((FOCUS.lines[id].ink * 1920) / FOCUS.fw / 1080).toFixed(4))])),
         rightAt: Object.fromEntries(Object.entries(FOCUS.lines).map(([id, l]) => [id, Number((TL.camera.textLeftAt + l.width / FOCUS.fw).toFixed(3))])),
       },
-      browser: { fw: Math.min(...camKeys.filter((k) => k.page).map((k) => k.fw)), shots: SHOTS.base, allowButton: SHOTS.allowButton },
+      browser: {
+        fw: Math.min(...camKeys.filter((k) => k.page).map((k) => k.fw)),
+        shots: SHOTS.base,
+        allowButton: SHOTS.allowButton,
+        // 押す時刻に、「許可する」のボタンの左右に残るすきま（画面の幅との比。小さいほう）
+        buttonGap: (() => {
+          aimCamera(BR.press);
+          const r = pageRect(SHOTS.allowButton, BR.press);
+          return Number((Math.min(r.x, 1920 - (r.x + r.w)) / 1920).toFixed(4));
+        })(),
+        // 開いてから、不透明（濃さ 0.99 以上）になるまでの秒数
+        opaqueAfter: (() => {
+          for (let f = 0; f < TL.fps; f++) if (brAlpha(BR.in[0] + f / TL.fps) >= 0.99) return Number((f / TL.fps).toFixed(3));
+          return null;
+        })(),
+      },
       camera: camKeys.map((k) => ({ t: k.t, fw: Math.round(k.fw), p: k.p.map((v) => Math.round(v)) })),
     };
   },

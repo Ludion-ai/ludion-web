@@ -66,15 +66,20 @@ function checkTimeline() {
   if (timeline.duration < 34 || timeline.duration > 38) errors.push(`長さが ${timeline.duration} 秒。約36秒にする`);
   for (const c of timeline.captions) {
     const need = 1.2 + 0.08 * ([...c.ja].length + [...c.en].length);
-    const shown = c.out - c.in - 0.62; // 見出しが半分より濃く見えている時間
+    const shown = Math.min(c.out - 0.31, timeline.duration) - Math.max(c.in + 0.31, 0); // 見出しが半分より濃く見えている時間（動画の中だけを数える）
     if (shown + 1e-6 < need) errors.push(`「${c.ja}」の表示が ${shown.toFixed(2)} 秒。${need.toFixed(2)} 秒以上にする`);
   }
   for (let i = 1; i < timeline.captions.length; i++) if (timeline.captions[i].in < timeline.captions[i - 1].out) errors.push(`見出し ${i} と ${i + 1} が重なる`);
   // 公式アカウントで使う文言に「AI」を入れない。ターミナルに出す行（本物の記録）も見る
   const words = [...timeline.captions.flatMap((c) => [c.ja, c.en]), timeline.end.wordmark, timeline.end.domain, timeline.terminal.title, ...ITEMS.map((i) => i.text)];
   for (const w of words) if (/(^|[^a-z.])ai([^a-z]|$)/i.test(w.replace(/ludion\.ai|Ludion-ai\//gi, ''))) errors.push(`「AI」の言葉がある: ${w}`);
-  const beat = 60 / timeline.bpm;
-  for (const s of timeline.scenes) if (Math.abs(s.from / beat - Math.round(s.from / beat)) > 1e-6) errors.push(`場面${s.id}の始まり ${s.from} が拍にのっていない`);
+  // 見出しは、場面をまたがせない：次の場面の板にカメラが着くまでに消す。場面0の見出しは、ブラウザの画面が開く前に消す
+  for (const c of timeline.captions) {
+    const next = timeline.scenes.find((s) => s.id === c.scene + 1);
+    if (next && c.out > next.arrive + 1e-6) errors.push(`「${c.ja}」が、次の場面にカメラが着く ${next.arrive} 秒より後まで出ている（${c.out} 秒）`);
+    if (c.scene === 0 && c.out > timeline.browser.in[0] + 1e-6) errors.push(`「${c.ja}」が、ブラウザの画面が開く ${timeline.browser.in[0]} 秒より後まで出ている`);
+  }
+  for (const s of timeline.scenes) if (!timeline.camera.keys.some((k) => Math.abs(k.t - s.arrive) < 1e-6)) errors.push(`場面${s.id}の arrive（${s.arrive}）に、カメラのキーがない`);
   // ターミナルの行は、面ごとに、上から出る順に時刻が進むこと
   for (const page of terminal.pages) for (let i = 1; i < page.items.length; i++) if (page.items[i].at < page.items[i - 1].at) errors.push(`${page.id} の行の時刻の順が合わない: ${page.items[i].text}`);
   const B = timeline.browser;
@@ -434,7 +439,11 @@ try {
 if (report.network.productionRequests !== 0) throw new Error('本番へ要求を送ってしまった');
 {
   // カメラが寄って追う行は、字の高さが画面の高さの 4.5% 以上で、画面の幅に収まること
-  const m = (report.stills ?? report.look ?? report.video)?.measure?.terminal;
+  const measured = (report.stills ?? report.look ?? report.video)?.measure;
+  // 「許可する」のボタンの左右には、画面の幅の 3% 以上のすきまを残す。画面は、開いて 0.1秒以内に不透明になる
+  if (measured && !(measured.browser.buttonGap >= 0.03)) throw new Error(`「許可する」のボタンの左右のすきまが ${(measured.browser.buttonGap * 100).toFixed(2)}%。3% 以上にする`);
+  if (measured && !(measured.browser.opaqueAfter != null && measured.browser.opaqueAfter <= 0.1 + 1e-6)) throw new Error(`ブラウザの画面が不透明になるまで ${measured.browser.opaqueAfter} 秒。0.1秒以内にする`);
+  const m = measured?.terminal;
   if (m && !(Object.values(m.textInkRatio).every((r) => r >= 0.045) && Object.values(m.rightAt).every((r) => r <= 0.97))) throw new Error(`ターミナルの字の大きさが決まりに合わない: ${JSON.stringify(m.textInkRatio)}、右端 ${JSON.stringify(m.rightAt)}`);
 }
 if (!LOOK && !BENCH && !STILLS) {

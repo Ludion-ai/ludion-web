@@ -1,6 +1,7 @@
 // 場面0「入れる」の本物の記録を取る（V006）。オーナーの裏方の道具（CLAUDE.md 原則1）。
 //   node promo/workspace/connect.mjs --persist <置き場> --check        → お金のかからない確かめ：Ludion の道具（ludion.mjs login）を直に流し、「許可する」を押してつながることを見る。画面も撮る（--as scene0 で、動画が使う置き場に撮り直す）
 //   node promo/workspace/connect.mjs --persist <置き場> --run scene0   → Claude Code に /ludion:connect を1回だけ流して記録する（お金がかかる。作り直しはしない）
+//   （--check に --width 420 --height 900 --fit-height を足すと、幅 420 の窓で撮る。動画は、この狭い窓の画面を使う）
 //   node promo/workspace/connect.mjs --transcript scene0               → 生の記録から promo/workspace/records/scene0/ を作り直す（お金はかからない）
 //
 // つなぐ先は、手元の開発のサーバー（LD_DEV_URL、既定 http://localhost:5473）だけ。本番（ludion.ai）には要求を送らない。
@@ -35,7 +36,8 @@ useLocalTemp(); // ブラウザの一時ファイルも、置き場の中に作�
 const RECORDS = resolve(HERE, 'records');
 const BASE = (process.env.LD_DEV_URL || 'http://localhost:5473').replace(/\/+$/, '');
 const RUNS = JSON.parse(readFileSync(resolve(HERE, 'records.json'), 'utf8'));
-const SHOT = { width: 1000, height: 700, scale: 3 }; // 撮る画面の大きさ（CSS の画素）と、細かさ。4K でも寄れるよう3倍で撮る
+// 撮る画面（ブラウザの窓）の大きさ（CSS の画素）と、細かさ。4K でも寄れるよう3倍で撮る。--width と --height で窓の大きさを選べる。--fit-height は、窓の高さを中身に合わせる
+const SHOT = { width: Number(valueOf('--width') || 1000), height: Number(valueOf('--height') || 700), scale: 3 };
 
 mkdirSync(OUT, { recursive: true });
 const log = (entry) => {
@@ -90,6 +92,12 @@ async function allowInBrowser(name, drop, waitMs = 120000) {
     const allow = page.getByRole('button', { name: '許可する' });
     await allow.waitFor({ timeout: 15000 });
     await page.evaluate(() => document.fonts.ready);
+    if (has('--fit-height')) {
+      // 窓の高さを、中身のいちばん下＋余白に合わせる（幅は変えないので、字の並びは変わらない）
+      const bottom = await page.evaluate(() => Math.max(...[...document.querySelectorAll('main *')].map((el) => el.getBoundingClientRect().bottom)));
+      SHOT.height = Math.ceil(bottom + 48);
+      await page.setViewportSize({ width: SHOT.width, height: SHOT.height });
+    }
     const box = await allow.boundingBox();
     const texts = await page.evaluate(() => [...document.querySelectorAll('h1, h2, p, li, button, a')].map((el) => (el.textContent ?? '').replace(/\s+/g, ' ').trim()).filter(Boolean));
     // 画面の字の四角（1行ごと）。動画の見出しが字に重ならないことを確かめるのと、描いた絵から字の高さを測るのに使う
