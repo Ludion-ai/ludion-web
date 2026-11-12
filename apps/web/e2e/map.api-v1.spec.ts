@@ -70,6 +70,13 @@ function get(key: string | null, path: string, headers: Record<string, string> =
   return fetch(new URL(path, ownOrigin()), { redirect: 'manual', headers: { 'Accept-Language': 'en', ...(key === null ? {} : { Authorization: `Bearer ${key}` }), ...headers } });
 }
 
+/** 状態だけを見るときも、本文を最後まで読む（大きい本文を読まずに次の要求を出すと、手元の Node の fetch が閉じた接続で落ちる）。 */
+async function statusOf(response: Response | Promise<Response>): Promise<number> {
+  const got = await response;
+  await got.arrayBuffer();
+  return got.status;
+}
+
 async function put(key: string, html: string, workId?: string): Promise<{ id: string; version: string }> {
   const response = await fetch(new URL(workId ? `/api/v1/works/${workId}/versions` : '/api/v1/works', ownOrigin()), {
     method: 'POST',
@@ -268,7 +275,7 @@ test.describe('AI の口：まず地図、次に要る部分', () => {
     const changed = await get(owner.key, `/api/v1/works/${id}/code?section=shader:WINDOW_FRAG&version=1`);
     expect(changed.status).toBe(409);
     expect(await changed.json()).toMatchObject({ error: 'version_changed', current_version: '2' });
-    expect((await get(owner.key, `/api/v1/works/${id}/code?section=shader:WINDOW_FRAG&version=2`)).status).toBe(200);
+    expect(await statusOf(get(owner.key, `/api/v1/works/${id}/code?section=shader:WINDOW_FRAG&version=2`))).toBe(200);
   });
 
   test('部品の形の作品：3つのファイル。今までの GET /works/:id は変わらない。地図のない版は、初めて読むときに作って置く', async () => {
@@ -367,7 +374,7 @@ test.describe('だれが読めるか', () => {
 
     // 本人：AI の鍵、つないだトークン
     for (const key of [owner.key, ownerToken]) {
-      for (const path of paths) expect((await get(key, path(id))).status, path(id)).toBe(200);
+      for (const path of paths) expect(await statusOf(get(key, path(id))), path(id)).toBe(200);
     }
     // 本人：セッションの cookie は、サイトの口だけ（AI の口は cookie を読まない）
     const mapByCookie = await owner.visitor.fetch(`/p/${id}.json`);
@@ -382,7 +389,8 @@ test.describe('だれが読めるか', () => {
     expect(rawByCookie.headers.get('cache-control')).toBe(NO_STORE);
     expect(rawByCookie.headers.get('content-type')).toBe('text/plain; charset=utf-8');
     expect(rawByCookie.headers.get('x-content-type-options')).toBe('nosniff');
-    for (const path of paths.slice(0, 4)) expect((await owner.visitor.fetch(path(id))).status, `cookie ${path(id)}`).toBe(404);
+    expect((await rawByCookie.text()).split('\n')[1]).toBe(`<!-- UI by @${owner.handle} — ludion.ai/p/${id} (MIT) -->`);
+    for (const path of paths.slice(0, 4)) expect(await statusOf(owner.visitor.fetch(path(id))), `cookie ${path(id)}`).toBe(404);
 
     // ほかの人：鍵なし、ほかの人の cookie・鍵・トークン、運営。ない作品と、状態も本文も同じ
     const actors: [string, (path: string) => Promise<Response>][] = [
@@ -404,14 +412,14 @@ test.describe('だれが読めるか', () => {
       }
     }
     // 違う鍵：AI の口は今までどおり 401。サイトの口は、ない作品と同じ 404
-    for (const path of paths) expect((await get('ld_wrong', path(id))).status, path(id)).toBe(path(id).startsWith('/api/') ? 401 : 404);
+    for (const path of paths) expect(await statusOf(get('ld_wrong', path(id))), path(id)).toBe(path(id).startsWith('/api/') ? 401 : 404);
     // 鍵なしで読めるのは、地図と要る部分の GET だけ。ほかの道は今までどおり 401
     for (const [path, method] of [['/api/v1/works', 'GET'], [`/api/v1/works/${id}`, 'GET'], [`/api/v1/works/${PUBLIC_WORK}`, 'GET'], [`/api/v1/works/${PUBLIC_WORK}/outline`, 'POST'], [`/api/v1/works/${PUBLIC_WORK}/versions`, 'POST']] as const) {
-      expect((await fetch(new URL(path, ownOrigin()), { method })).status, `${method} ${path}`).toBe(401);
+      expect(await statusOf(fetch(new URL(path, ownOrigin()), { method })), `${method} ${path}`).toBe(401);
     }
     // サイトの口を鍵で読むと、AI の口の読み取りとして数える
     const before = reads(owner.id);
-    expect((await get(owner.key, `/p/${id}.json`)).status).toBe(200);
+    expect(await statusOf(get(owner.key, `/p/${id}.json`))).toBe(200);
     expect(reads(owner.id)).toBe(before + 1);
   });
 
@@ -466,9 +474,9 @@ test.describe('だれが読めるか', () => {
     // 版のファイルの名前だけ。ほかの名前は 404（文字で返す）
     for (const file of ['meta.json', 'outline.json', 'thumb.webp', 'index.html', '..%2Fmeta.json', 'part.css%2F..%2Fmeta.json']) {
       const response = await get(null, `/p/${PUBLIC_WORK}/raw/${file}`);
-      expect(response.status, file).toBe(404);
       expect(response.headers.get('content-type'), file).toBe('text/plain; charset=utf-8');
       expect(response.headers.get('cache-control'), file).toBe(NO_STORE);
+      expect(await statusOf(response), file).toBe(404);
     }
     // ない作品の地図は JSON の 404。作品のページ（HTML）にはならない
     const none = await get(null, `/p/${unique('missing-')}.json`);
@@ -476,8 +484,8 @@ test.describe('だれが読めるか', () => {
     expect(await none.json()).toEqual({ error: 'not_found' });
     // 作品のページは今までどおり
     const page = await get(null, `/p/${PUBLIC_WORK}`);
-    expect(page.status).toBe(200);
     expect(page.headers.get('content-type')).toContain('text/html');
+    expect(await statusOf(page)).toBe(200);
 
     // どれを読んでも、閲覧数は増えない
     expect(views(PUBLIC_WORK)).toBe(seen);
@@ -491,8 +499,8 @@ test.describe('だれが読めるか', () => {
     const first = latest(id);
     // 公開するにはサムネイルが要る。ここでは D1 で入れて、公開の流れだけを通す（api-v1.spec.ts と同じ）
     d1(`UPDATE revisions SET thumb_w = 800, thumb_h = 600 WHERE id = ${quote(first.id)}`);
-    expect((await owner.visitor.post(`/api/post/works/${id}/publish`, CONFIRM)).status).toBe(200);
-    expect((await reviewer.visitor.post(`/api/review/revisions/${first.id}/approve`, { content_hash: first.content_hash })).status).toBe(200);
+    expect(await statusOf(owner.visitor.post(`/api/post/works/${id}/publish`, CONFIRM))).toBe(200);
+    expect(await statusOf(reviewer.visitor.post(`/api/review/revisions/${first.id}/approve`, { content_hash: first.content_hash }))).toBe(200);
     await put(owner.key, bigDoc('Public Window', 'draft'), id);
 
     const shader = (key: string | null, query = '') => get(key, `/api/v1/works/${id}/code?section=shader:WINDOW_FRAG${query}`);
@@ -504,13 +512,14 @@ test.describe('だれが読めるか', () => {
       expect(theirs.version).toBe('1');
       expect(theirs.code).toContain('// public');
       // 下書きの版は、番号を言っても読めない
-      expect((await shader(key, '&version=2')).status).toBe(409);
+      expect(await statusOf(shader(key, '&version=2'))).toBe(409);
     }
     // 本人は、公開の版の番号を言えば、公開の版も読める（get_public_work の地図の続き）
     const pinned = (await (await shader(owner.key, '&version=1')).json()) as PartBody;
     expect(pinned.code).toContain('// public');
     // サイトの口は、本人にも公開の版（人によって変えない）
-    for (const response of [await owner.visitor.fetch(`/p/${id}/raw/index.html`), await get(owner.key, `/p/${id}/raw/index.html`), await get(null, `/p/${id}/raw/index.html`)]) {
+    for (const read of [() => owner.visitor.fetch(`/p/${id}/raw/index.html`), () => get(owner.key, `/p/${id}/raw/index.html`), () => get(null, `/p/${id}/raw/index.html`)]) {
+      const response = await read();
       expect(response.headers.get('cache-control')).toBe(PAGE_CACHE_CONTROL);
       const text = await response.text();
       expect(text).toContain('// public');
