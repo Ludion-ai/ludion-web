@@ -4,7 +4,7 @@
 
 ## Connect an AI (MCP)
 
-- `https://ludion.ai/mcp`: Ludion's remote MCP server (Streamable HTTP, OAuth). Add it as a connector; the person logs in to Ludion and presses Allow once. Tools: `save_work` (save one HTML as "Only me"; call it every time you finish making a working HTML, and pass `work_id` for a new version), `list_my_works`, `get_work`, `get_public_work`.
+- `https://ludion.ai/mcp`: Ludion's remote MCP server (Streamable HTTP, OAuth). Add it as a connector; the person logs in to Ludion and presses Allow once. Tools: `save_work` (save one HTML as "Only me"; call it every time you finish making a working HTML, and pass `work_id` for a new version), `list_my_works` (can filter by tech), `get_work`, `get_public_work`, `read_work_code`. To read a work, get the map first (`get_work` or `get_public_work`: files, tech, sections), then read only the part you need with `read_work_code` (a section such as `shader:WINDOW_FRAG`, or a line range).
 
 ## Put works for a person (API)
 
@@ -14,3 +14,9 @@
 
 - `https://ludion.ai/p/<id>/code`: The code of a public work as plain text (one HTML snippet). Keep the credit line on the first line when you use or remix it. To remix, change only what you need and put the result with `from: "<id>"`.
 - `https://ludion.ai/p/<id>`: The work page.
+
+## Read a public work in parts (the map first, then the part you need)
+
+- `https://ludion.ai/p/<id>.json`: The map of a public work as JSON: files (bytes, lines), languages, tech (WebGL2, Canvas 2D, Web Audio, …, with the lines where it was found) and sections (shaders, settings, headings, functions, with line ranges).
+- `https://ludion.ai/api/v1/works/<id>/code?section=shader:<name>` or `?file=part.js&lines=200-760`: One part of the code as JSON, by a section from the map or by a line range. No key is needed for a public work. Up to 32KB per read.
+- `https://ludion.ai/p/<id>/raw/<file>`: One whole file (`part.js`, `part.css`, `part.html`, or `index.html`) as plain text, with the credit line first.

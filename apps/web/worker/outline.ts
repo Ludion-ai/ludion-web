@@ -1,6 +1,6 @@
 // 作品の中身の地図（WS002）。版を置くときに作り、R2 の版の置き場に outline.json として置く。
-// 今ある版は、初めて要るときに作って置く（loadOutline。画面と AI の口は WS003、WS006 で使う）。
-// 地図が作れなくても、置くことは止めない（記録だけ）。地図を返す道はまだ作らない（自分だけの作品の地図を、ほかの人が読めないように）。
+// 今ある版は、初めて要るときに作って置く（loadOutline）。
+// 地図が作れなくても、置くことは止めない（記録だけ）。地図を返す道は worker/workRead.ts（WS006）。だれが読めるかは、そこで決める。
 // R2 の型に頼らない（e2e の試験から偽の置き場で呼べるように）。R2Bucket はそのまま渡せる。
 
 import { OUTLINE_FILE, OUTLINE_VERSION, buildOutline, type Outline, type OutlineInput } from '@ludion/outline';

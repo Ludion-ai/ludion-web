@@ -379,7 +379,7 @@ R2（`ludion-parts`）：版の `r2_prefix` の下に `part.html`、`part.css`�
   - ホームの HTML には、c、sort、q、type のどの組み合わせでも `Cache-Tag: catalog` を付け、`Cache-Control` は `s-maxage=60` にする。
   - 作品の承認、版の差し替え、取り下げのときに `ctx.cache.purge({ tags: ["catalog"] })` を呼ぶ。タグで消すので、q 付きの URL もキャッシュしてよく、消し残りも出ない。
   - Workers Cache の今の状態（ベータかどうか、料金、purge の回数の上限）は、`docs/reports/T012.md` に出典と一緒に書いた。
-  - キャッシュは許したものだけ（`apps/web/worker/cachePolicy.ts`、`apps/web/e2e/cache.spec.ts`）。許すのは、ホーム（URL の値つきを含む）、作品のページ、作り手のページの HTML、作品のコードの文字（`/p/:id/code`。「13」）と `/sitemap.xml`（`public, max-age=0, s-maxage=60`、`Cache-Tag: catalog`）、`/privacy` と `/about` の HTML（同じ指示で、札なし）、サムネイル（`public, max-age=3600, s-maxage=31536000`、札は作品ごと）、アバター、`/assets/` の静的アセット（`public, max-age=31536000, immutable`）の 200 だけ。それ以外は `private, no-store`。`Set-Cookie` を含む応答は、どんな場合もキャッシュしない。枠（`/frame/...`）と OG 画像もキャッシュしない。
+  - キャッシュは許したものだけ（`apps/web/worker/cachePolicy.ts`、`apps/web/e2e/cache.spec.ts`）。許すのは、ホーム（URL の値つきを含む）、作品のページ、作り手のページの HTML、作品のコードの文字（`/p/:id/code`。「13」）、作品の地図（`/p/<id>.json`）とファイルの生の文字（`/p/<id>/raw/<file>`。「13」）と `/sitemap.xml`（`public, max-age=0, s-maxage=60`、`Cache-Tag: catalog`）、`/privacy` と `/about` の HTML（同じ指示で、札なし）、サムネイル（`public, max-age=3600, s-maxage=31536000`、札は作品ごと）、アバター、`/assets/` の静的アセット（`public, max-age=31536000, immutable`）の 200 だけ。それ以外は `private, no-store`。`Set-Cookie` を含む応答は、どんな場合もキャッシュしない。枠（`/frame/...`）と OG 画像もキャッシュしない。
   - キャッシュのキーにホストも cookie も入らない。だから人によって変わる応答を一覧に足さない。workers.dev と ludion.ai で同じ項目を使うので、HTML の中の絶対 URL は ludion.ai にする。
   - 同じ理由で、`www.ludion.ai` は `ludion-web` につながず、転送だけをする別の Worker（`apps/web/www-redirect/`）で `https://ludion.ai` へ 301 で送る。
   - 取り下げのときは、作品のサムネイルの札（`work-<id>`）も消す。当たると Worker の「承認済みか」の確かめを通らないため。
@@ -490,6 +490,7 @@ Worker で描く。ヘッダー、サイドバー、下のタブはホームと�
     - 入力欄を2行にし、選ぶところを低くしているのは、幅1440×900 で日本語のシートがボタンの下に入る高さ（434px）に収めるため。
   - 入力は form に入れず、どこへも送らず、保存もしない（CLAUDE.md 原則6）。指示文の型は `copy.ts` と `copy.en.ts` の `work.remix.prompt`、`promptUrl`、`promptFull`。英語のページでは指示文も英語。
 - コードを文字で返す口 `GET /p/<id>/code`（`worker/pages.ts` の `renderWorkCode`）：承認済みの作品の今の版の「コピーされるコード」を、「Copy code」と1文字も違わない形で返す（リミックスは2行目に元の作品のクレジット行。CLAUDE.md「コピーされるコード」）。`Content-Type: text/plain; charset=utf-8`、`X-Content-Type-Options: nosniff`。ない作品と承認されていない作品は 404（文字で返す）。人で変えない。キャッシュは作品のページと同じ（「10」）。回数の制限は束縛 `LIMIT_COUNT`（キャッシュに当たった分は数えない）。`robots.txt` で止める（`Disallow: /p/*/code`）。開いてもコピー数は数えない。英語の道（`/en/p/<id>/code`）は作らない。
+- 作品の地図とファイルの生の文字（WS006。`worker/workSite.ts`）：`GET /p/<id>.json` は、今の版の地図（ファイルと行の数、言語、技術と見つけた行、分け目。`packages/outline`）と、読む先の住所を JSON で返す。`GET /p/<id>/raw/<file>` は、1つのファイル（`part.html`、`part.css`、`part.js`、文書の作品は `index.html`）の生の文字を返す（`text/plain; charset=utf-8`、`nosniff`）。頭にクレジット行を入れる（`/p/<id>/code` と同じ決まり：1行目は作者、リミックスは次の行に元の作品。文書の作品は `<!doctype>` の直後）ので、行の番号は地図とその行の数だけずれる。行で読むのは AI の口（`/api/v1/works/:id/code`）。公開の作品はだれにでも同じ中身で、キャッシュは作品のページと同じ（「10」）。自分だけの作品は、本人の鍵（セッションの cookie、AI の鍵、AI につないだトークン）でだけ読め、残さない（`private, no-store`）。ほかの人には、ない作品と同じ 404。回数の制限は束縛 `LIMIT_COUNT`（鍵の確かめより先）。`robots.txt` で止める。開いても閲覧数とコピー数は数えない。
 - 壁紙にする（WALL001。`components/WallpaperSheet.tsx`、`lib/wallpaper.ts`）：種類が壁紙の作品（`subtype` が `Wallpaper`）にだけ、「リミックス」の横に同じ形のボタンを置く（2つで幅を分ける）。ほかの作品では「リミックス」だけで、今までどおり。
   - 押すと、リミックスと同じ形のシート（閉じ方、置き方、幅）。中身は上から：見出し、「静止画で使う（アプリ不要）」（下の「静止画」。静止画のある作品だけ）、「動く壁紙にする（無料のアプリを1回入れる）」の見出しの下に Mac（「Plash に入れる」〈`plash:add?url=<全画面の住所>&title=<題>`。値は URL の形に符号化〉、Plash の入れ方〈App Store のリンク〉、住所の欄と「住所をコピー」）、Windows（「Windows アプリで設定」〈`ludion://wall/<id>`。APP001〉と「Ludion の Windows アプリ（無料）を使います。アプリを入れる」、その下に「Lively Wallpaper で使う」：Lively Wallpaper の入れ方〈Microsoft Store のリンク〉、手順2行〈Lively を開き「＋」（壁紙を追加）を押す → 「URL を入力」に住所を貼る〉、住所の欄と「住所をコピー」）、ほかのアプリ（「HTML を保存」：コピーされるコードと1文字も違わない中身を `<id>.html` で保存）、最後に「動きと音のある壁紙は、電池と GPU を使います。」。
   - 全画面の住所はいつも本番の `https://ludion.ai/p/<id>/wall`。
@@ -589,7 +590,7 @@ GA4 の利用規約（Google Analytics Terms of Service の「7. Privacy」）�
 - 全部の投稿は、公開の前に運営が見る（審査）。自動の検査を通っても、それだけで公開しない。直した版も毎回見る。自分だけの作品（本人だけが見られる）は審査しない。公開するときに審査する。
 - 自分だけの作品（docs/tasks/T036.md）：
   - `/new` の最後に「自分だけ」（初めの値）か「公開」を選ぶ。自分だけは審査に出さず、すぐ置く（版は `private`、作品は `private`）。検査と同意の3つと題は公開と同じに要る。サムネイルは無くてよい。置いた後は作品のページへ進む。公開している作品の新しい版は、今までどおり審査する。
-  - 本人のほかは、ログインしていない人、ほかの人、運営も、ない作品と同じ 404。作品のページ、`/p/<id>/code`、枠、ファイル、サムネイル、OG 画像、`/api`、一覧、検索、作り手のページ、`sitemap.xml`、数、ほかの作品の並び、リミックスの元の帯。運営は審査に出された版だけを見る。
+  - 本人のほかは、ログインしていない人、ほかの人、運営も、ない作品と同じ 404。作品のページ、`/p/<id>/code`、`/p/<id>.json`、`/p/<id>/raw/<file>`、枠、ファイル、サムネイル、OG 画像、`/api`、一覧、検索、作り手のページ、`sitemap.xml`、数、ほかの作品の並び、リミックスの元の帯。運営は審査に出された版だけを見る。
   - 本人の作品のページは下書きの枠（`/draft-frame/<版の id>/…`）で動かす。応答は `Cache-Control: private, no-store`、`Referrer-Policy: no-referrer`、`X-Robots-Tag: noindex`。閲覧数とコピー数を数えず、GA4 を動かさない（ページの URL に作品の ID が入るため）。いいね、しおり、共有、リミックス、知らせるは出さない。
   - 自分だけ → 公開する：今の版を審査に出す。承認で公開。差し戻されたら自分だけのまま。公開 → 自分だけにする：すぐ。閲覧数とコピー数とほかの人のリミックスは残す。リミックスの作品のページの帯は「元の作品：〈題〉（@作者）」と元へのリンク。元が公開されていなければ「元の作品は見られません」でリンクなし。コピーされるコードの2行目はそのまま。
   - 1人100作品まで。置く回数の上限は保存の上限（`quotas`）と同じ。退会すると、自分だけの作品も取り下げ（`rejected`、版は `revoked`）になり、だれにも見えない。
