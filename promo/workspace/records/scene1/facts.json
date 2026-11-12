@@ -1,0 +1,11 @@
+{
+  "name": "scene1",
+  "prompt": "押すと波紋が広がるボタンを1つの HTML で作って",
+  "claudeCode": "2.1.322",
+  "model": "claude-fable-5-2",
+  "seconds": 17.5,
+  "turns": 2,
+  "files": [
+    "ripple-button.html"
+  ]
+}
