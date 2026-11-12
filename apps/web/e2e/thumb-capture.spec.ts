@@ -363,11 +363,16 @@ test.describe('サムネイルを自動で撮る（THUMB001）', () => {
     const frames = watchDraftFrames(page);
     await openAs(page, owner.visitor, '/account/works');
     const row = page.locator(`[data-own-work="${id}"]`);
-    // 何も押さない。頭文字 → 枠（1280×800。縮めて見せる。守りは今の枠と同じ）→ 画像
+    // 何も押さない。頭文字 → 画像。撮る枠は 1280×800 で、画面の左上に透明で置く（見せない、触れない）。守りは今の枠と同じ
+    const stage = page.locator('iframe[data-auto-thumb-frame]');
+    await expect(stage).toHaveAttribute('sandbox', 'allow-scripts allow-forms');
+    await expect(stage).toHaveAttribute('src', `${oldFrame}?capture=1`);
+    expect(await stage.evaluate((element: HTMLIFrameElement) => [element.offsetWidth, element.offsetHeight, getComputedStyle(element).opacity, getComputedStyle(element).pointerEvents, element.tabIndex])).toEqual([1280, 800, '0', 'none', -1]);
     const thumb = row.locator('img:not([data-auto-thumb-shot])');
     await expect(thumb).toBeVisible({ timeout: 60_000 });
     expect(frames).toEqual([`${oldFrame}?capture=1`]);
     await expect(row.locator('[data-auto-thumb]')).toHaveCount(0);
+    await expect(stage).toHaveCount(0);
     await expect(row.getByRole('button', { name: `${title}に画像を付ける` })).toHaveText('画像を変える');
 
     // 新しい版に画像が付き、今の版になった。枠の全部（1280×800）の絵なので、サムネイルは 800×500
@@ -402,6 +407,34 @@ test.describe('サムネイルを自動で撮る（THUMB001）', () => {
     // 画像が付いたので、今の「公開する」（審査に出す）がそのまま通る
     const publish = await owner.visitor.post(`/api/post/works/${id}/publish`, CONFIRM);
     expect(publish.status, await publish.clone().text()).toBe(200);
+  });
+
+  test('画面の外の行も、スマホの幅でも、上から順に全部撮る（動かさなくてよい）。絵は 1280×800 の枠のまま', async ({ page, browserName }) => {
+    test.skip(browserName === 'webkit', 'WebKit では自動で撮らない（下の試験）');
+    test.setTimeout(120_000);
+    const owner = await person('autolist');
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i += 1) ids.push(await putDocument(owner.visitor, plainDoc(unique(`Auto List ${i} `))));
+    await page.setViewportSize({ width: 390, height: 600 });
+    await openAs(page, owner.visitor, '/account/works');
+    const rows = page.locator('[data-own-work]');
+    await expect(rows).toHaveCount(3);
+    const order = await rows.evaluateAll((items) => items.map((item) => item.getAttribute('data-own-work')));
+    expect([...order].sort()).toEqual([...ids].sort());
+    // 下の2行は画面の外。動かさずに待つ
+    expect(await rows.last().evaluate((row) => row.getBoundingClientRect().top > window.innerHeight)).toBe(true);
+    for (const id of order) await expect(page.locator(`[data-own-work="${id}"] img:not([data-auto-thumb-shot])`)).toBeAttached({ timeout: 60_000 });
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    // 並びは動かない。どの作品も版が1つ増えただけ
+    expect(await rows.evaluateAll((items) => items.map((item) => item.getAttribute('data-own-work')))).toEqual(order);
+    for (const id of ids) expect((await listedWork(owner.visitor, id)).versions).toBe(2);
+    // いちばん下の作品の絵も、幅 1280 の枠の絵（800×500。地の紺と、カードの橙）
+    const colors = await colorShares(rows.last().locator('img:not([data-auto-thumb-shot])'), [NAVY, ORANGE]);
+    expect(colors.size).toEqual([800, 500]);
+    expect(colors.shares[0], JSON.stringify(colors)).toBeGreaterThan(0.5);
+    expect(colors.shares[1], JSON.stringify(colors)).toBeGreaterThan(0.02);
+    // 撮る枠は、ページを横に広げない
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 
   test('契約の形の部品（WebGL の canvas）も撮れて、部品のまわりを切り出した絵になる。撮れないブラウザでは、付けずに頭文字のまま', async ({ page, browserName }) => {
@@ -480,7 +513,7 @@ test.describe('サムネイルを自動で撮る（THUMB001）', () => {
     await expect(row.locator('[data-auto-thumb="stopped"]')).toBeVisible({ timeout: 60_000 });
     expect(frames).toEqual([`/draft-frame/${before.revision.id}/desktop.html?capture=1`]);
     await expect(row.locator('[data-no-thumb]')).toBeVisible();
-    await expect(row.locator('iframe')).toHaveCount(0);
+    await expect(page.locator('iframe[data-auto-thumb-frame]')).toHaveCount(0);
     expect((await editable(owner.visitor, id)).revision.id).toBe(before.revision.id);
     expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? '[]') as string[], AUTO_THUMB_SKIP_KEY)).toContain(before.revision.id);
 

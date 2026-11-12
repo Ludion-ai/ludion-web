@@ -190,7 +190,8 @@ AI がふつうに書いた1つの HTML 文書を、そのまま置き、その�
 - 種類は画面（`screen`）。部品の種類（`Components`）の作品やリミックスの元から来ても、文書の版は `Web` にする（中央寄せだと背景が縮むため）。ID は題（`<title>`）の英数字から作る。
 - 持ち方：R2 の版の置き場に `meta.json`（`"format": "document"`）と `index.html` だけ（ほかに、サイトが作る地図 `outline.json`）。D1 は変えない（migration なし）。`loadRevisionFiles` は `part.html` がないときだけ `index.html` を読むので、今ある作品の読み方は変わらない。
 - 枠（`/frame/...`、`/draft-frame/...`）は、文書を1文字も変えずに返し、`<!doctype>` の直後（なければ頭）に、サイトの小さなスクリプト（CSP の meta、storage の代わり、DPR、「読み込めた」の知らせ、「動きを見る」のときの matchMedia）だけを差し込む（`packages/render/src/document.ts`）。応答の頭、`Sec-Fetch-Dest` の確かめ、sandbox、`frame-ancestors` は今の枠と同じ。文書の CSS の `@media (prefers-reduced-motion)` は書き換えない。
-- 画像を付ける（11/12、DOC002）：自分だけの作品は、「自分の作品」と作品のページの「画像を付ける」で、画像だけを足した新しい版を今の版にできる（`POST /api/post/works/:id/thumb`。今の版のファイルを写す。今の版は書き換えない）。文書の作品は、持ち主の下書きの枠（`/draft-frame/...?capture=1`）にだけ撮る仕掛け（`packages/render/src/capture.ts`）を差し込み、枠の中で DOM を SVG の foreignObject（data:）で絵にする。公開の枠と、`capture` のない枠の HTML は変えない。撮れないとき（白紙、汚れた、Shadow DOM の中がある）は、ファイルを選ぶ。
+- 画像を付ける（11/12、DOC002）：自分だけの作品は、「自分の作品」と作品のページの「画像を付ける」で、画像だけを足した新しい版を今の版にできる（`POST /api/post/works/:id/thumb`。今の版のファイルを写す。今の版は書き換えない）。持ち主の下書きの枠（`/draft-frame/...?capture=1`）にだけ撮る仕掛け（`packages/render/src/capture.ts`）を差し込み、枠の中で DOM を SVG の foreignObject（data:）で絵にする（文書の作品も、契約の形の作品も。契約の形は、枠の Shadow DOM の中身を写す）。公開の枠、運営が審査で見る枠、`capture` のない枠の HTML は変えない。撮れないとき（白紙、汚れた、作品が自分で作った Shadow DOM がある）は、ファイルを選ぶ。
+- サムネイルを自動で撮る（11/12、THUMB001）：画像のない自分だけの作品は、持ち主が「自分の作品」を開くと、持ち主のブラウザが同じ枠から1つずつ撮って付ける（`apps/web/src/components/AutoThumb.tsx`。サーバーでは作品を描画しない）。送る先は同じ口に `?only_missing=1`（今の版に画像がないときだけ足す。最後に変えた日は動かさない）。人が絵を見ないので、canvas が写っていない絵は付けない。撮れなかった版はそのブラウザが覚えて、もう試さない。WebKit（Safari、iPhone の全部のブラウザ）では撮らない。人が付ける道はそのまま。
 - コピーされるコードは、その文書。クレジット行は `<!doctype html>` の直後に入れる（前に入れると互換モードになるため。だから文書の作品では、クレジット行は2行目になる）。リミックスの2行目も同じ場所。置くときは、その場所にあるクレジット行を外す（取ったコードを送り直しても重ならない）。
 
 ```html
