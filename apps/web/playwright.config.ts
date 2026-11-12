@@ -92,6 +92,10 @@ export default defineConfig({
     { name: 'escape-chromium', testMatch: /frame-escape\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
     { name: 'escape-webkit', testMatch: /frame-escape\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     { name: 'escape-firefox', testMatch: /frame-escape\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
+    // 文書の作品の「画像を付ける」（DOC002）。枠から撮る、画像だけを足す口、公開に回す。人と作品は HTTP だけで作るので pages で流す
+    { name: 'thumb-capture-chromium', testMatch: /thumb-capture\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
+    { name: 'thumb-capture-firefox', testMatch: /thumb-capture\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
+    { name: 'thumb-capture-webkit', testMatch: /thumb-capture\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     // 文書の作品の枠（DOC001）。守りが今の枠と同じであることを、SEC001 の形で全部のブラウザで確かめる。
     // WebKit を theme-press-webkit のすぐ前に置く。時間を測る試験が、shard の中で最初に WebKit を起こす試験にならないように
     { name: 'document-chromium', testMatch: /frame-document\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
@@ -116,11 +120,6 @@ export default defineConfig({
     { name: 'frame-storage-chromium', testMatch: /frame-storage\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
     { name: 'frame-storage-webkit', testMatch: /frame-storage\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     { name: 'frame-storage-firefox', testMatch: /frame-storage\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
-    // 文書の作品の「画像を付ける」（DOC002）。枠から撮る、画像だけを足す口、公開に回す。人と作品は HTTP だけで作るので pages で流す。
-    // theme-press-webkit より後に置く（前に置くと shard の中の並びがずれ、時間を測るその試験が重い試験と同時に走って落ちた）
-    { name: 'thumb-capture-chromium', testMatch: /thumb-capture\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
-    { name: 'thumb-capture-firefox', testMatch: /thumb-capture\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
-    { name: 'thumb-capture-webkit', testMatch: /thumb-capture\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     // 順に走らせる。テストが wrangler d1 execute で同じ D1 のファイルを開くので、並行にサーバーへ要求を出すと、
     // 手元の D1 が「Failed to get session commit token」で 500 を返すことがある
     // workers: 1 は、ファイルをまたいでも同時に走らせないため（1つの D1 を3つのファイルで使う）
