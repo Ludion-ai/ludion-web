@@ -193,14 +193,21 @@ test.describe('文書の作品（DOC001）も外のサイトの中で動く', ()
       // 作品の枠の応答を止めておき、読み込まれる前の地を見る。外のページの load は枠を待つので、住所が変わったところまでで進む
       let release = () => {};
       const held = new Promise<void>((resolve) => (release = resolve));
-      const framePath = `${ownOrigin()}/frame/${id}/1/embed.html`;
-      await context.route(framePath, async (route) => {
-        await held;
-        await route.continue();
-      });
+      // 枠の URL に問い（?from= など）が付いても止める。止めた数も数える（止められていないのに通る、を防ぐ）
+      let heldRequests = 0;
+      const framePath = `/frame/${id}/1/embed.html`;
+      await context.route(
+        (url) => url.origin === ownOrigin() && url.pathname === framePath,
+        async (route) => {
+          heldRequests += 1;
+          await held;
+          await route.continue();
+        },
+      );
       await openOutside(context, page, `${ownOrigin()}/e/${id}`, 'commit');
       const frameElement = embed(page).locator('iframe[data-ld-frame]');
       await expect(frameElement).toBeAttached();
+      await expect.poll(() => heldRequests, { message: id }).toBe(1);
       // html、body、作品の枠の要素の地
       const backgrounds = () =>
         embedFrame(page).evaluate(() =>
@@ -212,7 +219,7 @@ test.describe('文書の作品（DOC001）も外のサイトの中で動く', ()
       // 読み込めた（見張りが「読み込めた」の知らせを受けた）後
       await expect(frameElement).toHaveAttribute('data-ld-loaded', '');
       await expect.poll(backgrounds, { message: id }).toEqual([after, after, TRANSPARENT]);
-      expect(workPath(page)).toBe(`/frame/${id}/1/embed.html`);
+      expect(workPath(page)).toBe(framePath);
       await context.unrouteAll();
     }
   });
