@@ -14,6 +14,7 @@ import { Hono, type Context } from 'hono';
 import type { Env } from './env';
 import { approvedPrefix, loadRevisionFiles, readableRevision } from './revisions';
 import { getSessionUser } from './session';
+import { SHARE_HEADERS, SHARE_TOKEN, sharePath, sharedWork } from './share';
 
 /** 枠の幅（CLAUDE.md「描画」）。メディアクエリを効かせるため、幅ごとに別の iframe にする。 */
 const FRAME_WIDTHS = { desktop: 1280, mobile: 390 } as const;
@@ -78,4 +79,22 @@ frames.get('/draft-frame/:rid/:file{desktop\\.html|mobile\\.html}', async (c) =>
   // 撮る仕掛け（DOC002「2」）は、持ち主が「画像を付ける」で開いた文書の作品の枠だけ。運営が審査で見る枠には入れない
   const capture = c.req.query('capture') === '1' && typeof work.document === 'string' && user !== null && revision?.owner_id === user.id;
   return frameResponse(c, work, file, capture);
+});
+
+// リンクで見せる作品の枠（SHARE001）。合言葉を知っている人ならだれでも。守りは公開の枠と同じ（sandbox、CSP、frame-ancestors、キャッシュしない）。
+// 枠の外から開くと、作品を返さず /s/ のページへ戻す（公開の枠と同じ理由）。
+// 応答に no-referrer を付ける：枠の中から書体などを読むときに、参照元に合言葉の入った住所を載せない
+frames.get('/share-frame/:token/:file{desktop\\.html|mobile\\.html}', async (c) => {
+  const { token, file } = c.req.param();
+  if (c.req.header('Sec-Fetch-Dest') !== FROM_IFRAME) {
+    c.header('Vary', 'Sec-Fetch-Dest');
+    c.header('Referrer-Policy', 'no-referrer');
+    return c.redirect(SHARE_TOKEN.test(token) ? sharePath(token) : '/', 302);
+  }
+  const shared = await sharedWork(c.env.DB, token);
+  const work = shared?.kind === 'private' ? await loadRevisionFiles(c.env.PARTS, shared.row.r2_prefix) : null;
+  if (!work) return c.json({ error: 'not_found' }, 404, SHARE_HEADERS);
+  const response = frameResponse(c, work, file);
+  for (const [name, value] of Object.entries(SHARE_HEADERS)) response.headers.set(name, value);
+  return response;
 });

@@ -5,7 +5,7 @@ import { App } from './App';
 import type { PageData } from './data/pages';
 import { LocaleProvider } from './hooks/useCopy';
 import { localeOfPath, routerBasename } from './i18n';
-import { startAnalytics } from './lib/analytics';
+import { isSharePath, startAnalytics } from './lib/analytics';
 import { CODE_ATTRIBUTE } from './lib/codeText';
 import type { Work } from './data/works';
 import { PageDataProvider } from './hooks/usePageData';
@@ -57,7 +57,8 @@ const app = (
 // 別の言語へ移るところなら動かさない。閲覧数を二重に数えず、GA4 にも送らない
 if (!window.__ldLeaving) {
   // 自分だけの作品のページでは GA4 を動かさない。ページの URL に作品の ID が入るため（docs/tasks/T036.md「2」）
-  if (!(pageData?.kind === 'work' && pageData.private)) startAnalytics();
+  // リンクで見せるページ（/s/<合言葉>）でも動かさない。住所の合言葉を Google に送らないため（SHARE001「5」）
+  if (!(pageData?.kind === 'work' && (pageData.private || pageData.shared)) && !isSharePath(location.pathname)) startAnalytics();
   if (container.firstElementChild) hydrateRoot(container, app);
   else createRoot(container).render(app);
 }

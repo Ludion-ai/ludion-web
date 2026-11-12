@@ -9,6 +9,7 @@ import { isSameOrigin } from './origin';
 import { purgeWithRetry } from './purge';
 import { REVISION_ID, draftFrameUrls, draftThumbUrl, loadRevisionFiles, operatorMaySee, ownedRevision, remixSource, revisionFile, type RevisionRow } from './revisions';
 import { getSessionUser, type SessionUser } from './session';
+import { shareTag, workOfAddress } from './share';
 
 type ReviewEnv = { Bindings: Env; Variables: { user: SessionUser } };
 type ReviewContext = Context<ReviewEnv>;
@@ -151,7 +152,9 @@ review.post('/revisions/:rid/approve', async (c) => {
       ),
   ]);
   if (approved.meta.changes === 0 || published.meta.changes === 0) return c.json({ error: 'not_submitted' }, 409);
-  const catalogPurged = await purge(c, [CATALOG_TAG]);
+  // リンクで見せていた作品は、公開になると /s/ が作品のページへ送る（SHARE001）。古い /s/ の HTML も同じ1回で消す
+  const shared = await db.prepare('SELECT share_token FROM works WHERE id = ?').bind(revision.work_id).first<{ share_token: string | null }>();
+  const catalogPurged = await purge(c, [CATALOG_TAG, ...(shared?.share_token ? [shareTag(shared.share_token)] : [])]);
   return c.json({ id: rid, status: 'approved', work_id: revision.work_id, version: revision.version, catalog_purged: catalogPurged });
 });
 
@@ -174,3 +177,39 @@ review.post('/revisions/:rid/reject', async (c) => {
   if (result.meta.changes === 0) return c.json({ error: 'not_submitted' }, 409);
   return c.json({ id: rid, status: 'rejected' });
 });
+
+/**
+ * リンクで見せる作品を止める（SHARE001「7」）。入れるのは、報告で届いた /s/ の住所（合言葉だけでも）か、作品の ID か /p/ の住所。
+ * 合言葉を捨て（古いリンクは 404）、止めた印を付ける。止めている間は、持ち主はもう一度オンにできない。/s/ の HTML の札も消す。
+ * 運営は、ここからも自分だけの作品の中身を読まない（T036。返すのは ID と作者と状態だけ）。リンクで見せている作品の一覧も作らない。
+ */
+review.post('/shares/block', async (c) => {
+  const body = await readJson(c);
+  const address = typeof body?.address === 'string' ? body.address : '';
+  const db = c.env.DB;
+  const id = address ? await workOfAddress(db, address) : null;
+  if (!id) return c.json({ error: 'not_found' }, 404);
+  const before = await db.prepare('SELECT share_token FROM works WHERE id = ?').bind(id).first<{ share_token: string | null }>();
+  await db.prepare('UPDATE works SET share_blocked_at = COALESCE(share_blocked_at, ?1), share_token = NULL, shared_at = NULL WHERE id = ?2').bind(Date.now(), id).run();
+  const purged = before?.share_token ? await purge(c, [shareTag(before.share_token)]) : true;
+  return c.json({ ...(await blockState(db, id)), cache_purged: purged });
+});
+
+/** 止めたのを戻す。持ち主はまたオンにできる（住所は、オンにした時に新しく作る）。入れるのは作品の ID か /p/ の住所。 */
+review.post('/shares/unblock', async (c) => {
+  const body = await readJson(c);
+  const address = typeof body?.address === 'string' ? body.address : '';
+  const db = c.env.DB;
+  const id = address ? await workOfAddress(db, address) : null;
+  if (!id) return c.json({ error: 'not_found' }, 404);
+  await db.prepare('UPDATE works SET share_blocked_at = NULL WHERE id = ?').bind(id).run();
+  return c.json(await blockState(db, id));
+});
+
+async function blockState(db: D1Database, id: string) {
+  const row = await db
+    .prepare('SELECT w.id, w.share_blocked_at, c.handle FROM works w JOIN creators c ON c.id = w.creator_id WHERE w.id = ?')
+    .bind(id)
+    .first<{ id: string; share_blocked_at: number | null; handle: string }>();
+  return { work_id: id, handle: row?.handle ?? null, blocked: row?.share_blocked_at != null };
+}

@@ -15,6 +15,7 @@ import {
   THUMB_CACHE_CONTROL,
   PAGE_CACHE_CONTROL,
   shareOrigin,
+  shareTag,
   workTag,
 } from '../worker/cachePolicy';
 import { PURGE_RETRY_DELAYS_MS, purgeWithRetry } from '../worker/purge';
@@ -43,6 +44,12 @@ const ALLOWED_ROUTES = [
   'GET /p/:id/raw/:file',
   'GET /p/:file{[a-z0-9-]+\\.json}',
   'GET /p/:id/wall',
+  // リンクで見せるページと本文の読み口（SHARE001）。札は合言葉ごと
+  'GET /s/:token',
+  'GET /s/:token/code/:file',
+  'GET /s/:token/file/:version/:file',
+  'GET /en/s/:token',
+  'GET /en/s/:token/code/:file',
   'GET /privacy',
   'GET /terms',
   'GET /sitemap.xml',
@@ -81,6 +88,9 @@ async function loadRoutes(): Promise<Route[]> {
   }
 }
 
+/** リンクで見せるページの合言葉の例（22 文字。SHARE001） */
+const SAMPLE_TOKEN = 'AbCdEfGhIjKlMnOpQrSt_-';
+
 /** ルートの形から、実際の道の例を作る。 */
 function sampleUrls(path: string): string[] {
   if (path === '/*') return ['/assets/index-abc.js', '/favicon.ico', '/anything'];
@@ -89,6 +99,7 @@ function sampleUrls(path: string): string[] {
       if (name === 'version') return '1';
       return whole.slice(offset).includes('avatar-') ? 'avatar-0123456789ab.webp' : 'desktop.html';
     })
+    .replaceAll(':token', SAMPLE_TOKEN)
     .replace(/:\w+/g, 'x')
     .replace(/\/\*$/, '/x');
   return [url];
@@ -145,6 +156,17 @@ test.describe('applyCachePolicy', () => {
       expect(headers.get('Cache-Control'), path).toBe(PAGE_CACHE_CONTROL);
       expect(headers.get('Cache-Control'), path).toContain('s-maxage=60');
       expect(headers.get('Cache-Tag'), path).toBe(CATALOG_TAG);
+    }
+  });
+
+  test('リンクで見せるページ（SHARE001）：s-maxage=60 と、合言葉ごとの札。合言葉の形でない道と深い道はキャッシュしない', () => {
+    for (const path of [`/s/${SAMPLE_TOKEN}`, `/s/${SAMPLE_TOKEN}/code/part.css`, `/s/${SAMPLE_TOKEN}/file/2/part.js`, `/en/s/${SAMPLE_TOKEN}`, `/en/s/${SAMPLE_TOKEN}/code/part.css`]) {
+      const { headers } = cacheControlOf('GET', path);
+      expect(headers.get('Cache-Control'), path).toBe(PAGE_CACHE_CONTROL);
+      expect(headers.get('Cache-Tag'), path).toBe(shareTag(SAMPLE_TOKEN));
+    }
+    for (const path of ['/s/short', `/s/${SAMPLE_TOKEN}x`, `/s/${SAMPLE_TOKEN}/more`, `/share-frame/${SAMPLE_TOKEN}/desktop.html`, `/en/s/${SAMPLE_TOKEN}/file/2/part.js`]) {
+      expect(cacheControlOf('GET', path).headers.get('Cache-Control'), path).toBe(DEFAULT_CACHE_CONTROL);
     }
   });
 
@@ -389,6 +411,22 @@ test.describe('回数の制限（数の守り）', () => {
     expect(response.headers()['retry-after']).toBe('60');
     expect(response.headers()['cache-control']).toBe(DEFAULT_CACHE_CONTROL);
     expect((await get(uniqueIp())).status()).toBe(404);
+  });
+
+  test('GET /s/<合言葉>：当てる連打（404）は上限を超えると 429（束縛は LIMIT_COUNT。SHARE001「7」）。枠も同じ束縛。ほかの IP は通る', async ({ request }) => {
+    const limit = limitOf('LIMIT_COUNT');
+    const ip = uniqueIp();
+    // 毎回ちがう合言葉（ない住所。404 はキャッシュしない）
+    const guess = (index: number) => `${String(index).padStart(6, '0')}AbCdEfGhIjKlMnOp`;
+    const get = (from: string, index: number) => request.get(`/s/${guess(index)}`, { headers: { 'CF-Connecting-IP': from } });
+    const { index, response } = await firstLimited(limit, (at) => get(ip, at));
+    expect(index).toBeGreaterThanOrEqual(limit);
+    expect(await response.json()).toEqual({ error: 'rate_limited' });
+    expect(response.headers()['cache-control']).toBe(DEFAULT_CACHE_CONTROL);
+    expect((await request.get(`/share-frame/${guess(0)}/desktop.html`, { headers: { 'CF-Connecting-IP': ip, 'Sec-Fetch-Dest': 'iframe' } })).status()).toBe(429);
+    const other = await get(uniqueIp(), 0);
+    expect(other.status()).toBe(404);
+    expect(other.headers()['cache-control']).toBe(DEFAULT_CACHE_CONTROL);
   });
 
   test('POST /api/works/*/like と bookmark：上限を合わせて数え、超えると 429', async ({ request, baseURL }) => {

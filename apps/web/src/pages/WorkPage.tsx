@@ -1,4 +1,4 @@
-import { Bookmark, Clock, Code2, Copy, Eye, GitFork, Globe, Heart, History, Lock, Monitor, Share2, SlidersHorizontal, Upload } from 'lucide-react';
+import { Bookmark, Clock, Code2, Copy, Eye, GitFork, Globe, Heart, History, Link2, Lock, Monitor, Share2, SlidersHorizontal, Upload } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { useParams } from 'react-router';
 import { FramePreview } from '../components/FramePreview';
@@ -21,7 +21,9 @@ import { usePageData } from '../hooks/usePageData';
 import { useResetTitle } from '../hooks/useResetTitle';
 import { trackEvent } from '../lib/analytics';
 import { COPIED_MS, postCount } from '../lib/count';
-import { fileOfSplat } from '../lib/codeAddress';
+import { fileOfSplat, workBase } from '../lib/codeAddress';
+import { setShare } from '../lib/share';
+import { ShareSettings } from '../components/ShareSettings';
 import { isWallpaper } from '../lib/homeQuery';
 import { stateOf, type WorkState } from '../lib/workState';
 import { NotFound } from './NotFound';
@@ -53,7 +55,16 @@ export function WorkPage() {
   // 道の残りは、空か、行の住所（code/<file>）だけ。ほかは、ないページ（Worker も 404 を返す）
   if (rest && fileOfSplat(rest) === null) return <NotFound />;
   // 作品のページは、どのリンクからでも読み込み直して開く（Worker が描く）。データが違うのは、Worker を通らなかったときだけ
-  if (page?.kind !== 'work' || page.work.id !== id) return <NotFound />;
+  if (page?.kind !== 'work' || page.work.id !== id || page.shared) return <NotFound />;
+  return <WorkDetail key={page.work.id} page={page} />;
+}
+
+/** リンクで見せるページ（/s/<合言葉>。SHARE001）。作品のページと同じ部品で、見せるだけの形にする */
+export function SharedWorkPage() {
+  const page = usePageData();
+  const { token, '*': rest } = useParams();
+  if (rest && fileOfSplat(rest) === null) return <NotFound />;
+  if (page?.kind !== 'work' || !page.shared || page.shared.token !== token) return <NotFound />;
   return <WorkDetail key={page.work.id} page={page} />;
 }
 
@@ -63,6 +74,12 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
   const { work, creator, more, others, snippet, background, source } = page;
   // 自分だけの作品（docs/tasks/T036.md）。数えない、GA4 に送らない、いいねと共有とリミックスを出さない
   const isPrivate = page.private !== null;
+  // リンクで見せるページ（SHARE001）。数えない、GA4 に送らない、いいね・保存・共有・リミックス・数・版・系譜を出さない
+  const shared = page.shared;
+  const isShared = shared !== null;
+  const quiet = isPrivate || isShared;
+  /** 行の住所と本文の読み口の道（言語のない道） */
+  const base = shared ? `/s/${shared.token}` : workBase(work.id);
   const { handle } = creator;
   const { isBookmarked, isLiked, likeDelta, toggleBookmark, toggleLike } = useAccount();
   const ownWorks = useOwnWorks();
@@ -94,10 +111,10 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
 
   // 開いたときに1回だけ送る（重複は除かない）。StrictMode で effect が2回動いても1回にする
   useEffect(() => {
-    if (viewSent.current || isPrivate) return;
+    if (viewSent.current || quiet) return;
     viewSent.current = true;
     postCount(work.id, 'view');
-  }, [work.id, isPrivate]);
+  }, [work.id, quiet]);
 
   useEffect(
     () => () => {
@@ -115,7 +132,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
 
   // コピーできた時に数える（「全部をコピー」と、本文の「ファイルをコピー」）。自分だけの作品では数えない
   const countCopy = () => {
-    if (isPrivate) return;
+    if (quiet) return;
     setCopies((count) => count + 1);
     postCount(work.id, 'copy');
     trackEvent('copy_code', { work_id: work.id });
@@ -206,15 +223,33 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
   // 持ち主か。HTML は人によって変えないので、公開の作品では、読み込みの後に自分の作品の一覧（左のナビと同じ答え）から決める。
   // 自分だけの作品のページは持ち主にだけ描くので、Worker の HTML から持ち主の形
   const own = ownWorks.state.status === 'ready' ? ownWorks.state.works.find((item) => item.id === work.id) : undefined;
-  const isOwner = isPrivate || own !== undefined;
+  // リンクで見せるページでは、持ち主にも設定のタブと「新しい版を置く」を出さない（知らせと「オフにする」だけ。作品のページで変える）
+  const isOwner = !isShared && (isPrivate || own !== undefined);
+  const isShareOwner = isShared && own !== undefined;
   const state: WorkState = own ? stateOf(own) : isPrivate ? 'private' : 'public';
   const StateIcon = state === 'public' ? Globe : state === 'private' ? Lock : Clock;
+  // 自分だけの作品をリンクで見せているか（SHARE001）。Worker の HTML から始め、設定のタブのスイッチに合わせる
+  const [privateShare, setPrivateShare] = useState(page.private?.share ?? 'off');
+  const sharingPrivate = isPrivate && privateShare === 'on' && state === 'private';
+  const [offState, setOffState] = useState<'idle' | 'busy' | 'failed'>('idle');
+  // 持ち主が /s/ で「オフにする」：住所を捨て、自分の作品のページへ移る（この住所はもう 404）
+  const turnShareOff = async () => {
+    setOffState('busy');
+    const answer = await setShare(work.id, false);
+    if (answer && answer.state !== 'on') window.location.assign(localizedPath(locale, workBase(work.id)));
+    else setOffState('failed');
+  };
   const newVersionPath = localizedPath(locale, `/new?work=${encodeURIComponent(work.id)}`);
 
+  // リンクで見せるページは、コードだけ（版と系譜は出さない。タブの列も出さない）
   const tabs: { id: TabId; label: string; icon: typeof Code2; count?: number }[] = [
     { id: 'code', label: copy.work.tabs.code, icon: Code2 },
-    { id: 'versions', label: copy.work.tabs.versions, icon: History, count: page.versions.length },
-    { id: 'lineage', label: copy.work.tabs.lineage, icon: GitFork, count: page.lineage.count },
+    ...(isShared
+      ? []
+      : [
+          { id: 'versions' as const, label: copy.work.tabs.versions, icon: History, count: page.versions.length },
+          { id: 'lineage' as const, label: copy.work.tabs.lineage, icon: GitFork, count: page.lineage.count },
+        ]),
     ...(isOwner ? [{ id: 'settings' as const, label: copy.work.tabs.settings, icon: SlidersHorizontal }] : []),
   ];
   const shownTab = tabs.some((item) => item.id === tab) ? tab : 'code';
@@ -247,23 +282,43 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
       {shareMessage || copy.work.share}
     </button>
   );
-  /** 状態と版の札 */
+  /** 状態と版の札。リンクで見せるページは「リンクで見せる」 */
   const stateBadges = (className: string) => (
     <>
-      <span data-work-state={state} className={`${BADGE} ${className}`}>
-        <StateIcon size={12} strokeWidth={2} aria-hidden="true" />
-        {copy.account.works.state[state]}
-      </span>
+      {isShared || sharingPrivate ? (
+        <span data-work-state="shared" className={`${BADGE} ${className}`}>
+          <Link2 size={12} strokeWidth={2} aria-hidden="true" />
+          {copy.share.badge}
+        </span>
+      ) : (
+        <span data-work-state={state} className={`${BADGE} ${className}`}>
+          <StateIcon size={12} strokeWidth={2} aria-hidden="true" />
+          {copy.account.works.state[state]}
+        </span>
+      )}
       <span className={`${BADGE} ${className}`}>{copy.work.version(work.version)}</span>
     </>
   );
-  const panelProps = (id: TabId) => ({
-    id: `${tabsId}-panel-${id}`,
-    role: 'tabpanel' as const,
-    'aria-labelledby': `${tabsId}-tab-${id}`,
-    'data-work-panel': id,
-    hidden: shownTab !== id,
-  });
+  // タブの列がないとき（リンクで見せるページ）は、タブの中身の印も付けない
+  const panelProps = (id: TabId) =>
+    isShared
+      ? { id: `${tabsId}-panel-${id}`, 'data-work-panel': id, hidden: shownTab !== id }
+      : {
+          id: `${tabsId}-panel-${id}`,
+          role: 'tabpanel' as const,
+          'aria-labelledby': `${tabsId}-tab-${id}`,
+          'data-work-panel': id,
+          hidden: shownTab !== id,
+        };
+  /** 作者の名前。リンクで見せるページでは、作り手のページへのリンクにしない（公開の作品がなければ 404 のため） */
+  const authorLink = (className: string, children: string) =>
+    isShared ? (
+      <span className={className.replace('hover:underline', '')}>{children}</span>
+    ) : (
+      <a href={localizedPath(locale, `/c/${handle}`)} className={className}>
+        {children}
+      </a>
+    );
 
   return (
     <>
@@ -279,9 +334,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
               decoding="async"
               className="size-8 shrink-0 rounded-chip bg-site-field max-md:hidden"
             />
-            <a href={localizedPath(locale, `/c/${handle}`)} className="rounded-key text-subhead text-site-fg-3 hover:underline max-md:text-body">
-              {copy.work.by(handle)}
-            </a>
+            {authorLink('rounded-key text-subhead text-site-fg-3 hover:underline max-md:text-body', copy.work.by(handle))}
             <span aria-hidden="true" className="text-subhead text-site-fg-2 max-md:hidden">
               /
             </span>
@@ -310,14 +363,14 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
       */}
       <div className="mt-3 grid grid-cols-1 gap-x-8 lg:grid-cols-[minmax(0,65fr)_minmax(0,35fr)]">
         <div data-work-stage="" className="min-w-0">
-          <FramePreview key={work.id} work={work} background={background} frames={page.private?.frames ?? null} />
+          <FramePreview key={work.id} work={work} background={background} frames={page.private?.frames ?? page.shared?.frames ?? null} />
           {/* 枠を、HTML が届き終わるのを待たずに読み始める（PERF002「1」）。Worker の HTML でだけ動く（React が後から作った script は動かない） */}
           <script dangerouslySetInnerHTML={PREVIEW_START_CALL} />
         </div>
 
         <div data-work-side="" className="min-w-0">
           {/* ボタン。1023px以下では枠のすぐ下。浮かせない（作品の枠に重なるため。docs/tasks/FIX-remix-button.md）。「リミックス」を1行目に（スマホでも最初の画面に入れるため） */}
-          {!isPrivate && (
+          {!quiet && (
             <div data-work-actions="" className="max-lg:mt-3">
               {remixButton(whiteButton, '')}
               <div className="mt-3 flex gap-3">
@@ -339,13 +392,13 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
           </p>
 
           {/* 数は小さく1行 */}
-          <div data-work-counts="" className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-small text-site-fg-3 ${isPrivate ? 'max-lg:mt-4' : 'mt-4'}`}>
-            <a href={localizedPath(locale, `/c/${handle}`)} className="rounded-key font-semibold text-site-fg hover:underline">
-              {creator.name}
-            </a>
+          <div data-work-counts="" className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-small text-site-fg-3 ${isPrivate ? 'max-lg:mt-4' : isShared ? 'max-lg:mt-3' : 'mt-4'}`}>
+            {authorLink('rounded-key font-semibold text-site-fg hover:underline', creator.name)}
             {creator.kind === 'label' && <span className="text-meta text-site-fg-2">{copy.work.label}</span>}
             {creator.x_url && <XLink href={creator.x_url} />}
             <span className={`${BADGE} md:hidden`}>{copy.work.meta(work.category, work.subtype)}</span>
+            {!isShared && (
+            <>
             <span className="flex items-center gap-1">
               <Eye size={16} strokeWidth={1.75} aria-hidden="true" />
               <span aria-hidden="true">{views}</span>
@@ -358,7 +411,9 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
               </span>
               <span className="sr-only">{copy.work.copies(copyCount)}</span>
             </span>
-            {!isPrivate && (
+            </>
+            )}
+            {!quiet && (
               <span className="flex items-center gap-1">
                 <Heart size={16} strokeWidth={1.75} aria-hidden="true" />
                 <span aria-hidden="true">{likes}</span>
@@ -369,14 +424,37 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
           {source && <SourceBand source={source} />}
           {isPrivate && (
             <p data-private-notice="" role="note" className="mt-3 rounded-control bg-site-field px-3 py-2.5 text-small">
-              <span className="font-semibold">{copy.work.privateNotice}</span>{' '}
+              <span className="font-semibold">{sharingPrivate ? copy.share.privateNotice : copy.work.privateNotice}</span>{' '}
               <a href={localizedPath(locale, '/account/works')} className="underline">
                 {copy.work.privateToWorks}
               </a>
             </p>
           )}
+          {/* リンクで見せるページの札（SHARE001「3」）。持ち主には、読み込みの後に知らせと「オフにする」を足す（HTML はだれにでも同じ） */}
+          {isShared && (
+            <p data-share-notice="" role="note" className="mt-3 rounded-control bg-site-field px-3 py-2.5 text-small font-semibold">
+              {copy.share.notice}
+            </p>
+          )}
+          {isShareOwner && (
+            <div data-share-owner="" className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-control border border-site-line px-3 py-2.5 text-small">
+              <span className="min-w-0 flex-1 basis-56">{copy.share.ownerNotice}</span>
+              <button
+                type="button"
+                disabled={offState === 'busy'}
+                onClick={() => void turnShareOff()}
+                className="inline-flex h-11 shrink-0 items-center justify-center rounded-control border border-site-line-2 bg-site-bg px-4 text-body font-semibold text-site-fg hover:bg-site-hover disabled:opacity-60"
+              >
+                {offState === 'busy' ? copy.share.turningOff : copy.share.turnOff}
+              </button>
+              <p role="status" className="basis-full empty:hidden">
+                {offState === 'failed' ? copy.share.offFailed : ''}
+              </p>
+            </div>
+          )}
 
           {/* 幅が足りないとき（狭い右の列で、長い言葉のタブ）だけ、列の中で横に送る。縦には送らない（送れる入れ物は、Firefox が Tab で止まるため） */}
+          {!isShared && (
           <div role="tablist" aria-label={copy.work.tabs.label} onKeyDown={onTabKey} className="mt-3 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-site-line">
             {tabs.map(({ id: tabId, label, icon: Icon, count }) => (
               <button
@@ -399,6 +477,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
               </button>
             ))}
           </div>
+          )}
 
         <div className="mt-4 min-w-0">
           <div {...panelProps('code')}>
@@ -416,10 +495,11 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
             <p className="mt-2 text-meta text-site-fg-2">{copy.work.license}</p>
             {page.about && (
               <div className="mt-4">
-                <WorkAbout about={page.about} workId={work.id} />
+                <WorkAbout about={page.about} base={base} />
               </div>
             )}
-            {!isPrivate && <ReportIssue workId={work.id} />}
+            {/* 問題を報告：リンクで見せるページでは、/s/ の住所を書いてもらう（運営がその住所で止める） */}
+            {!isPrivate && <ReportIssue workId={work.id} path={shared ? base : undefined} />}
 
             <pre
               id={codeId}
@@ -512,6 +592,8 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
                   {copy.work.newVersion}
                 </a>
               </div>
+              {/* リンクで見せる（SHARE001「1」）。自分だけの作品だけ */}
+              {page.private && <ShareSettings workId={work.id} onChange={setPrivateShare} />}
               {/* 画像を付ける（DOC002「3」）。画像を足した新しい版が今の版になるので、付けたら読み込み直す。自分だけの作品だけ */}
               {page.private && (
                 <section className="mt-5">
@@ -544,8 +626,18 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
       {/* ファイルの木と本文（コードのタブの続き。2列の下に、幅いっぱい）。木がなければ（地図が作れない）出さない */}
       {page.tree && (
         <div data-work-files-panel="" hidden={shownTab !== 'code'}>
-          <WorkFiles workId={work.id} version={work.version} tree={page.tree} credit={page.credit} snippet={snippet} file={openFile} onCopied={countCopy} />
+          <WorkFiles base={base} raw={!isShared} version={work.version} tree={page.tree} credit={page.credit} snippet={snippet} file={openFile} onCopied={countCopy} />
         </div>
+      )}
+
+      {/* リンクで見せるページの下の1行（SHARE001「3」）：見た人を、つなぎ方へ */}
+      {isShared && (
+        <p data-share-connect="" className="mt-10 border-t border-site-line pt-5 text-body text-site-fg-2">
+          {copy.share.connect}{' '}
+          <a href={localizedPath(locale, '/account#ai-connect')} className="font-semibold text-site-fg underline">
+            {copy.share.connectLink}
+          </a>
+        </p>
       )}
 
       <WorkList heading={copy.work.moreFrom(handle)} works={more} onSelect={onSelectWork} />

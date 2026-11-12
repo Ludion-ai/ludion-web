@@ -21,7 +21,14 @@ export const CATALOG_TAG = 'catalog';
 /** サムネイルの札。当たると Worker の「承認済みか」の確かめを通らないので、取り下げのときに作品ごとに消す。 */
 export const workTag = (id: string) => `work-${id}`;
 
+/**
+ * リンクで見せるページの札（SHARE001）。合言葉ごと。オフにしたとき、運営が止めたとき、新しい版を置いたときに消す。
+ * キャッシュのキーは道（合言葉が入る）なので、同じ合言葉を知っている人のほかには当たらない。消すのに失敗しても s-maxage の 60 秒で消える。
+ */
+export const shareTag = (token: string) => `share-${token}`;
+
 const AVATAR_FILE = 'avatar-[0-9a-f]{12}\\.webp';
+const SHARE_TOKEN_PART = '([A-Za-z0-9_-]{22})';
 
 interface CacheRule {
   /** apps/web/worker/ の Hono のルート。e2e/cache.spec.ts が app.routes と突き合わせる */
@@ -61,6 +68,13 @@ export const CACHE_RULES: CacheRule[] = [
   { route: '/en/privacy', path: /^\/en\/privacy$/, cacheControl: PAGE_CACHE_CONTROL },
   { route: '/en/about', path: /^\/en\/about$/, cacheControl: PAGE_CACHE_CONTROL },
   { route: '/en/terms', path: /^\/en\/terms$/, cacheControl: PAGE_CACHE_CONTROL },
+  // リンクで見せるページと、その本文の読み口（SHARE001）。だれにでも同じ中身（持ち主の知らせは読み込みの後）。札は合言葉ごと。
+  // 合言葉の形でない道は、ルートが 404 を返す（200 だけをキャッシュする）
+  { route: '/s/:token', path: new RegExp(`^/s/${SHARE_TOKEN_PART}$`), cacheControl: PAGE_CACHE_CONTROL, tag: (match) => shareTag(match[1]) },
+  { route: '/s/:token/code/:file', path: new RegExp(`^/s/${SHARE_TOKEN_PART}/code/[^/]+$`), cacheControl: PAGE_CACHE_CONTROL, tag: (match) => shareTag(match[1]) },
+  { route: '/s/:token/file/:version/:file', path: new RegExp(`^/s/${SHARE_TOKEN_PART}/file/[^/]+/[^/]+$`), cacheControl: PAGE_CACHE_CONTROL, tag: (match) => shareTag(match[1]) },
+  { route: '/en/s/:token', path: new RegExp(`^/en/s/${SHARE_TOKEN_PART}$`), cacheControl: PAGE_CACHE_CONTROL, tag: (match) => shareTag(match[1]) },
+  { route: '/en/s/:token/code/:file', path: new RegExp(`^/en/s/${SHARE_TOKEN_PART}/code/[^/]+$`), cacheControl: PAGE_CACHE_CONTROL, tag: (match) => shareTag(match[1]) },
   // 作品の一覧と同じ札で、承認と取り下げのときに消える
   { route: '/sitemap.xml', path: /^\/sitemap\.xml$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   { route: '/w/:id/:version/thumb.webp', path: /^\/w\/([^/]+)\/[^/]+\/thumb\.webp$/, cacheControl: THUMB_CACHE_CONTROL, tag: (match) => workTag(match[1]) },

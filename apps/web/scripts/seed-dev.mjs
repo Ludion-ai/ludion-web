@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { imageSize } from '@ludion/rules';
 import { getPlatformProxy } from 'wrangler';
-import { PRIVATE_OWNER, privateFixtureId, privateRevisionId, sessionHash } from './private-fixture.mjs';
+import { PRIVATE_OWNER, privateFixtureId, privateRevisionId, sessionHash, sharedFixtureId, sharedFixtureToken, sharedRevisionId } from './private-fixture.mjs';
 
 const webDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 const seedDir = join(webDir, '../../seed');
@@ -266,20 +266,27 @@ try {
       db
         .prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at, last_used_at, auth_at) VALUES (?, ?, ?, ?, ?, ?)')
         .bind(sessionHash(PRIVATE_OWNER.session), PRIVATE_OWNER.userId, now + 365 * 24 * 60 * 60 * 1000, now, now, now),
-      ...malicious.flatMap((id) => [
-        db
-          .prepare(
-            `INSERT INTO works (id, creator_id, title, type, platform, category, subtype, tags, made_with, version, license, status, thumb_key, thumb_w, thumb_h, created_at)
-             SELECT ?2, ?3, title, type, platform, category, subtype, tags, made_with, version, license, 'private', thumb_key, thumb_w, thumb_h, created_at FROM works WHERE id = ?1`,
-          )
-          .bind(id, privateFixtureId(id), PRIVATE_OWNER.creatorId),
-        db
-          .prepare(
-            `INSERT INTO revisions (id, work_id, version, status, r2_prefix, title, type, platform, category, subtype, tags, made_with, thumb_w, thumb_h, created_at, updated_at)
-             SELECT ?3, ?2, version, 'private', 'works/' || id || '/' || version, title, type, platform, category, subtype, tags, made_with, thumb_w, thumb_h, created_at, created_at FROM works WHERE id = ?1`,
-          )
-          .bind(id, privateFixtureId(id), privateRevisionId(id)),
-      ]),
+      // 自分だけの作品（-own）と、それをリンクで見せる作品（-shr。SHARE001：e2e/frame-escape.spec.ts の FORMS の shared、e2e/share-ui.spec.ts）。
+      // 見せる方は別の作品にして、自分だけの作品の見本の見え方（札と知らせ）を変えない
+      ...malicious.flatMap((id) =>
+        [
+          { work: privateFixtureId(id), revision: privateRevisionId(id), token: null },
+          { work: sharedFixtureId(id), revision: sharedRevisionId(id), token: sharedFixtureToken(id) },
+        ].flatMap((made) => [
+          db
+            .prepare(
+              `INSERT INTO works (id, creator_id, title, type, platform, category, subtype, tags, made_with, version, license, status, thumb_key, thumb_w, thumb_h, created_at, share_token, shared_at)
+               SELECT ?2, ?3, title, type, platform, category, subtype, tags, made_with, version, license, 'private', thumb_key, thumb_w, thumb_h, created_at, ?4, CASE WHEN ?4 IS NULL THEN NULL ELSE created_at END FROM works WHERE id = ?1`,
+            )
+            .bind(id, made.work, PRIVATE_OWNER.creatorId, made.token),
+          db
+            .prepare(
+              `INSERT INTO revisions (id, work_id, version, status, r2_prefix, title, type, platform, category, subtype, tags, made_with, thumb_w, thumb_h, created_at, updated_at)
+               SELECT ?3, ?2, version, 'private', 'works/' || id || '/' || version, title, type, platform, category, subtype, tags, made_with, thumb_w, thumb_h, created_at, created_at FROM works WHERE id = ?1`,
+            )
+            .bind(id, made.work, made.revision),
+        ]),
+      ),
     ]);
     console.log(`見本：良いもの ${added}/${good.length}（ld upload 済みのものは飛ばす）、悪意のあるもの ${malicious.length}`);
   }

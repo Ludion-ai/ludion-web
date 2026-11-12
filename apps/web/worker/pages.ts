@@ -19,6 +19,8 @@ import { renderDocument } from './ssr';
 import { loadOutline } from './outline';
 import { buildAbout, buildTree, loadHistory } from './workAbout';
 import { isWorkFileName } from './workFile';
+import { SHARE_HEADERS, shareColumns, shareFrameUrls, shareStateOf, sharedWork } from './share';
+import { workFiles } from '@ludion/outline';
 
 type PageContext = Context<{ Bindings: Env }>;
 
@@ -36,11 +38,13 @@ const PRIVATE_HEADERS = { 'Cache-Control': 'private, no-store', 'Referrer-Policy
  * 作品の今の版と、その「コピーされるコード」。作品のページの「コードをコピー」と /p/:id/code は、この同じ文字列を出す。
  * 承認済みの作品はだれにでも。自分だけの作品（docs/tasks/T036.md）は持ち主にだけ返し、ほかの人（運営も）には null（ない作品と同じ 404）。
  */
+type Found = { work: Work; creator: CreatorProfile; creatorId: string; prefix: string; private: { revisionId: string } | null };
+
 async function loadWork(c: PageContext) {
   const db = c.env.DB;
   const id = c.req.param('id') ?? '';
   const approved = await getApprovedWork(db, id);
-  let found: { work: Work; creator: CreatorProfile; creatorId: string; prefix: string; private: { revisionId: string } | null } | null = approved && { ...approved, private: null };
+  let found: Found | null = approved && { ...approved, private: null };
   if (!found) {
     // 公開されていない作品だけ、cookie を読む。公開の作品のページは人によって変えない（キャッシュするため）
     const user = await getSessionUser(c);
@@ -48,8 +52,14 @@ async function loadWork(c: PageContext) {
     const own = revision && (await getPrivateWork(db, id, user.id));
     found = revision && own ? { ...own, prefix: revision.r2_prefix, private: { revisionId: revision.id } } : null;
   }
-  const files = found && (await loadRevisionFiles(c.env.PARTS, found.prefix));
-  if (!found || !files) return null;
+  return found && withFiles(c, found);
+}
+
+/** 版のファイルと「コピーされるコード」を足す（作品のページと、リンクで見せるページで同じ）。 */
+async function withFiles(c: PageContext, found: Found) {
+  const db = c.env.DB;
+  const files = await loadRevisionFiles(c.env.PARTS, found.prefix);
+  if (!files) return null;
   const { creator } = found;
   // リミックスは2行目に元の作品のクレジット行（docs/tasks/T033.md B4）。remix_of から作るので、作り手がコードから消しても残る。
   // 元が取り下げられていても、自分だけになっていても残す（docs/tasks/T036.md「4」）
@@ -109,10 +119,7 @@ export async function renderWorkPage(c: PageContext): Promise<Response> {
 
   const { work, creator, files, snippet, source, creditSource } = loaded;
   // 行の住所の道（/p/<id>/code/<file>）：その版にないファイルの名前は、ないページ
-  const openFile = c.req.param('file');
-  if (openFile !== undefined && !(isWorkFileName(openFile) && (typeof files.document === 'string' ? openFile === 'index.html' : openFile !== 'index.html' && (openFile !== 'part.js' || typeof files.js === 'string')))) {
-    return renderNotFound(c);
-  }
+  if (!openFileExists(c, files)) return renderNotFound(c);
   // 「この作品について」は地図から（WS003）。地図は版ごとに置き場にあり、なければここで作って置く（worker/outline.ts）
   const [outline, history] = await Promise.all([
     loadOutline(c.env.PARTS, loaded.prefix, async () => files),
@@ -120,6 +127,8 @@ export async function renderWorkPage(c: PageContext): Promise<Response> {
   ]);
   // 作品のページから行き止まりをなくす（docs/tasks/T018.md「1」）。同じ作者が先で、それぞれ Popular の順
   const rest = (await listApprovedWorks(db)).filter((other) => other.id !== work.id);
+  // 自分だけの作品のページは持ち主にだけ描き、残さないので、リンクで見せているかを HTML に入れてよい（札と知らせ。SHARE001）
+  const shareRow = loaded.private ? await shareColumns(db, work.id) : null;
 
   const response = await renderDocument(c, {
     page: {
@@ -131,7 +140,8 @@ export async function renderWorkPage(c: PageContext): Promise<Response> {
       snippet,
       background: authorBackground(files.css),
       source,
-      private: loaded.private && { frames: draftFrameUrls(loaded.private.revisionId) },
+      private: loaded.private && { frames: draftFrameUrls(loaded.private.revisionId), share: shareRow ? shareStateOf(shareRow) : 'off' },
+      shared: null,
       stills: loaded.private ? [] : await wallStills(c.env.PARTS, work, loaded.prefix),
       about: outline && buildAbout(outline),
       tree: outline && buildTree(outline),
@@ -146,6 +156,91 @@ export async function renderWorkPage(c: PageContext): Promise<Response> {
   });
   if (loaded.private) for (const [name, value] of Object.entries(PRIVATE_HEADERS)) response.headers.set(name, value);
   return response;
+}
+
+/** 行の住所の道（/p/<id>/code/<file>、/s/<合言葉>/code/<file>）の名前が、その版にあるか。道に名前がなければ true。 */
+function openFileExists(c: PageContext, files: { document?: string | null; js?: string | null }): boolean {
+  const openFile = c.req.param('file');
+  if (openFile === undefined) return true;
+  return isWorkFileName(openFile) && (typeof files.document === 'string' ? openFile === 'index.html' : openFile !== 'index.html' && (openFile !== 'part.js' || typeof files.js === 'string'));
+}
+
+/**
+ * リンクで見せる作品（SHARE001）。合言葉から作品を探し、持ち主の自分だけの作品を、持ち主と同じ枠の守りで描く。
+ * 公開になった作品は作品のページへ送る。止めた、オフにした、ない合言葉は、ない住所と同じ 404。
+ */
+async function loadShared(c: PageContext) {
+  const token = c.req.param('token') ?? '';
+  const shared = await sharedWork(c.env.DB, token);
+  if (!shared) return null;
+  if (shared.kind === 'public') return { kind: 'redirect' as const, to: localizedPath(localeOfPath(c.req.path), `/p/${encodeURIComponent(shared.id)}`) };
+  const own = await getPrivateWork(c.env.DB, shared.row.id, shared.row.owner_id);
+  // 数は出さない、数えない（SHARE001「3」）。HTML のデータにも入れない
+  const loaded = own && (await withFiles(c, { ...own, work: { ...own.work, views: 0, likes: 0, copies: 0, copies_30d: 0 }, prefix: shared.row.r2_prefix, private: null }));
+  return loaded ? { kind: 'page' as const, token, loaded } : null;
+}
+
+/** /s/ の 404。ない住所と同じ形で、キャッシュせず、検索に出さず、住所を参照元に残さない。 */
+const sharedNotFound = async (c: PageContext) => withShareHeaders(await renderNotFound(c));
+
+/** 頭を足す。200 は cachePolicy.ts が短くキャッシュし、合言葉の札（shareTag）を付ける。オフにしたら消す。 */
+function withShareHeaders(response: Response): Response {
+  for (const [name, value] of Object.entries(SHARE_HEADERS)) response.headers.set(name, value);
+  return response;
+}
+
+/**
+ * GET /s/<合言葉>（と /s/<合言葉>/code/<file>）：リンクで見せる作品のページ。ログインは要らない。だれにでも同じ HTML（持ち主の知らせは読み込みの後）。
+ * いいね、保存、リミックス、閲覧数、コピー数、版と系譜は出さない。共有の画像はサイトの決まった絵（審査していない絵をカードに出さない）。
+ */
+export async function renderSharedPage(c: PageContext): Promise<Response> {
+  const found = await loadShared(c);
+  if (!found) return sharedNotFound(c);
+  if (found.kind === 'redirect') return withShareHeaders(c.redirect(found.to, 302));
+  const { token, loaded } = found;
+  const { work, creator, files, snippet, creditSource } = loaded;
+  if (!openFileExists(c, files)) return sharedNotFound(c);
+  const outline = await loadOutline(c.env.PARTS, loaded.prefix, async () => files);
+  const copy = copyOf(c);
+  const response = await renderDocument(c, {
+    page: {
+      kind: 'work',
+      work,
+      creator,
+      more: [],
+      others: [],
+      snippet,
+      background: authorBackground(files.css),
+      // 元の作品の帯は出す（元が公開なら題と作者、でなければ「見られません」だけ）
+      source: loaded.source,
+      private: null,
+      shared: { token, frames: shareFrameUrls(token) },
+      stills: [],
+      about: outline && buildAbout(outline),
+      tree: outline && buildTree(outline),
+      credit: [creditText(creator.handle, work.id), ...(creditSource ? [remixCreditText(creditSource)] : [])],
+      versions: [],
+      lineage: { remixes: [], count: 0 },
+    },
+    // canonical と言語の対応は付けない（検索に出さない）。絵はサイトの決まった絵
+    head: { title: copy.share.pageTitle(work.title || copy.post.untitled, creator.handle), description: copy.share.description, image: siteImage(c), robots: 'noindex, nofollow' },
+  });
+  return withShareHeaders(response);
+}
+
+/** GET /s/<合言葉>/file/<版>/<file>：リンクで見せるページの本文のための読み口（/p/<id>/file/... と同じ形。今の版だけ）。 */
+export async function renderSharedFile(c: PageContext): Promise<Response> {
+  const version = c.req.param('version') ?? '';
+  const name = c.req.param('file') ?? '';
+  const missing = () => withShareHeaders(new Response('Not found\n', { status: 404, headers: PLAIN_TEXT }));
+  if (!isWorkFileName(name)) return missing();
+  const token = c.req.param('token') ?? '';
+  const shared = await sharedWork(c.env.DB, token);
+  if (!shared || shared.kind !== 'private' || shared.row.version !== version) return missing();
+  const files = await loadRevisionFiles(c.env.PARTS, shared.row.r2_prefix);
+  const file = files && workFiles(files).find((item) => item.name === name);
+  if (!file) return missing();
+  return withShareHeaders(new Response(file.text, { headers: PLAIN_TEXT }));
 }
 
 /** ログインの画面。ログイン済みなら戻り先へ。使える手段はサイトの設定で決まり、人では変わらない。キャッシュしない。 */

@@ -31,14 +31,17 @@ export function formatLineHash(range: LineRange | null): string {
   return range.end > range.start ? `#L${range.start}-L${range.end}` : `#L${range.start}`;
 }
 
-/** 言語のない道（/p/<id>/code/<file>#L…）。リンクにするときは localizedPath を通す */
-export function codePath(id: string, file: string, range: LineRange | null = null): string {
-  return `/p/${encodeURIComponent(id)}/code/${file}${formatLineHash(range)}`;
+/** 作品のページの言語のない道（/p/<id>）。行の住所と本文の読み口は、この下（リンクで見せるページは /s/<合言葉>。SHARE001） */
+export const workBase = (id: string): string => `/p/${encodeURIComponent(id)}`;
+
+/** 言語のない道（/p/<id>/code/<file>#L…）。base は workBase か /s/<合言葉>。リンクにするときは localizedPath を通す */
+export function codePath(base: string, file: string, range: LineRange | null = null): string {
+  return `${base}/code/${file}${formatLineHash(range)}`;
 }
 
-/** 本文のための読み口（worker/workFile.ts）。クレジット行なしで、行の番号は本物のファイルと同じ */
-export function fileTextUrl(id: string, version: string, file: string): string {
-  return `/p/${encodeURIComponent(id)}/file/${encodeURIComponent(version)}/${file}`;
+/** 本文のための読み口（worker/workFile.ts、/s/ は worker/pages.ts の renderSharedFile）。クレジット行なしで、行の番号は本物のファイルと同じ */
+export function fileTextUrl(base: string, version: string, file: string): string {
+  return `${base}/file/${encodeURIComponent(version)}/${file}`;
 }
 
 /**

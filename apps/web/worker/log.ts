@@ -4,7 +4,7 @@
 
 type LogName = 'internal_error' | 'github_failed' | 'google_failed' | 'rate_limit_failed' | 'rate_key_missing' | 'admin_token_missing' | 'cache_purge_failed' | 'ssr_failed' | 'outline_failed';
 
-const ROUTE_KINDS = new Set(['api', 'auth', 'frame', 'p', 'c', 'w', 'files', 'saved', 'account', 'login', 'signup', 'privacy', 'about', 'assets', 'new', 'admin', 'draft-frame', 'draft-thumb', 'oauth', 'mcp', '.well-known']);
+const ROUTE_KINDS = new Set(['api', 'auth', 'frame', 'p', 'c', 'w', 'files', 'saved', 'account', 'login', 'signup', 'privacy', 'about', 'assets', 'new', 'admin', 'draft-frame', 'draft-thumb', 'oauth', 'mcp', '.well-known', 's', 'share-frame']);
 
 /** 道の種類。道そのものは出さない（作品の id や、知らない道に入れられた文字が入るため）。 */
 export function routeKind(pathname: string): string {

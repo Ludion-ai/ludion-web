@@ -5,7 +5,7 @@
 // - POST /api/admin/works/:id/unpublish：取り下げ（rejected）。JSON で { "reason": "…" } を付けてよい
 
 import { Hono, type Context } from 'hono';
-import { CATALOG_TAG, workTag } from './cachePolicy';
+import { CATALOG_TAG, shareTag, workTag } from './cachePolicy';
 import type { Env } from './env';
 import { logError } from './log';
 import { OUTLINE_CONTENT_TYPE, OUTLINE_FILE, outlineFromBytes } from './outline';
@@ -165,7 +165,10 @@ admin.post('/works', async (c) => {
          ON CONFLICT (id) DO UPDATE SET creator_id = excluded.creator_id, title = excluded.title, type = excluded.type,
            platform = excluded.platform, category = excluded.category, subtype = excluded.subtype, tags = excluded.tags,
            made_with = excluded.made_with, version = excluded.version, license = excluded.license, status = excluded.status,
-           pin_order = excluded.pin_order, reject_reason = CASE WHEN excluded.status = 'rejected' THEN works.reject_reason END, thumb_key = excluded.thumb_key, thumb_w = excluded.thumb_w,
+           pin_order = excluded.pin_order, reject_reason = CASE WHEN excluded.status = 'rejected' THEN works.reject_reason END,
+           share_token = CASE WHEN excluded.status = 'rejected' THEN NULL ELSE works.share_token END,
+           shared_at = CASE WHEN excluded.status = 'rejected' THEN NULL ELSE works.shared_at END,
+           thumb_key = excluded.thumb_key, thumb_w = excluded.thumb_w,
            thumb_h = excluded.thumb_h, published_at = excluded.published_at, is_remix = excluded.is_remix`,
       )
       .bind(
@@ -249,7 +252,10 @@ admin.post('/revisions/:rid/revoke', async (c) => {
   const isCurrent = revision.version === revision.current_version;
   await db.batch([
     db.prepare("UPDATE revisions SET status = 'revoked', updated_at = ? WHERE id = ?").bind(now, rid),
-    ...(isCurrent ? [db.prepare("UPDATE works SET status = 'rejected', reject_reason = 'revision_revoked' WHERE id = ? AND status = 'approved'").bind(revision.work_id)] : []),
+    // 取り下げると、リンクで見せる合言葉も捨てる（SHARE001、AUDIT001 F8：後で自分だけの版を置き直しても、古いリンクが開かないように）
+    ...(isCurrent
+      ? [db.prepare("UPDATE works SET status = 'rejected', reject_reason = 'revision_revoked', share_token = NULL, shared_at = NULL WHERE id = ? AND status = 'approved'").bind(revision.work_id)]
+      : []),
   ]);
   const catalogPurged = await purge(c, isCurrent ? [CATALOG_TAG, workTag(revision.work_id)] : [workTag(revision.work_id)]);
   return c.json({ id: rid, status: 'revoked', work_id: revision.work_id, work_taken_down: isCurrent, catalog_purged: catalogPurged });
@@ -263,13 +269,15 @@ admin.post('/works/:id/unpublish', async (c) => {
     if (typeof body?.reason === 'string' && body.reason.trim()) reason = body.reason.trim().slice(0, 500);
   }
   const db = c.env.DB;
+  // リンクで見せていた作品なら、合言葉を捨て、/s/ の HTML の札も消す（SHARE001、AUDIT001 F8）
+  const shared = await db.prepare('SELECT share_token FROM works WHERE id = ?').bind(id).first<{ share_token: string | null }>();
   const [result] = await db.batch([
-    db.prepare("UPDATE works SET status = 'rejected', reject_reason = ? WHERE id = ?").bind(reason, id),
+    db.prepare("UPDATE works SET status = 'rejected', reject_reason = ?, share_token = NULL, shared_at = NULL WHERE id = ?").bind(reason, id),
     db.prepare("UPDATE revisions SET status = 'revoked', updated_at = ? WHERE work_id = ? AND status <> 'revoked'").bind(Date.now(), id),
   ]);
   if (result.meta.changes === 0) return c.json({ error: 'not_found', message: `作品 ${id} がない` }, 404);
   // サムネイルも消す。当たると Worker を通らないので、取り下げた作品の画像が出続ける（CLAUDE.md 原則5）
-  const catalogPurged = await purge(c, [CATALOG_TAG, workTag(id)]);
+  const catalogPurged = await purge(c, [CATALOG_TAG, workTag(id), ...(shared?.share_token ? [shareTag(shared.share_token)] : [])]);
   return c.json({ id, status: 'rejected', reject_reason: reason, catalog_purged: catalogPurged });
 });
 

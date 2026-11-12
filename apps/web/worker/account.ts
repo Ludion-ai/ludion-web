@@ -16,6 +16,7 @@ import { listGrants, revokeGrant } from './oauth';
 import { isSameOrigin } from './origin';
 import { parseProfile } from './profile';
 import { purgeWithRetry } from './purge';
+import { shareTag } from './share';
 import { clearSessionCookie, getSessionUser, isRecentAuth, sessionId, startSession, type SessionUser } from './session';
 
 type AccountEnv = { Bindings: Env; Variables: { user: SessionUser } };
@@ -254,6 +255,11 @@ account.post('/delete', async (c) => {
     .prepare(`SELECT w.id FROM works w JOIN creators c ON c.id = w.creator_id WHERE c.user_id = ? AND w.status = 'approved'`)
     .bind(user.id)
     .all<{ id: string }>();
+  // リンクで見せている作品の合言葉（SHARE001）。下で捨て、キャッシュの札も消す
+  const { results: shares } = await db
+    .prepare(`SELECT w.share_token FROM works w JOIN creators c ON c.id = w.creator_id WHERE c.user_id = ? AND w.share_token IS NOT NULL`)
+    .bind(user.id)
+    .all<{ share_token: string }>();
   const results = await db.batch([
     db.prepare('DELETE FROM likes WHERE user_id = ?').bind(user.id),
     db.prepare('DELETE FROM bookmarks WHERE user_id = ?').bind(user.id),
@@ -268,7 +274,7 @@ account.post('/delete', async (c) => {
     db.prepare('DELETE FROM oauth_codes WHERE user_id = ?').bind(user.id),
     // 自分だけの作品も同じに取り下げる（docs/tasks/T036.md「6」）。持ち主が外れるので、だれにも見えなくなる
     db
-      .prepare(`UPDATE works SET status = 'rejected', reject_reason = ? WHERE status IN ('approved', 'private') AND creator_id IN (SELECT id FROM creators WHERE user_id = ?)`)
+      .prepare(`UPDATE works SET status = 'rejected', reject_reason = ?, share_token = NULL, shared_at = NULL WHERE status IN ('approved', 'private') AND creator_id IN (SELECT id FROM creators WHERE user_id = ?)`)
       .bind(REASON_ACCOUNT_DELETED, user.id),
     // 審査待ちと下書きと、自分だけで置いた版も止める。作者の行を外す前に
     db
@@ -280,6 +286,8 @@ account.post('/delete', async (c) => {
   ]);
   clearSessionCookie(c);
   // いいねの数と、取り下げた作品が、キャッシュの HTML に残らないように
-  if (results[0].meta.changes > 0 || works.length > 0) await purge(c, [CATALOG_TAG, ...works.map(({ id }) => workTag(id))]);
+  // リンクで見せていた作品の /s/ も、同じ1回で消す（消す回数には上限がある。purge.ts）
+  const tags = [...(results[0].meta.changes > 0 || works.length > 0 ? [CATALOG_TAG, ...works.map(({ id }) => workTag(id))] : []), ...shares.map((row) => shareTag(row.share_token))];
+  if (tags.length > 0) await purge(c, tags);
   return c.body(null, 204);
 });

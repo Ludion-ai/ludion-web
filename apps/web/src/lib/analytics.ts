@@ -16,12 +16,25 @@ declare global {
  * URL から検索語（q）を除く。UTM などのほかの値は、どこから来たかを見るのに要るので残す。
  * ログインの画面の next には、元のページの URL が検索語ごと入るので、これも除く。
  */
+/** リンクで見せるページの道（/s/<合言葉>…、/en/s/<合言葉>…。SHARE001） */
+const SHARE_PATH = /^(\/en)?\/s\/[^/]+/;
+export const isSharePath = (pathname: string): boolean => SHARE_PATH.test(pathname);
+
+/**
+ * URL から検索語（q）を除く。UTM などのほかの値は、どこから来たかを見るのに要るので残す。
+ * ログインの画面の next には、元のページの URL が検索語ごと入るので、これも除く。
+ * リンクで見せるページの合言葉も除く（/s/ だけを残す）。/s/ では GA4 を読まないので、ここは2枚目の守り（SHARE001「5」）。
+ */
 export function withoutSearchTerm(href: string): string {
   if (!href) return '';
   try {
     const url = new URL(href);
     url.searchParams.delete('q');
     url.searchParams.delete('next');
+    if (isSharePath(url.pathname)) {
+      url.pathname = url.pathname.startsWith('/en/') ? '/en/s/' : '/s/';
+      url.hash = '';
+    }
     return url.href;
   } catch {
     return '';

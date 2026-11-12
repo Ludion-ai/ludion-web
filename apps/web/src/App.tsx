@@ -15,7 +15,7 @@ import { AboutPage, PrivacyPage, TermsPage } from './pages/InfoPages';
 import { LoginPage, SignupPage } from './pages/LoginPage';
 import { NotFound } from './pages/NotFound';
 import { LikedPage, SavedPage } from './pages/SavedPage';
-import { WorkPage } from './pages/WorkPage';
+import { SharedWorkPage, WorkPage } from './pages/WorkPage';
 
 // 作り手の画面は、ホームの JS に足さない
 const PostPage = lazy(() => import('./pages/PostPage').then((module) => ({ default: module.PostPage })));
@@ -57,6 +57,8 @@ export function App() {
         <Route index element={<Home />} />
         {/* p/:id/code/<file>（行の住所。WS003）も同じ要素で受ける。ファイルを替えても、ページを載せ直さない（枠を読み直さず、閲覧を数え直さない） */}
         <Route path="p/:id/*" element={<WorkPage />} />
+        {/* リンクで見せるページ（SHARE001）。s/:token/code/<file> も同じ要素 */}
+        <Route path="s/:token/*" element={<SharedWorkPage />} />
         <Route path="c/:handle" element={<CreatorPage />} />
         <Route path="login" element={<LoginPage />} />
         <Route path="signup" element={<SignupPage />} />

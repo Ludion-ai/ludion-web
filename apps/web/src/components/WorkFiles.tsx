@@ -40,7 +40,10 @@ function whenIdle(run: () => void): () => void {
 }
 
 interface WorkFilesProps {
-  workId: string;
+  /** 作品の道（言語のない /p/<id>、リンクで見せるページは /s/<合言葉>。SHARE001）。本文の住所と読み口は、この下 */
+  base: string;
+  /** 生の文字（/p/<id>/raw/<file>）のリンクを出すか。リンクで見せるページには出さない */
+  raw?: boolean;
   version: string;
   tree: WorkTree;
   /** クレジット行の文字（ファイルをコピーした文字の頭に入れる） */
@@ -58,12 +61,12 @@ interface WorkFilesProps {
  * 住所（/p/<id>/code/<file>#L204-L760）が1つの正：木、目次、行の番号、「この作品について」の印は、どれも住所を替えるだけ。
  * 幅767px以下では、本文を全画面で出す（上に道しるべ、左上に戻る）。
  */
-export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopied }: WorkFilesProps) {
+export function WorkFiles({ base, raw = true, version, tree, credit, snippet, file, onCopied }: WorkFilesProps) {
   const copy = useCopy();
   const locale = useLocale();
   const text = copy.work.files;
   const location = useLocation();
-  const { go, close, stay } = useCodeLink(workId);
+  const { go, close, stay } = useCodeLink(base);
   const narrow = useMediaQuery(NARROW_QUERY, false);
   // # の後ろ（どの行か）は Worker から見えない。載せる最初の描画では使わず、載った後に当てる
   const hydrated = useHydrated();
@@ -96,7 +99,7 @@ export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopi
     }
     const controller = new AbortController();
     setFailed(false);
-    fetch(fileTextUrl(workId, version, openFile), { signal: controller.signal })
+    fetch(fileTextUrl(base, version, openFile), { signal: controller.signal })
       .then((response) => (response.ok ? response.text() : Promise.reject(new Error(String(response.status)))))
       .then((body) => {
         const next = { file: openFile, text: body, lineStarts: lineStartsOf(body) };
@@ -107,7 +110,7 @@ export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopi
         if (!controller.signal.aborted) setFailed(true);
       });
     return () => controller.abort();
-  }, [workId, version, openFile, attempt]);
+  }, [base, version, openFile, attempt]);
   const current = loaded && loaded.file === openFile ? loaded : null;
 
   // ---- 色付け。本文を地の色で出した後、手の空いた時に付ける
@@ -220,7 +223,7 @@ export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopi
     flashTimer.current = setTimeout(() => setFlash(null), COPIED_MS);
     return state === 'copied';
   };
-  const address = openFile ? `${SHARE_ORIGIN}${codePath(workId, openFile, range)}` : '';
+  const address = openFile ? `${SHARE_ORIGIN}${codePath(base, openFile, range)}` : '';
   const copyFile = async () => {
     if (!current) return;
     // 文書の作品は、その文書が「全部をコピー」の文字（クレジット行は <!doctype> の直後）。ほかは、頭にクレジット行（原則4）
@@ -253,7 +256,7 @@ export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopi
             <span className="size-8 shrink-0 max-md:size-11" />
           )}
           <Link
-            to={codePath(workId, node.file, node.range)}
+            to={codePath(base, node.file, node.range)}
             data-tree-key={node.key}
             data-tree-kind={node.kind}
             aria-current={selected ? 'true' : undefined}
@@ -319,7 +322,7 @@ export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopi
               <div className="flex min-w-0 items-center gap-1 md:min-h-8">
                 <a
                   ref={backLink}
-                  href={localizedPath(locale, `/p/${encodeURIComponent(workId)}`)}
+                  href={localizedPath(locale, base)}
                   aria-label={text.back}
                   onClick={(event) => {
                     event.preventDefault();
@@ -350,9 +353,11 @@ export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopi
                   {label('file', text.copyFile)}
                 </button>
                 {/* 生の文字（WS006）。言語のない道 */}
-                <a href={`/p/${encodeURIComponent(workId)}/raw/${openFile}`} target="_blank" rel="noopener" className={`${SMALL_BUTTON} max-md:hidden`}>
-                  {text.raw}
-                </a>
+                {raw && (
+                  <a href={`${base}/raw/${openFile}`} target="_blank" rel="noopener" className={`${SMALL_BUTTON} max-md:hidden`}>
+                    {text.raw}
+                  </a>
+                )}
                 <button type="button" aria-pressed={wrap} onClick={() => setWrapChoice(!wrap)} className={`${SMALL_BUTTON} ${wrap ? 'bg-site-key' : ''}`}>
                   {text.wrap}
                 </button>
@@ -407,7 +412,7 @@ export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopi
                     {functions.map((item) => (
                       <li key={`${item.start}-${item.name}`}>
                         <Link
-                          to={codePath(workId, item.file, { start: item.start, end: item.end })}
+                          to={codePath(base, item.file, { start: item.start, end: item.end })}
                           onClick={(event) => onLink(event, item.file, { start: item.start, end: item.end })}
                           aria-current={range?.start === item.start && range.end === item.end ? 'true' : undefined}
                           className={`flex items-baseline gap-2 rounded-control px-2 py-1 font-mono text-small text-site-fg-3 hover:bg-site-hover hover:text-site-fg ${

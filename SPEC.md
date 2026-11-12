@@ -258,7 +258,10 @@ CREATE TABLE works (
   thumb_key TEXT NOT NULL, thumb_w INTEGER NOT NULL, thumb_h INTEGER NOT NULL,
   is_remix INTEGER NOT NULL DEFAULT 0, -- remix_of がある、またはコードに Remix by か Remixed by がある。一覧の帯に使う
   remix_of TEXT, -- リミックスの元の作品の ID（docs/tasks/T033.md B3）。作品を作るときに決まり、変えない。元が取り下げられても残す
-  created_at INTEGER NOT NULL, published_at INTEGER
+  created_at INTEGER NOT NULL, published_at INTEGER,
+  share_token TEXT,       -- リンクで見せる合言葉（SHARE001）。16 バイトの乱数の base64url（22 文字）。オフは NULL。一意の索引（NULL を除く）
+  shared_at INTEGER,      -- オンにした時刻。オフは NULL
+  share_blocked_at INTEGER -- 運営が止めた時刻。止めている間は /s/ が 404 で、持ち主はオンにできない
 );
 CREATE TABLE revisions (
   id TEXT PRIMARY KEY, work_id TEXT NOT NULL,
@@ -286,7 +289,7 @@ CREATE TABLE invites (token_hash TEXT PRIMARY KEY, creator_id TEXT, expires_at I
 
 チップと絞り込みの対応：Web → `platform='web'`、Mobile → `platform='mobile'`、Dashboard・Ecommerce・Minimal・Experimental・Motion → `tags` に含む。壁紙 → `subtype='Wallpaper'`（WALL001）。Components → `type='component'`。
 
-`works` は公開の値を持つ（一覧と作品のページが読む）。投稿の版を承認すると、その版の値で `works` を差し替える。直した版の審査中は、前の版の値のまま。`works.status` の `rejected` は取り下げも含む（`reject_reason` が `owner_revoked` など）。`works.status` の `private` は自分だけの作品で、`works` の値は本人に見せる今の版（自分だけで置いた版か、前に公開していた版）。一覧と公開の道は `approved` だけを読むので、`private` はどこにも出ない（docs/tasks/T036.md）。
+`works` は公開の値を持つ（一覧と作品のページが読む）。投稿の版を承認すると、その版の値で `works` を差し替える。直した版の審査中は、前の版の値のまま。`works.status` の `rejected` は取り下げも含む（`reject_reason` が `owner_revoked` など）。`works.status` の `private` は自分だけの作品で、`works` の値は本人に見せる今の版（自分だけで置いた版か、前に公開していた版）。一覧と公開の道は `approved` だけを読むので、`private` はどこにも出ない（docs/tasks/T036.md）。リンクで見せる作品（SHARE001）も `works.status` は `private` のままで、`share_token` があるだけなので、一覧と公開の道には出ない。
 
 R2（`ludion-parts`）：版の `r2_prefix` の下に `part.html`、`part.css`、`part.js`、`meta.json`、`thumb.webp`、`og.png`。オーナーの壁紙の作品は、ほかに静止画 `wall-3840x2160.png`、`wall-2560x1440.png`、`wall-1920x1080.png`（WALL002）。サムネイルは Worker が `Cache-Control: public, max-age=3600, s-maxage=31536000` で返す（パスに version が入るので、変わったら別の URL になる。ブラウザに長く残すと取り下げが届かないので、ブラウザには1時間。SEC001 A07）。
 
@@ -333,6 +336,8 @@ R2（`ludion-parts`）：版の `r2_prefix` の下に `part.html`、`part.css`�
 | `POST /api/post/works/:id/publish` | 自分だけ → 公開する。今の版を審査に出す。承認まで、ほかの人には 404 のまま。差し戻されたら自分だけのまま。サムネイルが要る |
 | `POST /api/post/works/:id/make-private` | 公開 → 自分だけにする。すぐ。審査待ちの版は下書きに戻す。`catalog` と作品の札を消す |
 | `POST /api/post/works/:id/revoke` | 自分の作品を取り下げる（画面からは使わない。持ち主の画面は「自分だけにする」。docs/reports/T036.md） |
+| `GET /api/post/works/:id/share`、`POST /api/post/works/:id/share` | リンクで見せる（SHARE001）。持ち主だけ（ほかの人には 404）。GET は `{ state, url }`（`state` は `off`、`on`、`blocked`、`unavailable`。`url` はオンのときだけ）。POST は `{ on: boolean }`。オンは自分だけの作品だけ（ほかは 409 `not_private`）、運営が止めていれば 403 `share_blocked`。もうオンなら今の住所を返す。オフは合言葉を捨て、`share-<合言葉>` の札を消す。AI の口（`/api/v1`、MCP）には変える道がない |
+| `POST /api/review/shares/block`、`POST /api/review/shares/unblock` | `{ address }`（`/s/` の住所か合言葉、`/p/` の住所か作品の ID）。止める：合言葉を捨て、止めた印を付け、札を消す。戻す：印を外す（持ち主がまたオンにでき、住所は新しくなる）。返すのは作品の ID と作者と状態だけ（運営だけ。ほかの人には 404） |
 | `GET /api/review/queue`、`GET /api/review/revisions/:rid` | 審査待ちの一覧（古い順）と1件の全部（運営だけ。ほかの人には 404） |
 | `POST /api/review/revisions/:rid/approve` | `{ content_hash }`。見た中身のハッシュと同じときだけ承認する（運営だけ） |
 | `POST /api/review/revisions/:rid/reject` | `{ reason, note }`。理由は作り手に見える（運営だけ） |
@@ -661,6 +666,18 @@ GA4 の利用規約（Google Analytics Terms of Service の「7. Privacy」）�
   - 本人の作品のページは下書きの枠（`/draft-frame/<版の id>/…`）で動かす。応答は `Cache-Control: private, no-store`、`Referrer-Policy: no-referrer`、`X-Robots-Tag: noindex`。閲覧数とコピー数を数えず、GA4 を動かさない（ページの URL に作品の ID が入るため）。いいね、しおり、共有、リミックス、知らせるは出さない。
   - 自分だけ → 公開する：今の版を審査に出す。承認で公開。差し戻されたら自分だけのまま。公開 → 自分だけにする：すぐ。閲覧数とコピー数とほかの人のリミックスは残す。リミックスの作品のページの帯は「元の作品：〈題〉（@作者）」と元へのリンク。元が公開されていなければ「元の作品は見られません」でリンクなし。コピーされるコードの2行目はそのまま。
   - 1人100作品まで。置く回数の上限は保存の上限（`quotas`）と同じ。退会すると、自分だけの作品も取り下げ（`rejected`、版は `revoked`）になり、だれにも見えない。
+- 作品の見え方は3つ（SHARE001）：**自分だけ**（本人だけ）／**リンクで見せる**（住所を知っている人だけ。一覧と検索には出さない。審査はしない）／**公開**（審査あり。一覧と検索に出る）。GitHub の secret gist と同じ考え。
+  - スイッチ：持ち主が、自分だけの作品のページの設定のタブで、作品ごとにオン・オフする（初めはオフ）。オンにすると住所 `https://ludion.ai/s/<合言葉>` が出てコピーできる。押すのは人だけで、AI の口からは変えられない（許可の画面の「公開はできません」と同じ決まり）。持ち主の AI は `get_work`（`/api/v1/works/:id/outline` の `share`）で今の状態と住所を読める。そのため、住所は AI の会話の記録にも残る。スイッチの下（オンのとき）に、そのことを1行で書く（AUDIT001 F9）。
+  - 合言葉：16 バイト（128 ビット）の乱数の base64url で 22 文字。`/p/<id>` は今までどおり持ち主だけ（id は短いので住所に使わない）。オフにすると合言葉を捨て、古いリンクは 404。もう一度オンにすると新しい合言葉。取り下げと退会でも捨てる。公開になった作品の `/s/` は作品のページへ 302 で送る。
+  - `/s/<合言葉>`（と `/s/<合言葉>/code/<file>`、英語は `/en/s/…`）：ログインなしで開ける。作品は合言葉の枠（`/share-frame/<合言葉>/<desktop|mobile>.html`。守りは「13」の枠と同じ：sandbox、CSP、`frame-ancestors 'self'`、`Sec-Fetch-Dest` の確かめ、キャッシュしない）で動かす。題、@作者、版、札「リンクで見せる」と知らせ「リンクで見せている作品です。この作品は審査していません。パスワードやカードの番号を入れないでください。」、「この作品について」、「全部をコピー」（クレジット行つき）、「問題を報告」（報告の住所は `/s/` の住所）、ファイルの木と本文（本文の読み口は `/s/<合言葉>/file/<版>/<file>`。今の版だけ）。下に1行「Ludion につなぐと、作った物が残る」とつなぎ方へのリンク。出さない・数えない：いいね、しおり、共有、リミックス、閲覧数、コピー数、版と系譜のタブ、ほかの作品の並び、生の文字のリンク。作者の名前は作り手のページへのリンクにしない。
+  - 持ち主が開いた時は、読み込みの後に（HTML はだれにでも同じ）「リンクで見せています」の知らせと「オフにする」を出す。押すと作品のページへ戻る。
+  - 一覧と検索に出さない：`X-Robots-Tag: noindex, nofollow` と `<meta name="robots">`。canonical と言語の対応を付けない。サイトマップ、`/api/works`、`llms.txt`、作り手のページ、公開の作品を読む AI の道具に出ない。
+  - 合言葉を漏らさない：`/s/` のページ、本文、枠、404 に `Referrer-Policy: no-referrer`。`/s/` では GA4 を読まない（送る URL からも合言葉を除く。`withoutSearchTerm`）。Worker のログは道の種類（`s`、`share-frame`）だけ。/s/ の住所は、Cloudflare の側の記録（ゾーンの分析など）には残りうる（自分たちのアカウントの中の物で、外の人には出ない。gist の secret の住所と同じ扱い。11/13 に CTO が受け入れた）。コピーされるコードとファイルのクレジット行は `ludion.ai/p/<id>` のままで、合言葉を入れない。
+  - キャッシュ：`/s/` のページと本文の 200 は、だれにでも同じなので `s-maxage=60`、札は `share-<合言葉>`。オフ、運営が止めた、新しい版、公開、取り下げ、退会のときに札を消す（消すのに失敗しても 60 秒まで）。404 と枠はキャッシュしない。
+  - 回数：`/s/*`、`/en/s/*`、`/share-frame/*` は束縛 `LIMIT_COUNT` で IP ごとに数える（合言葉を当てる連打で Worker の回数を使い切らせない）。
+  - X のカード：題と「· Ludion」、説明、絵はサイトの決まった絵（`/og-home.png`。審査していない絵をカードに出さない）。
+  - 取り下げ（持ち主、運営の取り下げ、版の取り下げ、`ld upload` で `rejected` にしたとき、退会）は、どの道でも合言葉を捨てる。取り下げた作品に自分だけの版を置き直しても、前の合言葉は持ち越さない（AUDIT001 F8）。
+  - 運営が止める：審査の画面の「リンクで見せる作品を止める」に、報告で届いた住所か作品の ID を入れる。止めると 404 になり、持ち主はもう一度オンにできない。運営はここから作品の中身を読まず、リンクで見せている作品の一覧も作らない。
 - 自分の作品（`/account/works`）：自分の全部の作品を、新しく変えた順に並べる。1行（スマホでは1枚）に、サムネイル（無いときは題の頭の1文字）、題、状態の札（「自分だけ」「審査待ち」「公開」「差し戻し」「下書き」。古い取り下げは「取り下げ」）、最後に変えた日、版の数。絞り込みは「すべて」「自分だけ」「公開」。できること：開く、新しい版を置く（下書きは「続ける」）、公開する（自分だけの今の版）、自分だけにする（公開の作品。確かめの一言を出す）。
 - 版の状態：`draft`（下書き）→ `submitted`（審査待ち）→ `approved`（公開）／`rejected`（差し戻し。理由つき）→ `revoked`（取り下げ）。公開した版は変えない。直すと新しい版になる。直した版が審査を待つ間は、前の公開の版がそのまま出る。審査中の版は直せない。
 - 持ち主はセッションの人から決める。作者がなければ、その人の handle で作って `creators.user_id` で結ぶ（アバターは入れない）。送られてきた作者、状態、`pin_order`、`kind` は受けない。作品の ID は新しく作るときの名前としてだけ受ける（英小文字、数字、ハイフンで3〜60文字。`ludion` を含むものは取れない）。

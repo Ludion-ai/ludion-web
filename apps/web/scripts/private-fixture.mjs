@@ -18,3 +18,12 @@ export const privateFixtureId = (id) => `${id}-own`;
 export const privateRevisionId = (id) => createHash('sha256').update(privateFixtureId(id)).digest('hex').slice(0, 32);
 
 export const sessionHash = (token) => createHash('sha256').update(token).digest('hex');
+
+/** リンクで見せる見本（SHARE001）の作品の ID。自分だけの見本（-own）とは別の作品にする（-own の札と知らせを変えないため） */
+export const sharedFixtureId = (id) => `${id}-shr`;
+
+/** リンクで見せる見本の版の id */
+export const sharedRevisionId = (id) => createHash('sha256').update(sharedFixtureId(id)).digest('hex').slice(0, 32);
+
+/** リンクで見せる見本の合言葉。22 文字の base64url。毎回同じ値にして、テストが /s/ と枠の URL を確かめられるようにする */
+export const sharedFixtureToken = (id) => createHash('sha256').update(`share-${sharedFixtureId(id)}`).digest('base64url').slice(0, 22);

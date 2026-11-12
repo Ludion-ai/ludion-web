@@ -31,6 +31,7 @@ import { purgeWithRetry } from './purge';
 import { takePostQuota, takeReviewQuota } from './quota';
 import { PRIVATE_WORKS_LIMIT, REVISION_ID, canPost, countPrivateWorks, draftFrameUrls, draftThumbUrl, loadRevisionFiles, ownedRevision, ownedWork, revisionFile, type RevisionRow } from './revisions';
 import { getSessionUser, randomHex, type SessionUser } from './session';
+import { getShare, purgeShare, purgeShareOf, setShare } from './share';
 import type { ThumbError, ThumbResult } from './thumb';
 import { CONTENT_TYPES, compareVersions } from './upload';
 
@@ -654,13 +655,16 @@ post.post('/works/:id/revoke', async (c) => {
   if (!work) return c.json({ error: 'not_found' }, 404);
   if (work.owner_id !== user.id) return c.json({ error: 'forbidden' }, 403);
   const now = Date.now();
+  // リンクで見せていたら、合言葉も捨てる（SHARE001）。取り下げた作品は /s/ でも 404
+  const shared = await c.env.DB.prepare('SELECT share_token FROM works WHERE id = ?').bind(work.id).first<{ share_token: string | null }>();
   await db.batch([
-    db.prepare(`UPDATE works SET status = 'rejected', reject_reason = ? WHERE id = ?`).bind(REASON_OWNER_REVOKED, work.id),
+    db.prepare(`UPDATE works SET status = 'rejected', reject_reason = ?, share_token = NULL, shared_at = NULL WHERE id = ?`).bind(REASON_OWNER_REVOKED, work.id),
     // 差し戻しの版も。いちばん新しい版の状態を画面に出すので、残すと取り下げたように見えない
     db.prepare(`UPDATE revisions SET status = 'revoked', updated_at = ? WHERE work_id = ? AND status <> 'revoked'`).bind(now, work.id),
   ]);
   // サムネイルも消す。当たると Worker を通らないので、取り下げた作品の画像が出続ける
   const purged = work.status === 'approved' ? await purge(c, [CATALOG_TAG, workTag(work.id)]) : true;
+  await purgeShare(c, [shared?.share_token]);
   return c.json({ id: work.id, status: 'revoked', catalog_purged: purged });
 });
 
@@ -680,6 +684,8 @@ post.post('/revisions/:rid/place', async (c) => {
   if (revision.owner_id !== user.id) return c.json({ error: 'forbidden' }, 403);
   if (!(await readConfirmations(c))) return c.json({ error: 'confirm_required' }, 400);
   const placed = await placePrivate(db, user.id, revision);
+  // リンクで見せている作品は、/s/ の HTML の札も消す（新しい版を見せる。SHARE001）
+  if (placed.ok) await purgeShareOf(c, revision.work_id);
   return placed.ok ? c.json({ id: rid, status: 'private', work_id: revision.work_id, version: revision.version }) : c.json(placed.body, placed.status);
 });
 
@@ -699,7 +705,8 @@ export async function placePrivate(db: D1Database, userId: string, revision: Non
   }
   const rid = revision.id;
   const now = Date.now();
-  // 1つのトランザクション。版が置けたときだけ（changes() > 0）、作品の今の値をこの版にする。確かめた後に公開された作品には置かない
+  // 1つのトランザクション。版が置けたときだけ（changes() > 0）、作品の今の値をこの版にする。確かめた後に公開された作品には置かない。
+  // 自分だけでない作品（取り下げなど）を自分だけに戻すときは、前のリンクで見せる合言葉を持ち越さない（SHARE001、AUDIT001 F8。2枚目の守り）
   const [placed, current] = await db.batch([
     db
       .prepare(
@@ -710,7 +717,9 @@ export async function placePrivate(db: D1Database, userId: string, revision: Non
     db
       .prepare(
         `UPDATE works SET status = 'private', reject_reason = NULL, title = ?1, type = ?2, platform = ?3, category = ?4, subtype = ?5, tags = ?6, made_with = ?7,
-           version = ?8, thumb_key = ?9, thumb_w = ?10, thumb_h = ?11, is_remix = ?12
+           version = ?8, thumb_key = ?9, thumb_w = ?10, thumb_h = ?11, is_remix = ?12,
+           share_token = CASE WHEN status = 'private' THEN share_token END,
+           shared_at = CASE WHEN status = 'private' THEN shared_at END
          WHERE id = ?13 AND status <> 'approved' AND changes() > 0`,
       )
       .bind(
@@ -884,11 +893,16 @@ post.post('/works/:id/thumb', async (c) => {
     await deletePrefix(c.env.PARTS, prefix);
     return c.json({ error: 'conflict' }, 409);
   }
+  await purgeShareOf(c, work.id);
   return c.json({
     work_id: work.id,
     revision: { id: revisionId, version, status: 'private', thumb: draftThumbUrl(revisionId), thumb_w: made.width, thumb_h: made.height },
   });
 });
+
+// リンクで見せる（SHARE001。worker/share.ts）。人がサイトで押すときだけ。AI の口（/api/v1、MCP）には、この道がない
+post.get('/works/:id/share', getShare);
+post.post('/works/:id/share', setShare);
 
 /**
  * 公開 → 自分だけにする（docs/tasks/T036.md「4」）。すぐ。審査はしない。ホームと検索から消え、リンクを開いても 404 になる。
@@ -904,7 +918,8 @@ post.post('/works/:id/make-private', async (c) => {
   if ((await countPrivateWorks(db, user.id, work.id)) >= PRIVATE_WORKS_LIMIT) return c.json({ error: 'private_limit', limit: PRIVATE_WORKS_LIMIT }, 409);
   const now = Date.now();
   const [changed] = await db.batch([
-    db.prepare(`UPDATE works SET status = 'private' WHERE id = ? AND status = 'approved'`).bind(work.id),
+    // 公開の前にリンクで見せていた合言葉は捨てる（SHARE001：古いリンクが、自分だけに戻した後でまた開かないように。見せるなら新しくオンにする）
+    db.prepare(`UPDATE works SET status = 'private', share_token = NULL, shared_at = NULL WHERE id = ? AND status = 'approved'`).bind(work.id),
     db.prepare(`UPDATE revisions SET status = 'draft', updated_at = ?1 WHERE work_id = ?2 AND status = 'submitted' AND changes() > 0`).bind(now, work.id),
   ]);
   if (changed.meta.changes === 0) return c.json({ error: 'not_public' }, 409);
