@@ -3,6 +3,7 @@
 
 import { expect, test, type Page } from '@playwright/test';
 import { PRIVATE_OWNER, sharedFixtureId, sharedFixtureToken } from '../scripts/private-fixture.mjs';
+import { WEBRTC_NAME } from '@ludion/render';
 import { ownOrigin } from './visitor';
 
 const ID = 'mal-nav';
@@ -50,3 +51,26 @@ test.describe('持ち主（見本の持ち主のセッション）', () => {
     await expect(page.getByLabel('見せる住所')).toHaveValue(`${ownOrigin()}/s/${TOKEN}`);
   });
 });
+
+// FRAME002 の枠の守りが、合言葉の枠の中でも効いていること。見るのは「無いこと」だけ（RTC で始まる名前が undefined、入れ子の枠が 0）。
+// 部品の作品（mal-cookie）と文書の作品（mal-doc）の、リンクで見せる見本を使う
+for (const [kind, id] of [['部品', 'mal-cookie'], ['文書', 'mal-doc']] as const) {
+  test(`${kind}の作品の /s/ の枠の中：RTC で始まる名前はどれも undefined。window.length は 0`, async ({ page }) => {
+    const token = sharedFixtureToken(id);
+    await page.goto(`/s/${token}`);
+    await hydrated(page);
+    const frameElement = page.locator('iframe[data-ld-frame]').first();
+    await expect(frameElement).toHaveAttribute('src', new RegExp(`^/share-frame/${token}/`));
+    await expect(frameElement).toHaveAttribute('data-ld-loaded', '');
+    const frame = page.frames().find((one) => one.url().includes(`/share-frame/${token}/`));
+    expect(frame, `/share-frame/${token}/`).toBeTruthy();
+    const seen = await frame!.evaluate((source) => {
+      const re = new RegExp(source);
+      const w = window as unknown as Record<string, unknown>;
+      const names = Object.getOwnPropertyNames(window).filter((name) => re.test(name));
+      const named = ['RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel', 'RTCSessionDescription', 'RTCIceCandidate'];
+      return { left: names.filter((name) => typeof w[name] !== 'undefined'), named: named.map((name) => typeof w[name]), frames: window.length };
+    }, WEBRTC_NAME.source);
+    expect(seen).toEqual({ left: [], named: ['undefined', 'undefined', 'undefined', 'undefined', 'undefined'], frames: 0 });
+  });
+}

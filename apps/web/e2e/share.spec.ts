@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { crc32, deflateSync } from 'node:zlib';
+import { FRAME_GUARD_SCRIPT, FRAME_RESPONSE_CSP, STORAGE_SCRIPT } from '@ludion/render';
 import { Visitor, ownOrigin } from './visitor';
 
 const WEB = join(import.meta.dirname, '..');
@@ -402,6 +403,42 @@ test.describe('リンクで見せる（API と Worker の HTML）', () => {
     expect((await visitor.post(`/api/post/revisions/${revision.id}/place`, CONFIRM)).status).toBe(200);
     expect(d1(`SELECT status, share_token FROM works WHERE id = ${quote(id)}`)).toEqual([{ status: 'private', share_token: null }]);
     await missing(`/s/${token}`);
+  });
+
+  // FRAME002 の枠の守り（WebRTC の名前を消し、入れ子の枠を作らせない）が、合言葉の枠にも入っていることを見る。見るのは「最初に動くのが守り」であることだけ
+  test('合言葉の枠（desktop と mobile）：最初の script が枠の守り、次が storage の代わり。文書の作品は CSP の meta のすぐ後。応答の頭は今までどおり', async () => {
+    const { visitor } = await person('guard');
+    const part = await turnOn(visitor, await privateWork(visitor, 'grd'));
+
+    const key = await visitor.post('/api/account/ai-keys', { name: 'Claude Code', ...CONFIRM });
+    const { secret } = (await key.json()) as { secret: string };
+    const doc = `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<title>${unique('Guard Doc ')}</title>\n</head>\n<body>\n<p>guard</p>\n</body>\n</html>\n`;
+    const saved = await fetch(new URL('/api/v1/works', ownOrigin()), { method: 'POST', headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ html: doc }) });
+    expect(saved.status, await saved.clone().text()).toBe(201);
+    const docToken = await turnOn(visitor, ((await saved.json()) as { id: string }).id);
+
+    const firstScripts = (html: string) => [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].slice(0, 2).map((m) => m[1]);
+    const anyone = new Visitor();
+    for (const [kind, token] of [['部品', part], ['文書', docToken]] as const) {
+      for (const file of ['desktop', 'mobile']) {
+        const label = `${kind} ${file}`;
+        const frame = await anyone.fetch(`/share-frame/${token}/${file}.html`, { headers: FROM_IFRAME });
+        expect(frame.status, label).toBe(200);
+        expect(frame.headers.get('content-security-policy'), label).toBe(FRAME_RESPONSE_CSP);
+        expect(frame.headers.get('content-security-policy'), label).toContain('sandbox allow-scripts allow-forms');
+        expect(frame.headers.get('content-security-policy'), label).toContain("frame-ancestors 'self'");
+        expect(frame.headers.get('referrer-policy'), label).toBe('no-referrer');
+        expect(frame.headers.get('x-robots-tag'), label).toBe('noindex, nofollow');
+        expect(frame.headers.get('cache-control'), label).toBe(NO_STORE);
+        const html = await frame.text();
+        expect(firstScripts(html), label).toEqual([FRAME_GUARD_SCRIPT, STORAGE_SCRIPT]);
+        if (kind === '文書') {
+          const meta = /^<!doctype html><meta http-equiv="Content-Security-Policy" content="[^"]*">/.exec(html);
+          expect(meta, label).not.toBeNull();
+          expect(html.slice(meta![0].length).startsWith(`<script>${FRAME_GUARD_SCRIPT}</script><script>${STORAGE_SCRIPT}</script>`), label).toBe(true);
+        }
+      }
+    }
   });
 
   test('AI の口で置いた文書の作品（index.html）も、/s/ で文書のまま動き、本文と行の住所が開く', async () => {
