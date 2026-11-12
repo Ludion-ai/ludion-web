@@ -330,7 +330,11 @@ const TEXT = {
     cannot: '公開はできません。公開は、今までどおりあなたがサイトで押します（審査があります）。',
     agree: (terms: string) => `この AI が置く作品は、全部、あなたが作った（または権利がある）もので、MIT で公開してよく、${terms}に同意したものとして扱います。`,
     terms: '利用規約',
-    back: (host: string) => `許可すると ${host} に戻ります。`,
+    returnTo: (where: string) => `戻り先：${where}`,
+    local: (host: string) => `このパソコンの中のアプリ（${host}）`,
+    app: (scheme: string) => `アプリ（${scheme}）`,
+    selfNamed: 'この名前は、つなぐ側が自分で名乗ったものです。戻り先が、あなたが使っている AI のものか確かめてください。',
+    unusual: 'この名前の AI の、ふだんの戻り先ではありません。心当たりがなければ、許可しないでください。',
     allow: '許可する',
     deny: 'やめる',
     later: 'つないだ AI は、アカウントの「AI につなぐ」でいつでも切れます。',
@@ -351,7 +355,11 @@ const TEXT = {
     cannot: 'It can’t publish. You publish from the site yourself, as before (with review).',
     agree: (terms: string) => `Every work this AI puts is treated as your own (or one you have the rights to), published under MIT, and you agree to the ${terms}.`,
     terms: 'terms',
-    back: (host: string) => `After you allow, you’ll go back to ${host}.`,
+    returnTo: (where: string) => `Returns to: ${where}`,
+    local: (host: string) => `an app on this computer (${host})`,
+    app: (scheme: string) => `an app (${scheme})`,
+    selfNamed: 'The app that’s connecting chose this name itself. Check that the return address belongs to the AI you use.',
+    unusual: 'This isn’t the usual return address for an AI with this name. If you don’t recognize it, don’t allow it.',
     allow: 'Allow',
     deny: 'Cancel',
     later: 'You can disconnect it any time under “Connect an AI” on your account page.',
@@ -368,13 +376,15 @@ const TEXT = {
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]!);
 
 const PAGE_STYLE = `
-:root{color-scheme:light dark;--bg:#ffffff;--fg:#111114;--fg2:#6b6b76;--line:#e4e4ea;--primary:#16161d;--on-primary:#ffffff;--field:#f5f5f7}
-@media (prefers-color-scheme: dark){:root{--bg:#0f0f12;--fg:#ededf0;--fg2:#8e8e99;--line:#303037;--primary:#ededf0;--on-primary:#0f0f12;--field:#18181c}}
+:root{color-scheme:light dark;--bg:#ffffff;--fg:#111114;--fg2:#6b6b76;--line:#e4e4ea;--primary:#16161d;--on-primary:#ffffff;--field:#f5f5f7;--warn-bg:#fff6d1;--warn-line:#e5b400;--warn-fg:#4a3900}
+@media (prefers-color-scheme: dark){:root{--bg:#0f0f12;--fg:#ededf0;--fg2:#8e8e99;--line:#303037;--primary:#ededf0;--on-primary:#0f0f12;--field:#18181c;--warn-bg:#2b2410;--warn-line:#8a6d00;--warn-fg:#f5e2a0}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
 main{max-width:480px;margin:0 auto;padding:48px 16px}
 .mark{font-weight:800;letter-spacing:-0.02em;font-size:18px;margin:0 0 32px}
-h1{font-size:22px;line-height:1.4;margin:0 0 8px;overflow-wrap:anywhere}
+h1,.return{font-size:22px;line-height:1.4;font-weight:700;margin:0 0 8px;overflow-wrap:anywhere}
+h1{margin-bottom:4px}
+.warn{border:1px solid var(--warn-line);background:var(--warn-bg);color:var(--warn-fg);border-radius:12px;padding:12px 16px;margin:16px 0 0}
 p{margin:8px 0}
 .sub{color:var(--fg2);font-size:13px}
 ul{margin:8px 0 16px;padding-left:20px}
@@ -404,9 +414,39 @@ function errorPage(c: OAuthContext, code: string) {
   return page(c, text.errorTitle, `<h1>${escapeHtml(text.errorHeading)}</h1><p>${escapeHtml(text.errors[code] ?? text.errors.unknown_client)}</p>`, 400);
 }
 
-function hostOf(uri: string): string {
+type Text = (typeof TEXT)[Locale];
+
+/** 戻り先を人に見せる形。https は host、手元の http は「このパソコンの中のアプリ」、アプリの種類は scheme だけ。 */
+function returnLabel(uri: string, text: Text): string {
   const url = new URL(uri);
-  return url.protocol === 'http:' || url.protocol === 'https:' ? url.host : `${url.protocol}//${url.host}`;
+  if (url.protocol === 'https:') return url.host;
+  if (url.protocol === 'http:') return text.local(url.host);
+  return text.app(`${url.protocol}//`);
+}
+
+/**
+ * よく知られた AI の名前と、その会社の戻り先の host（AUDIT001 の F3）。名前は登録した側が決めるので、
+ * 名前を名乗っているのに戻り先がこの外なら、許可の画面で知らせる（止めはしない）。表はここだけに置く。
+ * Claude の戻り先は claude.ai/api/mcp/auth_callback。ChatGPT は chatgpt.com/connector_platform_oauth_redirect か
+ * chatgpt.com/connector/oauth/<id>（https://developers.openai.com/apps-sdk/build/auth）。
+ */
+const KNOWN_CLIENTS: readonly { names: readonly string[]; hosts: readonly string[] }[] = [
+  { names: ['claude', 'anthropic'], hosts: ['claude.ai', 'claude.com'] },
+  { names: ['chatgpt', 'openai'], hosts: ['chatgpt.com', 'openai.com'] },
+];
+
+/** 比べるための名前：NFKC（全角を半角に）、小文字、空白と見えない文字を外す。 */
+const foldName = (name: string) => name.normalize('NFKC').toLowerCase().replace(/[\s\p{Cf}]/gu, '');
+
+/** よく知られた名前を名乗り、https の戻り先がその会社の物でないか。手元の http とアプリの種類は知らせない。 */
+export function unusualReturn(name: string, redirectUri: string): boolean {
+  const url = parseRedirectUri(redirectUri);
+  if (!url || url.protocol !== 'https:') return false;
+  const host = url.hostname.toLowerCase().replace(/\.$/, '');
+  const folded = foldName(name);
+  return KNOWN_CLIENTS.some(
+    (known) => known.names.some((word) => folded.includes(word)) && !known.hosts.some((own) => host === own || host.endsWith(`.${own}`)),
+  );
 }
 
 function consentPage(c: OAuthContext, request: AuthorizeRequest, handle: string, params: URLSearchParams) {
@@ -422,10 +462,12 @@ function consentPage(c: OAuthContext, request: AuthorizeRequest, handle: string,
     c,
     text.title,
     `<h1>${escapeHtml(text.heading(request.client.name)).replace(escapeHtml(request.client.name), `<span data-client-name>${name}</span>`)}</h1>
+<p class="return" data-return-to>${escapeHtml(text.returnTo(returnLabel(request.redirectUri, text)))}</p>
+<p class="sub" data-self-named>${escapeHtml(text.selfNamed)}</p>
 <p class="sub">${escapeHtml(text.as(handle))}</p>
 <div class="box"><p>${escapeHtml(text.can)}</p><ul>${text.items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul><p>${escapeHtml(text.cannot)}</p></div>
 <p class="sub">${text.agree(terms).replace(/&(?![a-z#0-9]+;)/g, '&amp;')}</p>
-<p class="sub">${escapeHtml(text.back(hostOf(request.redirectUri)))}</p>
+${unusualReturn(request.client.name, request.redirectUri) ? `<p class="warn" data-warning>${escapeHtml(text.unusual)}</p>` : ''}
 <form method="post" action="/oauth/authorize">${hidden}<div class="buttons"><button class="allow" type="submit" name="decision" value="allow">${escapeHtml(text.allow)}</button><button class="deny" type="submit" name="decision" value="deny">${escapeHtml(text.deny)}</button></div></form>
 <p class="sub">${escapeHtml(text.later)}</p>`,
   );
