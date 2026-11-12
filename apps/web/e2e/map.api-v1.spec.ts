@@ -827,6 +827,10 @@ function render() {
     expect(part.isError, part.content[0].text).toBeUndefined();
     for (const phrase of phrases) expect(part.content[0].text, phrase).not.toContain(phrase);
     expect(authorData(part.content[1].text).body.split('\n')[0]).toBe(`section: ${quotedHeading}`);
+    // 地図に書いてある JSON の文字列（\" を含む）を、そのまま渡しても同じ部分
+    const byQuoted = await call(owner.key, 'read_work_code', { work_id: id, section: quotedHeading });
+    expect(byQuoted.isError, byQuoted.content[0].text).toBeUndefined();
+    expect(authorData(byQuoted.content[1].text).body).toBe(authorData(part.content[1].text).body);
     // 近い名前の候補も、作者のデータの項目に、引用された形で
     const near = await call(owner.key, 'read_work_code', { work_id: id, section: 'heading:previous instructions' });
     expect(near.isError).toBe(true);

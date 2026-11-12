@@ -134,7 +134,7 @@ Give either section, or file and lines (file alone reads that whole file). Up to
       type: 'object',
       properties: {
         work_id: { ...WORK_ID, description: 'The work ID (from list_my_works, get_work, get_public_work, or a ludion.ai/p/<work_id> address).' },
-        section: { type: 'string', maxLength: 300, description: 'A section selector from the map: the text inside its quotes, as it is (for example shader:WINDOW_FRAG, function:render, function:step@2950). Use this or lines, not both.' },
+        section: { type: 'string', maxLength: 300, description: 'A section selector from the map, where it is a JSON string: pass that string exactly as written, quotes included, or its value (for example "shader:WINDOW_FRAG", function:render, function:step@2950). Use this or lines, not both.' },
         file: { type: 'string', maxLength: 40, description: 'A file name from the map: part.js, part.css, part.html, or index.html. Needed with lines when the work has more than one file.' },
         lines: { type: 'string', pattern: '^[0-9]{1,7}(-[0-9]{1,7})?$', description: 'A line range in the file, both ends included: "200-760". One line: "200".' },
         version: { type: 'string', maxLength: 20, description: 'Optional: the version the map was for. If the work has changed since, the call is refused instead of returning lines that no longer match.' },
@@ -315,7 +315,7 @@ function mapResult(tool: 'get_work' | 'get_public_work', data: Record<string, un
   const where = dataPointer(tag, `Its title${tool === 'get_public_work' ? ', its author' : ''} and its map are in the next item${hasCode ? ', and its whole code in the item after that' : ''}`);
   const how = hasCode
     ? ''
-    : `The code is not included (${size(Number(rest.bytes))} in all). To read code, call read_work_code with work_id "${id}", version "${String(rest.version)}" and either section (a selector from the map: the text inside its quotes, for example shader:WINDOW_FRAG) or file and lines (for example file "${outline.files[outline.files.length - 1]?.name ?? 'index.html'}", lines "1-200"). Up to ${KB(MAX_PART_READ_BYTES)} per call. For the whole code in one piece, call ${tool} again with code: true.`;
+    : `The code is not included (${size(Number(rest.bytes))} in all). To read code, call read_work_code with work_id "${id}", version "${String(rest.version)}" and either section (a selector from the map: the JSON string exactly as written, quotes included, or its value, for example "shader:WINDOW_FRAG") or file and lines (for example file "${outline.files[outline.files.length - 1]?.name ?? 'index.html'}", lines "1-200"). Up to ${KB(MAX_PART_READ_BYTES)} per call. For the whole code in one piece, call ${tool} again with code: true.`;
   const next =
     tool === 'get_work'
       ? `To save changes as a new version, call save_work with work_id "${id}". Keep the credit lines at the top.`
@@ -389,7 +389,7 @@ async function readWorkCode(call: Call): Promise<ToolResult> {
     if (status === 404 && data.error === 'not_found') lines.push('Only the person\'s own works and public works can be read. Use list_my_works to see the person\'s work IDs.');
     const body = refs.join('\n');
     const tag = refs.length > 0 ? dataTag(body) : '';
-    if (refs.length > 0) lines.push(dataPointer(tag, 'The section names are in the next item; pass one as section (the text inside its quotes)'));
+    if (refs.length > 0) lines.push(dataPointer(tag, 'The section names are in the next item; pass one as section (the JSON string exactly as written, quotes included, or its value)'));
     const failure = apiFailure(status, data, lines.join('\n'));
     const { message: _message, ...details } = data;
     return { ...failure, content: [...failure.content, ...(refs.length > 0 ? [{ type: 'text' as const, text: authorDataText(tag, body) }] : [])], structuredContent: { ...details, status } };
