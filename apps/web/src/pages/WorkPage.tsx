@@ -333,7 +333,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
           )}
         </div>
         {(source || isPrivate) && (
-          <div className="order-first mb-3 lg:order-none lg:col-span-2 lg:mt-2 lg:mb-0">
+          <div className="order-3 mt-3 lg:order-none lg:col-span-2 lg:mt-2">
         {source && <SourceBand source={source} />}
         {isPrivate && (
           <p data-private-notice="" role="note" className="mt-2 rounded-control bg-site-field px-3 py-2.5 text-small">
