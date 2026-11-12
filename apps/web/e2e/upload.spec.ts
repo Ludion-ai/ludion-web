@@ -73,7 +73,8 @@ async function postWork(request: APIRequestContext, dir: string, creatorDir: str
 
 test('キャッシュを許した一覧（e2e/cache.spec.ts）のほかの応答に Cache-Control: private, no-store が付く（API、エラー、知らない道）', async ({ request }) => {
   const checks: [string, Promise<{ status(): number; headers(): Record<string, string> }>, number][] = [
-    ['GET /api/works', request.get('/api/works'), 200],
+    // /api/works はキャッシュを許す道（LIMIT001）
+    ['GET /api/me', request.get('/api/me'), 200],
     ['GET ないサムネイル', request.get('/w/nothing-here/1/thumb.webp'), 404],
     ['GET ないアバター', request.get('/files/creators/nothing/avatar-000000000000.webp'), 404],
     ['GET /files のほかの形', request.get('/files/works/nothing/1/part.js'), 404],
