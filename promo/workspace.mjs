@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { synthesize, writeWav } from './workspace/audio.mjs';
+import { waitForQuiet } from './workspace/quiet.mjs';
 import { buildTerminal } from './workspace/terminal.mjs';
 
 const ffmpegPath = ffmpegInstaller.path;
@@ -50,12 +51,17 @@ const REPORT = resolve(OUT_DIR, `workspace${TAG}-report.json`);
 mkdirSync(OUT_DIR, { recursive: true });
 
 // ---- ターミナルの行（本物の記録から）
-const terminal = buildTerminal(timeline, resolve(STAGE, 'records'));
+const terminal = buildTerminal(timeline, resolve(STAGE, 'records'), ROOT);
+const ITEMS = terminal.pages.flatMap((page) => page.items);
+// 「許可する」の画面（記録を取ったときに撮ったもの。コミットしない）
+const SHOTS_DIR = resolve(OUT_DIR, 'v006-record', `${timeline.browser.shots}-shots`);
+if (!existsSync(resolve(SHOTS_DIR, 'manifest.json'))) throw new Error(`「許可する」の画面がない（promo/out/v006-record/${timeline.browser.shots}-shots/）。node promo/workspace/connect.mjs --persist <置き場> --check --as ${timeline.browser.shots} で撮る`);
+const shots = JSON.parse(readFileSync(resolve(SHOTS_DIR, 'manifest.json'), 'utf8'));
 
 // ---- 表の決まりを確かめる（作る前に落とす）
 function checkTimeline() {
   const errors = [];
-  if (timeline.duration < 28 || timeline.duration > 32) errors.push(`長さが ${timeline.duration} 秒。約30秒にする`);
+  if (timeline.duration < 34 || timeline.duration > 38) errors.push(`長さが ${timeline.duration} 秒。約36秒にする`);
   for (const c of timeline.captions) {
     const need = 1.2 + 0.08 * ([...c.ja].length + [...c.en].length);
     const shown = c.out - c.in - 0.62; // 見出しが半分より濃く見えている時間
@@ -63,12 +69,14 @@ function checkTimeline() {
   }
   for (let i = 1; i < timeline.captions.length; i++) if (timeline.captions[i].in < timeline.captions[i - 1].out) errors.push(`見出し ${i} と ${i + 1} が重なる`);
   // 公式アカウントで使う文言に「AI」を入れない。ターミナルに出す行（本物の記録）も見る
-  const words = [...timeline.captions.flatMap((c) => [c.ja, c.en]), timeline.end.wordmark, timeline.end.domain, timeline.terminal.title, ...terminal.items.map((i) => i.text)];
-  for (const w of words) if (/(^|[^a-z.])ai([^a-z]|$)/i.test(w.replace(/ludion\.ai/gi, ''))) errors.push(`「AI」の言葉がある: ${w}`);
+  const words = [...timeline.captions.flatMap((c) => [c.ja, c.en]), timeline.end.wordmark, timeline.end.domain, timeline.terminal.title, ...ITEMS.map((i) => i.text)];
+  for (const w of words) if (/(^|[^a-z.])ai([^a-z]|$)/i.test(w.replace(/ludion\.ai|Ludion-ai\//gi, ''))) errors.push(`「AI」の言葉がある: ${w}`);
   const beat = 60 / timeline.bpm;
   for (const s of timeline.scenes) if (Math.abs(s.from / beat - Math.round(s.from / beat)) > 1e-6) errors.push(`場面${s.id}の始まり ${s.from} が拍にのっていない`);
-  const T = timeline.terminal;
-  if (!(T.type[0] < T.type[1] && T.type[1] <= T.enter && T.enter < T.tool && T.tool <= T.flow[0] && T.flow[1] <= T.hook && T.hook < T.say)) errors.push('ターミナルの時刻の順が合わない');
+  // ターミナルの行は、面ごとに、上から出る順に時刻が進むこと
+  for (const page of terminal.pages) for (let i = 1; i < page.items.length; i++) if (page.items[i].at < page.items[i - 1].at) errors.push(`${page.id} の行の時刻の順が合わない: ${page.items[i].text}`);
+  const B = timeline.browser;
+  if (!(B.in[1] <= B.cursor.move[0] && B.cursor.move[1] <= B.press && B.press < B.out[0])) errors.push('「許可する」の画面の時刻の順が合わない');
   const keys = timeline.camera.keys;
   for (let i = 1; i < keys.length; i++) if (keys[i].t <= keys[i - 1].t) errors.push(`カメラのキー ${i} の時刻が前より早い`);
   if (errors.length) throw new Error(`表の決まりに合わない:\n- ${errors.join('\n- ')}`);
@@ -80,10 +88,10 @@ for (const need of ['fonts/NotoSansJP[wght].ttf', 'fonts/NotoSansMono[wdth,wght]
 }
 
 // ---- 手元だけのサーバー：舞台のファイルを渡し、絵を受け取る
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.ttf': 'font/ttf', '.woff2': 'font/woff2' };
+const MIME = { '.png': 'image/png', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.ttf': 'font/ttf', '.woff2': 'font/woff2' };
 const netLog = [];
 let onFrame = async () => {};
-const pageData = { terminal };
+const pageData = { terminal, shots: { base: '/shots/', allowButton: shots.allowButton, viewport: shots.viewport } };
 const rpc = { waiting: null, queue: [], pending: new Map(), nextId: 1, ready: null };
 function pumpRpc() {
   if (!rpc.waiting || rpc.queue.length === 0) return;
@@ -173,6 +181,7 @@ const server = createServer((req, res) => {
   } else if (path === '/vendor/inter.woff2') file = resolve(ROOT, 'node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2');
   else if (path.startsWith('/vendor/three/')) file = safeJoin(resolve(ROOT, 'node_modules/three'), path.slice('/vendor/three/'.length));
   else if (path.startsWith('/assets/')) file = safeJoin(ASSETS, path.slice('/assets/'.length));
+  else if (path.startsWith('/shots/')) file = safeJoin(SHOTS_DIR, path.slice('/shots/'.length));
   if (!file || !existsSync(file) || statSync(file).isDirectory()) {
     netLog.push({ url: `local-missing:${path}`, allowed: false });
     res.writeHead(404);
@@ -195,33 +204,6 @@ function run(bin, args, opts = {}) {
 }
 const lastJson = (text) => JSON.parse(text.slice(text.lastIndexOf('{'), text.lastIndexOf('}') + 1));
 
-// ---- PC の守り：ほかの試験（Playwright など）や動画の書き出しが動いている間は、描かない。0 になるまで待つ
-function busyCount() {
-  const pattern = 'playwright.*test|@playwright.test.cli|vitest|\\s--test(\\s|$)|promo[\\\\/][\\w-]+\\.mjs';
-  if (process.platform === 'win32') {
-    const script = `$n = (Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.ProcessId -ne ${process.pid} -and $_.CommandLine -match '${pattern}' } | Measure-Object).Count; $f = (Get-Process ffmpeg -ErrorAction SilentlyContinue | Measure-Object).Count; "$($n + $f)"`;
-    const r = spawnSync('powershell', ['-NoProfile', '-Command', script], { encoding: 'utf8' });
-    const n = Number(String(r.stdout).trim());
-    if (r.status !== 0 || !Number.isFinite(n)) throw new Error(`動いているものを数えられなかった: ${r.stderr}`);
-    return n;
-  }
-  const r = spawnSync('ps', ['-eo', 'pid=,args='], { encoding: 'utf8' });
-  const re = new RegExp(`${pattern}|^\\s*\\d+\\s+\\S*ffmpeg`);
-  return String(r.stdout).split('\n').filter((line) => re.test(line) && Number(line.trim().split(/\s+/)[0]) !== process.pid).length;
-}
-async function waitForQuiet() {
-  const maxMs = Number(valueOf('--wait-max') || 8) * 60 * 1000;
-  const started = Date.now();
-  for (let said = false; ; ) {
-    const n = busyCount();
-    if (n === 0) return;
-    if (!said) console.log(`ほかの試験か書き出しが ${n} 個動いている。0 になるまで待つ`);
-    said = true;
-    if (Date.now() - started > maxMs) throw new Error(`${Math.round(maxMs / 60000)}分待っても空かなかった（動いているもの ${n} 個）。描いていない`);
-    await new Promise((done) => setTimeout(done, 10000));
-  }
-}
-
 // ---- 舞台のブラウザ（Playwright を通さず直に起こす。1コマが速い）
 function headlessShellPath() {
   const full = chromium.executablePath();
@@ -231,7 +213,8 @@ function headlessShellPath() {
   return shell;
 }
 async function openStage(width, height, samples) {
-  await waitForQuiet();
+  // PC の守り：ほかの試験や書き出しが動いている間は描かない（0 になるまで待つ）
+  await waitForQuiet(Number(valueOf('--wait-max') || 8));
   const { port } = server.address();
   // 一時の置き場は promo/out/ の中（この PC では、一時ファイルを作業の置き場の外に作らない）
   const profile = mkdtempSync(join(OUT_DIR, 'workspace-profile-'));
@@ -332,7 +315,7 @@ async function renderVideo(width, height, samples) {
   }
 }
 function mux() {
-  const synth = synthesize(timeline, terminal.facts);
+  const synth = synthesize(timeline, terminal);
   const wavHash = writeWav(WAV, synth.L, synth.R);
   const L = timeline.audio.loudness;
   const af = `loudnorm=I=${L.I}:TP=${L.TP}:LRA=${L.LRA}`;
@@ -374,7 +357,8 @@ function netSummary() {
 // ---- 本体
 await new Promise((done) => server.listen(0, '127.0.0.1', done));
 const report = { args: argv, timelineSha256: createHash('sha256').update(readFileSync(TIMELINE_PATH)).digest('hex') };
-report.terminal = { name: terminal.name, source: terminal.source, speedAverage: terminal.speedAverage, speedLabel: terminal.speedLabel, recEnd: terminal.recEnd, clock: terminal.clock, promptChars: terminal.promptChars, codeLinesTotal: terminal.codeLinesTotal, codeLinesShown: terminal.codeLinesShown, hookFull: terminal.hookFull, sayFull: terminal.sayFull, items: terminal.items.filter((i) => i.kind !== 'code' && i.kind !== 'gap').map((i) => `${i.kind}@${i.at}: ${i.text}`) };
+report.terminal = terminal.pages.map((page) => ({ id: page.id, record: page.record, source: page.source, speedAverage: page.speedAverage, speedLabel: page.speedLabel, recEnd: page.recEnd, clock: page.clock, cut: page.cut, items: page.items.filter((i) => i.kind !== 'code' || i.id).map((i) => `${i.kind}@${i.at}: ${i.text}`) }));
+report.shots = { dir: `promo/out/v006-record/${timeline.browser.shots}-shots/`, consentTexts: shots.consentTexts, doneText: shots.doneText, blockedRequests: shots.blockedRequests };
 report.notReady = timeline.scenes.filter((s) => !s.ready).map((s) => `場面${s.id}（${s.waits}）`);
 try {
   if (LOOK) {
@@ -392,7 +376,7 @@ try {
       // 場面ごとに 30 コマずつ
       let frames = 0;
       const begin = Date.now();
-      for (const t of [0.5, 2, 3.8, 7, 9.5, 14, 18.5, 22, 26, 28.5]) {
+      for (const t of [0.5, 2, 3.5, 5, 7, 8.8, 13, 20, 28, 33, 35]) {
         const f = Math.round(t * timeline.fps);
         for (let i = 0; i < 30; i++) {
           await stageCall('frame', f + i, `http://127.0.0.1:${port}/frame/${f + i}`);
@@ -427,9 +411,9 @@ try {
 }
 if (report.network.productionRequests !== 0) throw new Error('本番へ要求を送ってしまった');
 {
-  // カメラが寄って追う行（指示、道具、プラグインの行、Claude の文）は、字の高さが画面の高さの 4.5% 以上で、プラグインの行は画面の幅に収まること
+  // カメラが寄って追う行は、字の高さが画面の高さの 4.5% 以上で、画面の幅に収まること
   const m = (report.stills ?? report.look ?? report.video)?.measure?.terminal;
-  if (m && !(Object.values(m.textInkRatio).every((r) => r >= 0.045) && m.hookRightAt <= 0.95)) throw new Error(`ターミナルの字の大きさが決まりに合わない: ${JSON.stringify(m.textInkRatio)}、右端 ${m.hookRightAt}`);
+  if (m && !(Object.values(m.textInkRatio).every((r) => r >= 0.045) && Object.values(m.rightAt).every((r) => r <= 0.97))) throw new Error(`ターミナルの字の大きさが決まりに合わない: ${JSON.stringify(m.textInkRatio)}、右端 ${JSON.stringify(m.rightAt)}`);
 }
 if (!LOOK && !BENCH && !STILLS) {
   report.probe = run('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_name,profile,width,height,pix_fmt,r_frame_rate,nb_frames,duration,sample_rate,channels,color_space:format=duration,size,bit_rate', '-of', 'default=nw=1', OUT]).stdout;

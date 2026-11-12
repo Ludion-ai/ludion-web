@@ -1,6 +1,6 @@
 // 動画に出す人を、手元の D1 に入れる（V006）。オーナーの裏方の道具（CLAUDE.md 原則1）。本番には入れない（--remote の道を持たない）。
 //   node promo/workspace/person.mjs --persist <手元の D1 と R2 の置き場>
-//       → 人（users、creators、sessions）を入れ直す。何度でも流せる。その人の作品は消さない
+//       → 人（users、creators、sessions）を入れる。何度でも流せる。その人の作品、鍵、つながりは消さない
 //   node promo/workspace/person.mjs --persist <置き場> --put scene1
 //       → 記録の HTML（promo/workspace/records/<名前>/）を、プラグインのフックで手元のサーバーに置く。AI は使わない。
 //         Claude Code がするのと同じ形（道具の呼び出しを JSON で stdin に）でフックを動かすので、置かれ方は記録のときと同じ
@@ -67,9 +67,10 @@ export function ensurePerson(persist) {
   d1(
     persist,
     [
+      // 人の行は消さない（鍵やつながりが、この人を指しているため）。なければ足し、名前を合わせる
+      `INSERT OR IGNORE INTO users (id, handle, display_name, created_at) VALUES (${quote(PERSON.userId)}, ${quote(PERSON.handle.toLowerCase())}, ${quote(PERSON.name)}, ${now})`, // users の handle は小文字だけ
+      `UPDATE users SET handle = ${quote(PERSON.handle.toLowerCase())}, display_name = ${quote(PERSON.name)} WHERE id = ${quote(PERSON.userId)}`,
       `DELETE FROM sessions WHERE user_id = ${quote(PERSON.userId)}`,
-      `DELETE FROM users WHERE id = ${quote(PERSON.userId)}`,
-      `INSERT INTO users (id, handle, display_name, created_at) VALUES (${quote(PERSON.userId)}, ${quote(PERSON.handle.toLowerCase())}, ${quote(PERSON.name)}, ${now})`, // users の handle は小文字だけ
       known
         ? `UPDATE creators SET user_id = ${quote(PERSON.userId)} WHERE id = ${quote(creatorId)}`
         : `INSERT INTO creators (id, handle, name, kind, user_id, created_at) VALUES (${quote(creatorId)}, ${quote(PERSON.handle)}, ${quote(PERSON.name)}, ${quote(PERSON.kind)}, ${quote(PERSON.userId)}, ${now})`,

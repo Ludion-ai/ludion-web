@@ -73,19 +73,18 @@ class Reverb {
   }
 }
 
-/** 場面1の、指示を打つ音の時刻（絵の文字が出る時刻と同じ式）。 */
-export function typeTimes(tl, chars) {
-  const T = tl.terminal;
-  const step = (T.type[1] - T.type[0]) / chars;
+/** 打つ行の、打鍵の時刻（絵の文字が出る時刻と同じ式）。 */
+export function typeTimes(tl, item) {
+  const chars = [...item.text].length;
+  const step = (item.typeTo - item.at) / chars;
   const out = [];
-  for (let i = 0; i < chars; i += T.typeTickEvery ?? 1) out.push(T.type[0] + i * step);
+  for (let i = 0; i < chars; i += tl.terminal.typeTickEvery ?? 1) out.push(item.at + i * step);
   return out;
 }
 
-export function synthesize(tl, facts) {
+export function synthesize(tl, term) {
   const A = tl.audio;
   const lv = A.levels;
-  const T = tl.terminal;
   const N = Math.round(tl.duration * SR);
   const beat = 60 / tl.bpm;
   const chordLen = beat * 8;
@@ -219,20 +218,37 @@ export function synthesize(tl, facts) {
     }
   };
 
-  // ---- 場面1：打つ、送る、書かれる、置かれる
-  const chars = [...facts.prompt].length;
-  typeTimes(tl, chars).forEach((t, i) => {
-    addTick(t, lv.type * (0.8 + (i % 3) * 0.12), 2250 + (i % 4) * 130, 880, tl.seed + 420 + i, 0.44 + (i % 5) * 0.02);
-    events.push({ kind: 'type', t });
-  });
-  addTick(T.enter, lv.enter, 1180, 460, tl.seed + 401, 0.48);
-  events.push({ kind: 'enter', t: T.enter });
-  addAir(T.flow[1], T.flow[1] - T.flow[0], lv.flow * 2.4, 700, 3000, tl.seed + 510);
-  // 置いた瞬間の短い和音（プラグインの行が出る時刻）
-  A.saveChord.forEach((midi, i) => addBell(T.hook + i * 0.022, midi, lv.save * (i === 0 ? 1 : 0.72), 0.36 + i * 0.09, 1.9));
-  events.push({ kind: 'save', t: T.hook });
-  addPluck(T.say, A.saveChord[1] - 12, lv.say, 0.5);
-  events.push({ kind: 'say', t: T.say });
+  // ---- ターミナル：打つ、送る、書かれる、置かれる（面ごとに、出る行の時刻から）
+  let tickSeed = tl.seed + 420;
+  for (const page of term.pages) {
+    for (const item of page.items) {
+      if (item.kind === 'cmd' || item.kind === 'user') {
+        typeTimes(tl, item).forEach((t, i) => {
+          addTick(t, lv.type * (0.8 + (i % 3) * 0.12), 2250 + (i % 4) * 130, 880, tickSeed++, 0.44 + (i % 5) * 0.02);
+          events.push({ kind: 'type', t });
+        });
+        addTick(item.enter, lv.enter, 1180, 460, tickSeed++, 0.48);
+        events.push({ kind: 'enter', t: item.enter });
+      } else if (item.kind === 'hook') {
+        // 置いた瞬間の短い和音（プラグインの行が出る時刻）
+        A.saveChord.forEach((midi, i) => addBell(item.at + i * 0.022, midi, lv.save * (i === 0 ? 1 : 0.72), 0.36 + i * 0.09, 1.9));
+        events.push({ kind: 'save', t: item.at });
+      } else if (item.kind === 'say' && item.id) {
+        addPluck(item.at, A.saveChord[1] - 12, lv.say, 0.5);
+        events.push({ kind: 'say', t: item.at });
+      }
+    }
+    if (page.flow) addAir(page.flow[1], page.flow[1] - page.flow[0], lv.flow * 2.4, 700, 3000, tl.seed + 510);
+  }
+  // ---- 「許可する」の画面：開く、押す、つながる
+  const B = tl.browser;
+  addPluck(B.in[0] + 0.05, A.saveChord[0] - 5, lv.pop, 0.56);
+  events.push({ kind: 'browser', t: B.in[0] });
+  addTick(B.press, lv.click, 1320, 560, tl.seed + 402, 0.54);
+  events.push({ kind: 'click', t: B.press });
+  const connected = term.pages[0].items.find((i) => i.id === 'say1');
+  [A.saveChord[0], A.saveChord[2]].forEach((midi, i) => addBell(connected.at + i * 0.03, midi, lv.connect * (i ? 0.7 : 1), 0.42 + i * 0.14, 1.6));
+  events.push({ kind: 'connect', t: connected.at });
 
   // ---- カメラが板の間を動くときの風。動く区間は、カメラのキーから取る
   const keys = tl.camera.keys;

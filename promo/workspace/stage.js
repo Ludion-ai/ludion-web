@@ -2,7 +2,8 @@
 // すべて時刻 t だけで決まる。単位は画素（ターミナルの板が 1240×780、y は上向き）。
 // - 動きのぶれ：1コマを複数の時刻で描いて重ねる
 // - 奥行き：深さからぼけの量を決める（ピントはカメラの見ている点）
-// ターミナルの文字は、本物の記録から作った行（terminal.mjs）だけ。まだ撮っていない場面の板は、空のまま置く。
+// ターミナルの文字は、本物の記録から作った行（terminal.mjs）だけ。「許可する」の画面は、手元のサーバーの本物の画面を撮ったもの。
+// まだ撮っていない場面の板は、空のまま置く。
 
 import * as THREE from 'three';
 
@@ -202,19 +203,21 @@ function makeBoard(map) {
   return b;
 }
 
-// ---- ターミナルの板（場面1：本物の記録を流す）
+// ---- ターミナルの板（本物の記録を流す。面は2枚：つなぐ、作る）
 const TM = TL.terminal;
-const RUN = DATA.terminal;
+const PAGES = DATA.terminal.pages;
 const BOARDS = TL.world.boards;
 const T1 = BOARDS.find((b) => b.id === 'term1');
 const TDW = TM.designW;
 const TDH = Math.round((TDW * T1.size[1]) / T1.size[0]);
 const TITLE_H = 58;
 const TPAD = 44;
+const BOX_X = 40; // 打つ欄の中で、字が始まる所
 const termK = Math.max(1.5, 1.5 * K);
 const monoFont = (size, weight = 400) => `${weight} ${size}px LDMono, LDNoto`;
 const noteFont = (size, weight = 500) => `${weight} ${size}px LDNoto`;
 const STYLE = {
+  cmd: { font: monoFont(TM.fontPx, 600), color: [34, 34, 40], lineH: TM.lineH + 6 },
   user: { font: noteFont(TM.fontPx + 2, 500), color: [34, 34, 40], lineH: TM.lineH + 6 },
   say: { font: noteFont(TM.fontPx + 2, 500), color: [28, 28, 32], lineH: TM.lineH + 8 },
   tool: { font: monoFont(TM.fontPx, 650), color: [28, 28, 32], lineH: TM.lineH + 6 },
@@ -222,6 +225,7 @@ const STYLE = {
   gap: { font: monoFont(TM.fontPx - 2), color: [170, 170, 178], lineH: TM.lineH - 4 },
   hook: { font: monoFont(TM.fontPx, 700), color: [14, 14, 18], lineH: TM.lineH + 10 },
 };
+const isBox = (kind) => kind === 'cmd' || kind === 'user';
 function terminalChrome(c, title) {
   c.fillStyle = '#ffffff';
   c.fillRect(0, 0, TDW, TITLE_H);
@@ -246,32 +250,59 @@ const termCtx = termCanvas.getContext('2d');
 const termTex = canvasTexture(termCanvas);
 const termBoard = makeBoard(termTex);
 
-// 行の位置を決める（1回だけ）
-const LAYOUT = (() => {
+// 長い文は、言葉の切れ目で折り返す（寄ったときの画面の幅に収める）
+function wrapText(text, maxW) {
+  if (termCtx.measureText(text).width <= maxW) return [text];
+  const out = [];
+  let cur = '';
+  for (const token of text.split(/(?<= )/)) {
+    if (cur && termCtx.measureText(cur + token).width > maxW) {
+      out.push(cur.trimEnd());
+      cur = token;
+    } else cur += token;
+  }
+  if (cur) out.push(cur.trimEnd());
+  return out;
+}
+// 行の位置を決める（1回だけ）。面ごとに、上から並べる
+const LAID = PAGES.map((page) => {
   const lines = [];
   let y = 0;
   let prev = null;
-  for (const item of RUN.items) {
+  termCtx.setTransform(1, 0, 0, 1, 0, 0);
+  for (const item of page.items) {
     const st = STYLE[item.kind];
-    const tight = (prev === 'tool' && item.kind === 'code') || (prev === 'code' && item.kind === 'gap') || (prev === 'gap' && item.kind === 'code');
+    const tight = (prev === 'tool' && item.kind === 'code') || (prev === 'code' && item.kind === 'gap') || (prev === 'gap' && item.kind === 'code') || (prev === 'say' && item.kind === 'say');
     if (prev && prev !== item.kind && !tight) y += item.kind === 'hook' ? 20 : 16;
-    if (prev === 'user') y += 18;
-    lines.push({ ...item, y, st, chars: [...item.text] });
-    y += st.lineH;
+    if (isBox(prev)) y += 22;
+    termCtx.font = st.font;
+    const texts = item.kind === 'say' ? wrapText(item.text, TM.wrapW) : [item.text];
+    texts.forEach((text, i) => {
+      lines.push({ ...item, id: i === 0 ? item.id : null, text, y, st, chars: [...text], first: lines.length === 0 });
+      y += st.lineH;
+    });
     prev = item.kind;
   }
-  return { lines, height: y };
-})();
-const USER = LAYOUT.lines.find((l) => l.kind === 'user');
-const HOOK = LAYOUT.lines.find((l) => l.kind === 'hook');
-const typeStep = (USER.typeTo - USER.at) / USER.chars.length;
-/** 指示の文字が、いくつ打たれたか。 */
-const typedCount = (t) => clamp(Math.floor((t - USER.at) / typeStep + 1e-6) + 1, 0, USER.chars.length);
+  return { ...page, lines, height: y };
+});
+const LINE = Object.fromEntries(LAID.flatMap((page) => page.lines.filter((l) => l.id).map((l) => [l.id, l])));
+const pageAlpha = (page, t) => (page.in ? q5(seg(t, page.in[0], page.in[1])) : 1) * (page.out ? 1 - q5(seg(t, page.out[0], page.out[1])) : 1);
+/** 打つ行の字が、いくつ打たれたか。 */
+const typedCount = (l, t) => clamp(Math.floor(((t - l.at) / (l.typeTo - l.at)) * l.chars.length + 1e-6) + 1, 0, l.chars.length);
+const LAST_CHANGE = Math.max(...LAID.flatMap((page) => [...(page.out ?? []), ...(page.in ?? []), ...page.badge, ...page.lines.flatMap((l) => [l.at, l.typeTo ?? 0, l.enter ?? 0])])) + 1.2;
+/** 記録の経過（秒）。面の時刻の対応から。 */
+function recAt(page, t) {
+  const keys = page.clock;
+  if (t <= keys[0].at) return keys[0].rec;
+  for (let i = 1; i < keys.length; i++) if (t <= keys[i].at) return mix(keys[i - 1].rec, keys[i].rec, seg(t, keys[i - 1].at, keys[i].at));
+  return keys[keys.length - 1].rec;
+}
+const clockText = (rec) => `${String(Math.floor(rec / 60)).padStart(2, '0')}:${String(Math.floor(rec % 60)).padStart(2, '0')}`;
 
 let termStamp = '';
 function paintTerminal(t) {
   // 文字は 1/60 秒より細かくは変わらないので、同じ絵なら描き直さない
-  const stamp = t > TM.say + 1 ? 'done' : String(Math.round(t * 600));
+  const stamp = t > LAST_CHANGE ? 'done' : String(Math.round(t * 600));
   if (stamp === termStamp) return;
   termStamp = stamp;
   const c = termCtx;
@@ -279,109 +310,99 @@ function paintTerminal(t) {
   c.fillStyle = '#ffffff';
   c.fillRect(0, 0, termCanvas.width, termCanvas.height);
   c.setTransform(termK, 0, 0, termK, 0, 0);
-  const viewH = TDH - TITLE_H - TPAD * 1.2;
-  const bottomAt = (tt) => {
-    let b = 0;
-    for (const l of LAYOUT.lines) if (l.at <= tt + 1e-6) b = Math.max(b, l.y + l.st.lineH);
-    return b;
-  };
-  let smooth = 0;
-  for (let i = 0; i < 8; i++) smooth += bottomAt(t - (i * 0.24) / 8);
-  smooth /= 8;
-  const scroll = Math.max(0, smooth - viewH);
-  c.save();
-  c.beginPath();
-  c.rect(0, TITLE_H, TDW, TDH - TITLE_H);
-  c.clip();
-  c.translate(TPAD, TITLE_H + TPAD * 0.8 - scroll);
-  c.textBaseline = 'middle';
   const maxW = TDW - TPAD * 2;
-  for (const l of LAYOUT.lines) {
-    const mid = l.y + l.st.lineH / 2;
-    if (l.kind === 'user') {
-      // 指示を打つ欄。打ち終えて送ると、欄の色が少し落ち着く
-      const sent = q5(seg(t, l.enter, l.enter + 0.18));
-      c.fillStyle = css([mix(240, 244, sent), mix(242, 244, sent), mix(248, 246, sent)]);
-      c.beginPath();
-      c.roundRect(-14, l.y - 8, maxW + 28, l.st.lineH + 16, 14);
-      c.fill();
-      c.strokeStyle = css([120, 140, 220], 0.5 * (1 - sent));
-      c.lineWidth = 2;
-      c.stroke();
-      c.font = monoFont(TM.fontPx, 600);
-      c.fillStyle = css([150, 150, 160]);
-      c.fillText('>', 8, mid + 1);
-      c.font = l.st.font;
-      const shown = l.chars.slice(0, typedCount(t)).join('');
-      c.fillStyle = css(l.st.color);
-      c.fillText(shown, 40, mid + 1);
-      if (t < l.enter + 0.05) {
-        // 打つ位置の印
-        const x = 40 + c.measureText(shown).width + 3;
-        c.fillStyle = css([40, 40, 48], 0.85);
-        c.fillRect(x, mid - TM.fontPx * 0.62, 2.5, TM.fontPx * 1.24);
-      }
-      continue;
-    }
-    if (l.at > t + 1e-6) continue; // 162/60 は 2.7 よりわずかに小さい。出る時刻のコマで出す
-    const age = Math.max(0, t - l.at);
-    // 出る時刻のコマで、もう見えている（音とのずれを1コマ以内にする）
-    const a = q5((age + 1 / 60) / 0.035);
-    c.font = l.st.font;
-    if (l.kind === 'hook') {
-      // プラグインが返した行。印が左から伸びる
-      const g = q5(seg(t, l.at - 0.02, l.at + TM.hookGlow));
-      const w = c.measureText(l.text).width + 28;
-      c.fillStyle = 'rgb(255 208 112 / 0.55)';
-      c.beginPath();
-      c.roundRect(-14, l.y + 3, w * g, l.st.lineH - 6, 8);
-      c.fill();
-    }
-    c.fillStyle = css(l.st.color, a);
-    if (l.kind === 'code') {
-      // 長い行は右で切る（折り返さない）
-      c.save();
-      c.beginPath();
-      c.rect(0, l.y, maxW, l.st.lineH);
-      c.clip();
-      c.fillText(l.text, 0, mid);
-      c.restore();
-    } else c.fillText(l.text, 0, mid);
-  }
-  c.restore();
-  terminalChrome(c, TM.title);
-  // 速さと経過（記録の時刻から計算したもの）
-  const show = q5(seg(t, TM.enter, TM.enter + 0.25));
-  if (show > 0.001) {
-    const keys = RUN.clock;
-    let rec = keys[keys.length - 1].rec;
-    if (t <= keys[0].at) rec = keys[0].rec;
-    else {
-      for (let i = 1; i < keys.length; i++) {
-        if (t <= keys[i].at) {
-          rec = mix(keys[i - 1].rec, keys[i].rec, seg(t, keys[i - 1].at, keys[i].at));
-          break;
-        }
-      }
-    }
-    const clock = `${String(Math.floor(rec / 60)).padStart(2, '0')}:${String(Math.floor(rec % 60)).padStart(2, '0')}`;
-    c.globalAlpha = show;
-    c.textBaseline = 'middle';
-    c.font = monoFont(22, 700);
-    const lw = c.measureText(RUN.speedLabel).width + 26;
-    c.textAlign = 'right';
-    c.font = monoFont(22, 600);
-    c.fillStyle = 'rgb(110 110 120)';
-    c.fillText(clock, TDW - 22 - lw - 14, TITLE_H / 2 + 1);
-    c.textAlign = 'left';
-    c.fillStyle = 'rgb(22 22 26)';
+  let shownPage = null;
+  for (const page of LAID) {
+    const pa = pageAlpha(page, t);
+    if (pa <= 0.003) continue;
+    shownPage = page;
+    c.save();
     c.beginPath();
-    c.roundRect(TDW - 22 - lw, TITLE_H / 2 - 17, lw, 34, 17);
-    c.fill();
-    c.font = monoFont(22, 700);
-    c.fillStyle = '#ffffff';
-    c.fillText(RUN.speedLabel, TDW - 22 - lw + 13, TITLE_H / 2 + 1);
-    c.globalAlpha = 1;
+    c.rect(0, TITLE_H, TDW, TDH - TITLE_H);
+    c.clip();
+    c.translate(TPAD, TITLE_H + TPAD * 0.8);
+    c.textBaseline = 'middle';
+    for (const l of page.lines) {
+      const mid = l.y + l.st.lineH / 2;
+      if (isBox(l.kind)) {
+        // 打つ欄。前の行を送ってから出る。打ち終えて送ると、欄の色が少し落ち着く
+        const show = l.first ? 1 : q5(seg(t, l.at - 0.12, l.at - 0.02));
+        if (show <= 0.003) continue;
+        const sent = q5(seg(t, l.enter, l.enter + 0.18));
+        c.globalAlpha = pa * show;
+        c.fillStyle = css([mix(240, 244, sent), mix(242, 244, sent), mix(248, 246, sent)]);
+        c.beginPath();
+        c.roundRect(-14, l.y - 8, maxW + 28, l.st.lineH + 16, 14);
+        c.fill();
+        c.strokeStyle = css([120, 140, 220], 0.5 * (1 - sent));
+        c.lineWidth = 2;
+        c.stroke();
+        c.font = monoFont(TM.fontPx, 600);
+        c.fillStyle = css([150, 150, 160]);
+        c.fillText('>', 8, mid + 1);
+        c.font = l.st.font;
+        const shown = l.chars.slice(0, typedCount(l, t)).join('');
+        c.fillStyle = css(l.st.color);
+        c.fillText(shown, BOX_X, mid + 1);
+        if (t < l.enter + 0.05) {
+          // 打つ位置の印
+          const x = BOX_X + c.measureText(shown).width + 3;
+          c.fillStyle = css([40, 40, 48], 0.85);
+          c.fillRect(x, mid - TM.fontPx * 0.62, 2.5, TM.fontPx * 1.24);
+        }
+        continue;
+      }
+      if (l.at > t + 1e-6) continue; // 162/60 は 2.7 よりわずかに小さい。出る時刻のコマで出す
+      const age = Math.max(0, t - l.at);
+      // 出る時刻のコマで、もう見えている（音とのずれを1コマ以内にする）
+      c.globalAlpha = pa * q5((age + 1 / 60) / 0.035);
+      c.font = l.st.font;
+      if (l.kind === 'hook') {
+        // プラグインが返した行。印が左から伸びる
+        const g = q5(seg(t, l.at - 0.02, l.at + TL.terminal.make.hookGlow));
+        const w = c.measureText(l.text).width + 28;
+        c.fillStyle = 'rgb(255 208 112 / 0.55)';
+        c.beginPath();
+        c.roundRect(-14, l.y + 3, w * g, l.st.lineH - 6, 8);
+        c.fill();
+      }
+      c.fillStyle = css(l.st.color);
+      if (l.kind === 'code') {
+        // 長い行は右で切る（折り返さない）
+        c.save();
+        c.beginPath();
+        c.rect(0, l.y, maxW, l.st.lineH);
+        c.clip();
+        c.fillText(l.text, 0, mid);
+        c.restore();
+      } else c.fillText(l.text, 0, mid);
+    }
+    c.restore();
+  }
+  c.globalAlpha = 1;
+  terminalChrome(c, TM.title);
+  // 題の帯にも、速さと経過（最後の引きで、窓の全体が見えるときのため）
+  if (shownPage) {
+    const show = q5(seg(t, shownPage.badge[0], shownPage.badge[0] + 0.25)) * pageAlpha(shownPage, t);
+    if (show > 0.001) {
+      c.globalAlpha = show;
+      c.textBaseline = 'middle';
+      c.font = monoFont(22, 700);
+      const lw = c.measureText(shownPage.speedLabel).width + 26;
+      c.textAlign = 'right';
+      c.font = monoFont(22, 600);
+      c.fillStyle = 'rgb(110 110 120)';
+      c.fillText(clockText(recAt(shownPage, t)), TDW - 22 - lw - 14, TITLE_H / 2 + 1);
+      c.textAlign = 'left';
+      c.fillStyle = 'rgb(22 22 26)';
+      c.beginPath();
+      c.roundRect(TDW - 22 - lw, TITLE_H / 2 - 17, lw, 34, 17);
+      c.fill();
+      c.font = monoFont(22, 700);
+      c.fillStyle = '#ffffff';
+      c.fillText(shownPage.speedLabel, TDW - 22 - lw + 13, TITLE_H / 2 + 1);
+      c.globalAlpha = 1;
+    }
   }
   termTex.needsUpdate = true;
 }
@@ -414,33 +435,117 @@ const emptyBoards = BOARDS.filter((b) => b.kind !== 'terminal').map((b) => {
   return { spec: b, board: makeBoard(canvasTexture(canvas)) };
 });
 
+// ---- 「許可する」の画面（手元のサーバーの本物の画面を撮ったもの）。ターミナルの手前に開き、押したら閉じる
+const BR = TL.browser;
+const SHOTS = DATA.shots;
+async function shotTexture(file) {
+  const blob = await (await fetch(`${SHOTS.base}${file}`)).blob();
+  const bmp = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+  const t = new THREE.Texture(bmp);
+  t.flipY = false;
+  t.colorSpace = THREE.NoColorSpace;
+  t.generateMipmaps = true;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  t.anisotropy = MAX_ANISO;
+  t.needsUpdate = true;
+  return t;
+}
+const consentTex = await shotTexture('consent.png');
+const brBoard = makeBoard(consentTex);
+brBoard.mat.uniforms.uBias.value = -0.4;
+const brAlpha = (t) => q5(seg(t, BR.in[0], BR.in[1])) * (1 - q5(seg(t, BR.out[0], BR.out[1])));
+/** 画面の中の位置（CSS の画素）→ 世界 */
+const pagePt = (px, py, dz = 0) => [BR.at[0] - BR.size[0] / 2 + px, BR.at[1] + BR.size[1] / 2 - py, BR.at[2] + dz];
+
+// カーソル（OS のカーソルは写らないので、同じ位置に矢印の絵を置く）
+const cursorTex = canvasTexture(
+  drawCanvas(216, 216, (ctx, cv) => {
+    ctx.scale(cv.width / 54, cv.width / 54);
+    ctx.translate(14, 8);
+    ctx.shadowColor = 'rgba(0,0,0,0.32)';
+    ctx.shadowBlur = 9;
+    ctx.shadowOffsetY = 5;
+    const arrow = new Path2D('M1 1 L1 28 L7.6 22 L12 33 L16.6 31 L12.2 20.4 L21 20.4 Z');
+    ctx.fillStyle = '#ffffff';
+    ctx.fill(arrow);
+    ctx.shadowColor = 'transparent';
+    ctx.strokeStyle = 'rgba(20,20,28,0.78)';
+    ctx.lineWidth = 1.2;
+    ctx.lineJoin = 'round';
+    ctx.stroke(arrow);
+  }),
+  true,
+);
+const cursorMat = new THREE.ShaderMaterial({
+  ...PREMUL,
+  depthTest: false,
+  depthWrite: false,
+  uniforms: { map: { value: cursorTex }, uAlpha: { value: 0 } },
+  vertexShader: BOARD_VERT,
+  fragmentShader: `varying vec2 vUv; uniform sampler2D map; uniform float uAlpha; void main(){ gl_FragColor=texture2D(map,vec2(vUv.x,1.-vUv.y))*uAlpha; }`,
+});
+const cursorMesh = new THREE.Mesh(planeGeo, cursorMat);
+cursorMesh.renderOrder = 100000;
+scene.add(cursorMesh);
+const CURSOR_HOT = [15 / 54, 9 / 54];
+const glide = (x) => 1 - Math.pow(1 - Math.pow(clamp(x), 1.6), 3); // 人の手のように、ゆっくり動き出して、なめらかに止まる
+function updateCursor(t, alpha) {
+  const C = BR.cursor;
+  const a = alpha * q5(seg(t, C.move[0] - 0.15, C.move[0] + 0.1));
+  cursorMesh.visible = a > 0.003;
+  if (!cursorMesh.visible) return;
+  const b = SHOTS.allowButton;
+  const to = [b.x + b.width * 0.5, b.y + b.height * 0.56];
+  const u = glide(seg(t, C.move[0], C.move[1]));
+  const since = t - BR.press;
+  const squeeze = since < 0 ? 0 : since < 0.07 ? since / 0.07 : since < 0.22 ? 1 - (since - 0.07) / 0.15 : 0;
+  const s = C.size * (1 - 0.14 * squeeze);
+  const p = pagePt(mix(C.from[0], to[0], u), mix(C.from[1], to[1], u), 6);
+  cursorMesh.scale.set(s, s, 1);
+  cursorMesh.position.set(p[0] + s * (0.5 - CURSOR_HOT[0]), p[1] - s * (0.5 - CURSOR_HOT[1]), p[2]);
+  cursorMat.uniforms.uAlpha.value = a;
+}
+
 const boardsAlpha = (t) => 1 - q5(seg(t, END.boardsOut[0], END.boardsOut[1]));
 function updateBoards(t) {
   const a = boardsAlpha(t);
   termBoard.set(T1.at[0], T1.at[1], T1.at[2], T1.size[0], T1.size[1], { radius: T1.radius, alpha: a, yaw: T1.yaw });
   for (const e of emptyBoards) e.board.set(e.spec.at[0], e.spec.at[1], e.spec.at[2], e.spec.size[0], e.spec.size[1], { radius: e.spec.radius, alpha: a, yaw: e.spec.yaw });
+  // 開くときは少し小さい所から、閉じるときは少し小さくなりながら
+  const ba = brAlpha(t);
+  const pop = mix(0.94, 1, easeOut(seg(t, BR.in[0], BR.in[1]))) * mix(1, 0.96, q5(seg(t, BR.out[0], BR.out[1])));
+  brBoard.set(BR.at[0], BR.at[1], BR.at[2], BR.size[0] * pop, BR.size[1] * pop, { radius: BR.radius, alpha: ba });
+  updateCursor(t, ba);
 }
 
 // ---- カメラ
-// キーに focus（user、tool、hook、say）とあれば、その行をカメラで追う。寄り方は1つ：プラグインの行の字の高さ（字の上端から下端まで）が
-// 画面の高さの textInkRatio になる距離。行は画面の上から lineAt、字の左端は画面の左から textLeftAt の位置に置く。wide は、そこから引く倍率
+// キーに focus（ターミナルの行の id）とあれば、その行をカメラで追う。寄り方は1つ：プラグインの行の字の高さ（字の上端から下端まで）が
+// 画面の高さの textInkRatio になる距離。行は画面の上から lineAt、字の左端は画面の左から textLeftAt の位置に置く。wide は、そこから引く倍率。
+// キーに page（「許可する」の画面の中の位置）とあれば、そこを見る
 const FOCUS = (() => {
   termCtx.setTransform(1, 0, 0, 1, 0, 0);
   const k = T1.size[0] / TDW; // 設計の画素 → 世界
   const measure = (line) => {
     termCtx.font = line.st.font;
     const m = termCtx.measureText(line.text);
-    return { ink: (m.actualBoundingBoxAscent + m.actualBoundingBoxDescent) * k, width: m.width * k, cy: T1.at[1] + T1.size[1] / 2 - (TITLE_H + TPAD * 0.8 + line.y + line.st.lineH / 2) * k };
+    // 字の高さは、その書体で上に出る字と下に出る字（L と p）を並べた高さで測る（「Bash」のように下に出る字のない行でも、同じ物差しにする）。日本語の入る行は、その行の字で測る
+    const r = /[^ -~]/.test(line.text) ? m : termCtx.measureText('Lp');
+    return { ink: (r.actualBoundingBoxAscent + r.actualBoundingBoxDescent) * k, width: (m.width + (isBox(line.kind) ? BOX_X : 0)) * k, cy: T1.at[1] + T1.size[1] / 2 - (TITLE_H + TPAD * 0.8 + line.y + line.st.lineH / 2) * k };
   };
-  const lines = Object.fromEntries(['user', 'tool', 'hook', 'say'].map((kind) => [kind, measure(LAYOUT.lines.find((l) => l.kind === kind))]));
+  const lines = Object.fromEntries(Object.entries(LINE).map(([id, line]) => [id, measure(line)]));
   return { lines, fw: (lines.hook.ink * 1920) / (TL.camera.textInkRatio * 1080), left: T1.at[0] - T1.size[0] / 2 + TPAD * k };
 })();
 const camKeys = TL.camera.keys.map((key) => {
+  if (key.page) return { ...key, p: pagePt(key.page[0], key.page[1]) };
   if (!key.focus) return key;
+  if (!FOCUS.lines[key.focus]) throw new Error(`カメラのキーの focus に、ない行がある: ${key.focus}`);
   const fw = FOCUS.fw * (key.wide ?? 1);
   const frameH = (fw * 9) / 16;
   return { ...key, p: [FOCUS.left + (0.5 - TL.camera.textLeftAt) * fw + (key.dx ?? 0), FOCUS.lines[key.focus].cy - (0.5 - key.lineAt) * frameH, T1.at[2]], fw };
 });
+const FOCUSED = [...new Set(TL.camera.keys.filter((k) => k.focus).map((k) => k.focus))];
+
 const camTrack = {
   x: makeTrack(camKeys.map((k) => ({ t: k.t, v: k.p[0] }))),
   y: makeTrack(camKeys.map((k) => ({ t: k.t, v: k.p[1] }))),
@@ -602,25 +707,27 @@ function makeCaption(c) {
 const captions = TL.captions.map(makeCaption);
 
 // 速さと経過の印（記録の時刻から計算したもの）。カメラが字に寄っている間も見えるよう、画面の右上に固定して出す
-function recAt(t) {
-  const keys = RUN.clock;
-  if (t <= keys[0].at) return keys[0].rec;
-  for (let i = 1; i < keys.length; i++) if (t <= keys[i].at) return mix(keys[i - 1].rec, keys[i].rec, seg(t, keys[i - 1].at, keys[i].at));
-  return keys[keys.length - 1].rec;
-}
 const BADGE = { w: 300, h: 72, right: 56, top: 48 };
 const badgeCanvas = drawCanvas(BADGE.w * K, BADGE.h * K, () => {});
 const badgeCtx = badgeCanvas.getContext('2d');
 const badgeSprite = overlaySprite(badgeCanvas);
 let badgeStamp = '';
 function paintBadge(t) {
-  const a = q5(seg(t, TM.enter, TM.enter + 0.25)) * (1 - q5(seg(t, TM.badgeOut[0], TM.badgeOut[1])));
+  let page = null;
+  let a = 0;
+  for (const p of LAID) {
+    const pa = q5(seg(t, p.badge[0], p.badge[0] + 0.25)) * (1 - q5(seg(t, p.badge[1], p.badge[2])));
+    if (pa > a) {
+      a = pa;
+      page = p;
+    }
+  }
   badgeSprite.set(1920 - BADGE.right - BADGE.w, BADGE.top, BADGE.w, BADGE.h, a);
-  if (a <= 0.003) return;
-  const rec = recAt(t);
-  const clock = `${String(Math.floor(rec / 60)).padStart(2, '0')}:${String(Math.floor(rec % 60)).padStart(2, '0')}`;
-  if (clock === badgeStamp) return;
-  badgeStamp = clock;
+  if (!page || a <= 0.003) return;
+  const clock = clockText(recAt(page, t));
+  const stamp = `${page.id} ${clock}`;
+  if (stamp === badgeStamp) return;
+  badgeStamp = stamp;
   const c = badgeCtx;
   c.setTransform(1, 0, 0, 1, 0, 0);
   c.clearRect(0, 0, badgeCanvas.width, badgeCanvas.height);
@@ -636,13 +743,13 @@ function paintBadge(t) {
   c.fill();
   c.restore();
   c.font = monoFont(30, 700);
-  const lw = c.measureText(RUN.speedLabel).width + 34;
+  const lw = c.measureText(page.speedLabel).width + 34;
   c.fillStyle = 'rgb(22 22 26)';
   c.beginPath();
   c.roundRect(BADGE.w - lw - 16, BADGE.h / 2 - 22, lw, 44, 22);
   c.fill();
   c.fillStyle = '#ffffff';
-  c.fillText(RUN.speedLabel, BADGE.w - lw + 1, BADGE.h / 2 + 2);
+  c.fillText(page.speedLabel, BADGE.w - lw + 1, BADGE.h / 2 + 2);
   c.font = monoFont(30, 600);
   c.textAlign = 'right';
   c.fillStyle = 'rgb(96 96 106)';
@@ -797,16 +904,13 @@ window.__stage = {
       captions: captions.map((c) => ({ ja: c.ja, en: c.en, in: c.in, out: c.out, jaInkRatio: Number((c.inkJa / H).toFixed(4)), enOverJa: Number((c.inkEn / c.inkJa).toFixed(3)) })),
       end: { markRatio: END.markPx / 1080, wordmarkInkRatio: Number((lockup.capPx / H).toFixed(4)), domainInkRatio: endDomain ? Number((endDomain.inkPx / H).toFixed(4)) : null },
       terminal: {
-        typed: USER.chars.length,
-        typeStep: Number(typeStep.toFixed(4)),
-        hookAt: HOOK.at,
-        // カメラが字に寄ったときの、字の高さ（画面の高さとの比）と、プラグインの行の右端（画面の幅との比）
-        textInkRatio: Object.fromEntries(Object.entries(FOCUS.lines).map(([kind, l]) => [kind, Number(((l.ink * 1920) / FOCUS.fw / 1080).toFixed(4))])),
-        hookRightAt: Number((TL.camera.textLeftAt + FOCUS.lines.hook.width / FOCUS.fw).toFixed(3)),
-        layoutHeight: LAYOUT.height,
+        pages: LAID.map((page) => ({ id: page.id, lines: page.lines.length, height: page.height, speedLabel: page.speedLabel })),
         viewHeight: TDH - TITLE_H - TPAD * 1.2,
-        // 1920 の画面で、板がいちばん大きく落ち着いたときの文字の高さ（画素）
+        // カメラが寄って追う行の、字の高さ（画面の高さとの比）と、行の右端（画面の幅との比）
+        textInkRatio: Object.fromEntries(FOCUSED.map((id) => [id, Number(((FOCUS.lines[id].ink * 1920) / FOCUS.fw / 1080).toFixed(4))])),
+        rightAt: Object.fromEntries(Object.entries(FOCUS.lines).map(([id, l]) => [id, Number((TL.camera.textLeftAt + l.width / FOCUS.fw).toFixed(3))])),
       },
+      browser: { fw: Math.min(...camKeys.filter((k) => k.page).map((k) => k.fw)), shots: SHOTS.base, allowButton: SHOTS.allowButton },
       camera: camKeys.map((k) => ({ t: k.t, fw: Math.round(k.fw), p: k.p.map((v) => Math.round(v)) })),
     };
   },
