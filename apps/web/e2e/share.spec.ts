@@ -460,6 +460,45 @@ async function logInPage(page: Page, path: string, login: string) {
 const hydrated = (page: Page) => page.waitForFunction(() => Object.keys(document.getElementById('root')!).some((key) => key.startsWith('__reactContainer')));
 
 test.describe('リンクで見せる（画面）', () => {
+  test('/s/ から「全部をコピー」と「ファイルをコピー」した文字のクレジット行は /p/<id> のままで、合言葉が入らない（原則4）', async ({ browser }) => {
+    const { visitor, handle } = await person('credit');
+    const id = await privateWork(visitor);
+    const token = await turnOn(visitor, id);
+    const credit = `UI by @${handle} — ludion.ai/p/${id} (MIT)`;
+
+    // HTML の中（コードの箱と、ページのデータのクレジット行）にも合言葉がない
+    const html = await (await new Visitor().fetch(`/s/${token}`)).text();
+    const code = /<code data-ld-code="">([\s\S]*?)<\/code>/.exec(html)?.[1] ?? '';
+    expect(code).toContain(credit);
+    expect(code).not.toContain(token);
+    const data = JSON.parse(/<script type="application\/json" id="ld-page">([\s\S]*?)<\/script>/.exec(html)![1]) as { credit: string[] };
+    expect(data.credit).toEqual([`UI by @${handle} — ludion.ai/p/${id} (MIT)`]);
+
+    const context = await browser.newContext();
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: ownOrigin() });
+    const page = await context.newPage();
+    await page.goto(`/s/${token}`);
+    await hydrated(page);
+    await page.getByRole('button', { name: '全部をコピー' }).click();
+    await expect(page.getByRole('button', { name: 'コピーしました' })).toBeVisible();
+    // Windows のクリップボードは改行を CRLF にするので、LF にそろえて比べる
+    const all = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n');
+    expect(all.split('\n')[0]).toBe(`<!-- ${credit} -->`);
+    expect(all).toContain(`/* ${credit} */`);
+    expect(all).not.toContain(token);
+    expect(all).not.toContain('/s/');
+
+    // 行の住所で本文を開いて、そのファイルをコピー
+    await page.goto(`/s/${token}/code/part.css`);
+    await hydrated(page);
+    await page.getByRole('button', { name: 'part.cssをコピー' }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain(cssOf(id));
+    const file = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n');
+    expect(file).toBe(`/* ${credit} */\n${cssOf(id)}`);
+    expect(file).not.toContain(token);
+    await context.close();
+  });
+
   test('設定のタブのスイッチ：初めはオフ。押すとオンになり住所が出る。/s/ で持ち主に知らせと「オフにする」。押すと作品のページへ戻り、古い住所は 404', async ({ page, browser }) => {
     const { visitor, login } = await person('screen');
     const id = await privateWork(visitor);
