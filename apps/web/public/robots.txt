@@ -3,6 +3,8 @@ Disallow: /api/
 Disallow: /auth/
 Disallow: /frame/
 Disallow: /p/*/code
+Disallow: /p/*/raw/
+Disallow: /p/*.json$
 Disallow: /saved
 
 Sitemap: https://ludion.ai/sitemap.xml

@@ -36,6 +36,8 @@ const ALLOWED_ROUTES = [
   'GET /c/:handle',
   'GET /p/:id',
   'GET /p/:id/code',
+  'GET /p/:id/raw/:file',
+  'GET /p/:file{[a-z0-9-]+\\.json}',
   'GET /p/:id/wall',
   'GET /privacy',
   'GET /terms',

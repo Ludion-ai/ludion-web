@@ -65,26 +65,6 @@ async function loadWork(c: PageContext) {
 }
 
 /**
- * 公開の作品の「コピーされるコード」（/p/:id/code と同じ文字列）。MCP の get_public_work（worker/mcp.ts）が使う。
- * 公開の作品だけ。cookie は読まない（自分だけの作品は、本人が get_work で取る）。
- */
-export async function approvedSnippet(env: Pick<Env, 'DB' | 'PARTS'>, id: string) {
-  const found = await getApprovedWork(env.DB, id);
-  const files = found && (await loadRevisionFiles(env.PARTS, found.prefix));
-  if (!found || !files) return null;
-  const { creator, work } = found;
-  const source = await env.DB.prepare(`SELECT o.id, oc.handle FROM works w JOIN works o ON o.id = w.remix_of JOIN creators oc ON oc.id = o.creator_id WHERE w.id = ?`)
-    .bind(work.id)
-    .first<{ id: string; handle: string }>();
-  const snippet = buildCopySnippet(
-    { ...files, meta: { ...files.meta, creator: creator.handle } },
-    { handle: creator.handle, name: creator.name, kind: creator.kind, x_url: creator.x_url, site_url: creator.site_url },
-    source,
-  );
-  return { work, creator, snippet };
-}
-
-/**
  * 壁紙の静止画（WALL002）。ld upload が公開の版と一緒に置いたものだけ。R2 にあるかを見て、ある大きさだけを返す。
  * 投稿（/new）の壁紙や自分だけの作品には置かれないので、空になる（シートに「静止画で使う」を出さない）。
  */
