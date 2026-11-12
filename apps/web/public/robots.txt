@@ -4,6 +4,7 @@ Disallow: /auth/
 Disallow: /frame/
 Disallow: /p/*/code
 Disallow: /p/*/raw/
+Disallow: /p/*/file/
 Disallow: /p/*.json$
 Disallow: /saved
 

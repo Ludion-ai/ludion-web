@@ -1,8 +1,12 @@
-import { Check, X } from 'lucide-react';
-import { useEffect, useId, useRef, useState } from 'react';
+import { Check } from 'lucide-react';
+import { useId, type MouseEvent } from 'react';
+import { Link, useLocation, useParams } from 'react-router';
 import type { Copy } from '../copy';
 import type { AboutSpot, AboutTech, WorkAbout as About } from '../data/pages';
+import { useCodeLink } from '../hooks/useCodeLink';
 import { useCopy } from '../hooks/useCopy';
+import { useHydrated } from '../hooks/useHydrated';
+import { codePath, fileOfSplat, parseLineHash } from '../lib/codeAddress';
 import { formatBytes } from '../lib/format';
 
 /** 言語の名前（固有の名前なので、どの言語のページでも同じ） */
@@ -10,7 +14,7 @@ const LANGUAGE_NAMES = { js: 'JavaScript', glsl: 'GLSL', css: 'CSS', html: 'HTML
 /** 言語の帯の色（SPEC.md 2 の site-lang-*） */
 const LANGUAGE_COLORS = { js: 'bg-site-lang-js', glsl: 'bg-site-lang-glsl', css: 'bg-site-lang-css', html: 'bg-site-lang-html' } as const;
 
-/** 印の1つ。spot があれば押せて、その行を下に出す。code は等幅で出す（属性やキーの名前） */
+/** 印の1つ。spot があれば押せて、本文のその行へ飛ぶ。code は等幅で出す（属性やキーの名前） */
 type Item = { key: string; text: string; spot: AboutSpot | null; count: number; code?: boolean; done?: boolean };
 type Row = { key: string; label: string; items: Item[] };
 
@@ -113,21 +117,20 @@ const ITEM_CLASS = 'inline-flex min-h-8 shrink-0 items-center gap-1 rounded-chip
 
 /**
  * 「この作品について」（WS003）。版を置いたときに機械がコードを読んで作った地図から出す。
- * 印を押すと、その行（本当のファイルの行の番号）を下に出す。幅767px以下では、印を横に流す。
+ * 印を押すと、本文のその行（本当のファイルの行。/p/<id>/code/<file>#L204）へ飛ぶ。幅767px以下では、印を横に流す。
  */
-export function WorkAbout({ about }: { about: About }) {
+export function WorkAbout({ about, workId }: { about: About; workId: string }) {
   const copy = useCopy();
   const text = copy.work.about;
   const headingId = useId();
   const a11yId = useId();
-  const peekId = useId();
-  const [open, setOpen] = useState<{ row: string; item: Item } | null>(null);
-  const peekRef = useRef<HTMLDivElement>(null);
-
-  // 押した印の行が、画面の外にあれば見える所まで送る
-  useEffect(() => {
-    if (open) peekRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [open]);
+  const { go } = useCodeLink(workId);
+  // 今開いている行（押した印に色を付ける）
+  const location = useLocation();
+  const openFile = fileOfSplat(useParams()['*']);
+  // # の後ろは Worker から見えないので、載った後に当てる
+  const hydrated = useHydrated();
+  const openRange = openFile && hydrated ? parseLineHash(location.hash) : null;
 
   const rows = aboutRows(copy, about);
   const a11y = a11yRows(copy, about);
@@ -153,19 +156,23 @@ export function WorkAbout({ about }: { about: About }) {
                   </span>
                 );
               }
-              const pressed = open?.row === row.key && open.item.key === item.key;
+              const { file, line } = item.spot;
+              const current = openFile === file && openRange?.start === line && openRange.end === line;
               return (
-                <button
+                <Link
                   key={item.key}
-                  type="button"
+                  to={codePath(workId, file, { start: line, end: line })}
                   data-about-item={item.key}
-                  aria-expanded={pressed}
-                  aria-controls={peekId}
-                  onClick={() => setOpen(pressed ? null : { row: row.key, item })}
-                  className={`${ITEM_CLASS} font-semibold ${pressed ? 'bg-site-primary text-site-bg' : 'bg-site-key text-site-fg hover:bg-site-hover'}`}
+                  aria-current={current ? 'true' : undefined}
+                  onClick={(event: MouseEvent<HTMLAnchorElement>) => {
+                    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+                    event.preventDefault();
+                    go(file, { start: line, end: line });
+                  }}
+                  className={`${ITEM_CLASS} font-semibold ${current ? 'bg-site-primary text-site-bg' : 'bg-site-key text-site-fg hover:bg-site-hover'}`}
                 >
                   {body}
-                </button>
+                </Link>
               );
             })}
           </dd>
@@ -187,43 +194,6 @@ export function WorkAbout({ about }: { about: About }) {
         <span className="ml-2 font-normal text-site-fg-2 max-md:hidden">{text.a11y.note}</span>
       </h3>
       {a11y.length > 0 ? list(a11y, a11yId) : <p className="mt-2 text-small text-site-fg-2">{text.a11y.none}</p>}
-
-      {/* 印の行。本当のファイルの行の番号で出す（コピーされるコードの行ではない） */}
-      <div id={peekId} ref={peekRef} role="region" aria-label={text.peek.region} aria-live="polite" data-about-peek="" hidden={!open?.item.spot} className="mt-3 overflow-hidden rounded-control border border-site-line bg-site-field">
-        {open?.item.spot && (
-          <>
-            <div className="flex items-center justify-between gap-2 py-1 pr-1 pl-3">
-              <p className="min-w-0 text-small text-site-fg-3 wrap-anywhere">
-                {text.peek.at(open.item.spot.file, String(open.item.spot.line))}
-                {open.item.count > 1 && <span className="text-site-fg-2"> · {text.peek.total(String(open.item.count))}</span>}
-              </p>
-              <button
-                type="button"
-                aria-label={text.peek.close}
-                onClick={() => setOpen(null)}
-                className="inline-flex size-8 shrink-0 items-center justify-center rounded-control text-site-fg-3 hover:bg-site-hover"
-              >
-                <X size={16} strokeWidth={1.75} aria-hidden="true" />
-              </button>
-            </div>
-            <pre tabIndex={0} aria-label={text.peek.at(open.item.spot.file, String(open.item.spot.line))} className="overflow-x-auto pb-2 font-mono text-small text-site-fg">
-              <code>
-                {open.item.spot.lines.map((line, index) => {
-                  const number = open.item.spot!.first + index;
-                  const current = number === open.item.spot!.line;
-                  return (
-                    <span key={number} data-line={number} aria-current={current ? 'true' : undefined} className={`block w-max min-w-full pr-3 ${current ? 'bg-site-key' : ''}`}>
-                      <span className="mr-3 inline-block w-12 text-right text-site-fg-2 select-none">{number}</span>
-                      {line}
-                      {'\n'}
-                    </span>
-                  );
-                })}
-              </code>
-            </pre>
-          </>
-        )}
-      </div>
 
       {languages.length > 0 && (
         <div data-about-languages="" className="mt-4">

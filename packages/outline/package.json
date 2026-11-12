@@ -5,7 +5,8 @@
   "type": "module",
   "description": "作品の1つの版から、中身の地図（ファイル、分け目、技術、言語）を作る。Worker、ld、テストが同じものを使う。DOM と Node の API を使わない純粋な関数。",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./lex": "./src/lex.ts"
   },
   "scripts": {
     "test": "tsc -p . && playwright test"

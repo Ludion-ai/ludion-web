@@ -11,8 +11,31 @@ export type CreatorTotals = { works: number; views: number; copies: number };
 /** 壁紙の静止画の1枚（WALL002）。url は同じサイトの道（/w/<id>/<version>/wall-<幅>x<高さ>.png） */
 export type WallStill = { width: number; height: number; url: string };
 
-/** 印を押したときに見せる所（WS003）：ファイル、行、その行の前後の文字（first 行目から） */
-export type AboutSpot = { file: string; line: number; first: number; lines: string[] };
+/** 印を押したときに飛ぶ所（WS003）：本当のファイルと、その行 */
+export type AboutSpot = { file: string; line: number };
+
+/** ファイルの木の分け目（地図の Section から、画面に出す分）。行は 1 から数え、end を含む */
+export type TreeSection = {
+  file: string;
+  kind: 'shader' | 'settings' | 'heading' | 'function' | 'style' | 'script' | 'asset';
+  name: string;
+  start: number;
+  end: number;
+  /** 入れ子の深さ（0 がいちばん外） */
+  depth: number;
+  language: 'html' | 'css' | 'js' | 'glsl';
+  bytes?: number;
+  glsl?: string;
+  stage?: 'vertex' | 'fragment';
+  mime?: string;
+};
+
+/** ファイルの木と目次（WS003）。dropped：上限を超えて入れなかった分け目の数 */
+export type WorkTree = {
+  files: { name: string; bytes: number; lines: number; language: 'html' | 'css' | 'js' | 'glsl' }[];
+  sections: TreeSection[];
+  dropped: number;
+};
 
 /** 「この作品について」の1つの技術。id、まとまり、名前は地図（packages/outline）のもの */
 export type AboutTech = {
@@ -83,6 +106,13 @@ export type PageData =
       stills: WallStill[];
       /** 「この作品について」（WS003）。地図が作れなければ null（節を出さない） */
       about: WorkAbout | null;
+      /** ファイルの木と目次（WS003）。地図が作れなければ null（木を出さない） */
+      tree: WorkTree | null;
+      /**
+       * クレジット行の文字（1行目は作者、リミックスは2行目に元の作品）。本文から「ファイルをコピー」した文字の頭に入れる（原則4）。
+       * /p/<id>/raw/<file> と同じ文字になる
+       */
+      credit: string[];
       /** 版の一覧（新しい順。公開の作品は承認済みの版だけ） */
       versions: WorkVersion[];
       /** この作品のリミックス（公開のものだけ） */

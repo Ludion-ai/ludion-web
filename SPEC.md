@@ -53,6 +53,10 @@
 | `site-lang-glsl` | `#2F6F9F` | `#6FA8CC` | 地の上 5.4 / 7.4 | 言語の帯の GLSL |
 | `site-lang-css` | `#7C4DBA` | `#B18CEB` | 地の上 5.8 / 7.1 | 言語の帯の CSS |
 | `site-lang-html` | `#C9431E` | `#F0764F` | 地の上 4.9 / 6.8 | 言語の帯の HTML |
+| `site-code-keyword` | `#A31F6B` | `#FF7AB2` | field 6.4 / 7.0、key 5.9 / 5.7 | 作品のページの本文の色付け（WS003）：決まった語、タグの名前、@ の語 |
+| `site-code-string` | `#1A6B37` | `#9FD99A` | field 6.0 / 10.4、key 5.4 / 8.5 | 本文の色付け：文字列、属性の値、テンプレートの差し込み |
+| `site-code-number` | `#8F4700` | `#F2A65A` | field 6.2 / 8.4、key 5.7 / 6.8 | 本文の色付け：数、単位、色の値、true と false |
+| `site-code-name` | `#0B6477` | `#7AD7E0` | field 6.2 / 10.2、key 5.6 / 8.3 | 本文の色付け：GLSL の型、CSS の宣言の名前、属性の名前。木のシェーダーの印 |
 
 ### 角丸
 
