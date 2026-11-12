@@ -391,11 +391,11 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
 
         <div className="mt-4 min-w-0">
           <div {...panelProps('code')}>
-            {page.about && <WorkAbout about={page.about} />}
+            {/* 「コードをコピー」は、コードのタブのいちばん上（いちばん使われる操作で、コピー数もここから出る。最初の画面に入れる） */}
             <button
               type="button"
               onClick={onCopy}
-              className="mt-4 inline-flex h-11 w-full items-center justify-center rounded-control bg-site-primary text-body font-semibold text-site-bg"
+              className="inline-flex h-11 w-full items-center justify-center rounded-control bg-site-primary text-body font-semibold text-site-bg"
             >
               {copyState === 'copied' ? copy.work.copied : copyState === 'failed' ? copy.work.copyFailed : copy.work.copyCode}
             </button>
@@ -403,6 +403,11 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
               {copyState === 'copied' ? copy.work.copied : copyState === 'failed' ? copy.work.copyFailed : ''}
             </p>
             <p className="mt-2 text-meta text-site-fg-2">{copy.work.license}</p>
+            {page.about && (
+              <div className="mt-4">
+                <WorkAbout about={page.about} />
+              </div>
+            )}
             {!isPrivate && <ReportIssue workId={work.id} />}
 
             <pre

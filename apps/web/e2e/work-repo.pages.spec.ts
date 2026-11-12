@@ -314,15 +314,15 @@ for (const { label, viewport, columns } of [
         await page.keyboard.press('Tab');
       }
       const names = seen.map((item) => item.name);
-      // リミックス → いいね → 保存 → 共有 → 作者の名前 → 選んだタブ（コード）→ 最初の印
+      // リミックス → いいね → 保存 → 共有 → 作者の名前 → 選んだタブ（コード）→ コードをコピー → 最初の印
       expect(names.slice(0, 4)).toEqual(['リミックス', expect.stringMatching(/^いいね/), '保存', '共有']);
       // WebKit は、端末によって Tab でリンクを飛ばす（Safari の初めの設定と同じ。Windows の WebKit は飛ばし、Linux の WebKit は止まる）。
       // 止まるなら、共有とタブの間。ボタン、タブ、印の順は、どのブラウザでも同じ
       if (browserName !== 'webkit') expect(names).toContain('Fixture');
       if (names.includes('Fixture')) expect(names.indexOf('Fixture')).toBe(4);
-      expect(names.filter((name) => name !== 'Fixture')).toEqual(['リミックス', expect.stringMatching(/^いいね/), '保存', '共有', 'コード', 'DOM + CSS']);
+      expect(names.filter((name) => name !== 'Fixture')).toEqual(['リミックス', expect.stringMatching(/^いいね/), '保存', '共有', 'コード', 'コードをコピー', 'DOM + CSS']);
       expect(names.at(-1)).toBe('DOM + CSS');
-      expect(names.indexOf('DOM + CSS')).toBe(names.indexOf('コード') + 1);
+      expect(names.indexOf('DOM + CSS')).toBe(names.indexOf('コード') + 2);
       const stage = (await page.locator('[data-work-stage]').boundingBox())!;
       const boundary = columns === 2 ? stage.x + stage.width : null;
       for (let index = 1; index < seen.length; index++) {
@@ -331,6 +331,29 @@ for (const { label, viewport, columns } of [
     });
   });
 }
+
+test.describe('コードをコピーの場所', () => {
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 1366, height: 768 },
+  ]) {
+    test(`幅${viewport.width}×高さ${viewport.height}：タブのすぐ下（「この作品について」の上）で、最初の画面に入る。ライセンスの行はそのすぐ下`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await openWork(page, 'fx-landing');
+      const button = (await page.getByRole('button', { name: 'コードをコピー', exact: true }).boundingBox())!;
+      const tabs = (await page.getByRole('tablist', { name: '作品の中身' }).boundingBox())!;
+      const license = (await page.getByText('MIT · コードの1行目に作者の名前が残ります', { exact: true }).boundingBox())!;
+      const box = (await about(page).boundingBox())!;
+      const code = (await page.locator('pre:has([data-ld-code])').boundingBox())!;
+      expect(button.y).toBeCloseTo(tabs.y + tabs.height + 16, 0);
+      expect(button.y + button.height).toBeLessThanOrEqual(viewport.height);
+      expect(license.y).toBeCloseTo(button.y + button.height + 8, 0);
+      expect(box.y).toBeGreaterThan(license.y + license.height);
+      // コードの箱は、今までどおり「この作品について」の下
+      expect(code.y).toBeGreaterThan(box.y + box.height);
+    });
+  }
+});
 
 test.describe('狭い列', () => {
   /** ページの横のはみ出しと、文字が切れているタブの数 */
@@ -359,7 +382,8 @@ test.describe('狭い列', () => {
     await expect(page.getByRole('tab')).toHaveCount(4);
     // 左のナビは、本人の答えの後に開く
     await expect(page.locator('html')).toHaveAttribute('data-nav', 'open');
-    expect(await fit(page)).toEqual({ overflow: 0, clipped: 0 });
+    // ナビが開く動きの間は、幅が落ち着くまで待つ（WebKit は、開いた直後に一度だけ横に広がって見える）
+    await expect.poll(() => fit(page)).toEqual({ overflow: 0, clipped: 0 });
   });
 });
 
