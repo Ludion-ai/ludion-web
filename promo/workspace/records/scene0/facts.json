@@ -1,0 +1,9 @@
+{
+  "name": "scene0",
+  "prompt": "/ludion:connect",
+  "claudeCode": "2.1.322",
+  "model": "claude-fable-5-2",
+  "seconds": 13.1,
+  "turns": 2,
+  "files": []
+}

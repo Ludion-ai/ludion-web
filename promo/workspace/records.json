@@ -1,0 +1,23 @@
+{
+  "scene0": {
+    "prompt": "/ludion:connect",
+    "connect": true,
+    "tools": "Bash,Read",
+    "allowedTools": "Bash(node:*)",
+    "budgetUsd": 0.6,
+    "limitMinutes": 6
+  },
+  "scene1": {
+    "prompt": "押すと波紋が広がるボタンを1つの HTML で作って",
+    "budgetUsd": 1,
+    "limitMinutes": 12
+  },
+  "scene4": {
+    "prompt": "雨の窓ぎわのシェーダーだけ読んで",
+    "mcp": true,
+    "tools": "",
+    "budgetUsd": 1,
+    "limitMinutes": 10,
+    "model": "claude-opus-5-5"
+  }
+}

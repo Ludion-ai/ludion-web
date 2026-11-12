@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>波紋ボタン</title>
+<style>
+  * { box-sizing: border-box; }
+
+  html, body { height: 100%; margin: 0; }
+
+  body {
+    display: grid;
+    place-items: center;
+    background: radial-gradient(circle at 50% 35%, #1c2540, #0b0f1c 70%);
+    font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif;
+  }
+
+  .ripple-btn {
+    position: relative;
+    overflow: hidden;
+    padding: 18px 48px;
+    border: 0;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #4f8cff, #7b5cff);
+    color: #fff;
+    font: inherit;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    box-shadow: 0 10px 30px rgba(79, 140, 255, 0.35);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select: none;
+  }
+
+  .ripple-btn:hover { box-shadow: 0 14px 38px rgba(79, 140, 255, 0.5); }
+  .ripple-btn:active { transform: scale(0.97); }
+  .ripple-btn:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+
+  .ripple-btn .label { position: relative; z-index: 1; pointer-events: none; }
+
+  .ripple {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.45);
+    transform: scale(0);
+    pointer-events: none;
+    animation: ripple 0.65s ease-out forwards;
+  }
+
+  @keyframes ripple {
+    to { transform: scale(1); opacity: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ripple { animation-duration: 0.01s; }
+    .ripple-btn { transition: none; }
+  }
+</style>
+</head>
+<body>
+  <button class="ripple-btn" type="button"><span class="label">押してみる</span></button>
+
+<script>
+  const btn = document.querySelector('.ripple-btn');
+
+  function spawnRipple(x, y) {
+    const rect = btn.getBoundingClientRect();
+    // 押した位置からいちばん遠い角まで届く半径
+    const radius = Math.hypot(
+      Math.max(x, rect.width - x),
+      Math.max(y, rect.height - y)
+    );
+    const ripple = document.createElement('span');
+    ripple.className = 'ripple';
+    ripple.style.width = ripple.style.height = radius * 2 + 'px';
+    ripple.style.left = x - radius + 'px';
+    ripple.style.top = y - radius + 'px';
+    ripple.addEventListener('animationend', () => ripple.remove());
+    btn.appendChild(ripple);
+  }
+
+  // マウス・タッチ・ペン：押した位置から広がる
+  btn.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    const rect = btn.getBoundingClientRect();
+    spawnRipple(e.clientX - rect.left, e.clientY - rect.top);
+  });
+
+  // キーボード（Enter / Space）：中央から広がる
+  btn.addEventListener('keydown', (e) => {
+    if (e.repeat || (e.key !== 'Enter' && e.key !== ' ')) return;
+    spawnRipple(btn.offsetWidth / 2, btn.offsetHeight / 2);
+  });
+</script>
+</body>
+</html>
