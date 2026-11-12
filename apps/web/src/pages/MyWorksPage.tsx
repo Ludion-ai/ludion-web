@@ -2,6 +2,7 @@ import { ChevronLeft } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { chipClass } from '../components/chip';
+import { ThumbCapture } from '../components/ThumbCapture';
 import { useAccount } from '../hooks/useAccount';
 import { useCopy, useLocale } from '../hooks/useCopy';
 import { useResetTitle } from '../hooks/useResetTitle';
@@ -48,6 +49,7 @@ function WorkRow({ work, reload }: { work: OwnWork; reload: () => Promise<void> 
   const [pending, setPending] = useState<Pending>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [capturing, setCapturing] = useState(false);
   const state = stateOf(work);
   const reason = work.reject_code ? (copy.post.reject[work.reject_code as keyof typeof copy.post.reject] ?? copy.post.reject.other) : null;
   // 題とサムネイルのない下書き（docs/tasks/T033.md A3）は、仮の題で出す
@@ -60,6 +62,8 @@ function WorkRow({ work, reload }: { work: OwnWork; reload: () => Promise<void> 
   // 公開できるのは、自分だけの作品の今の版（直している途中の版がないとき）
   const canPublish = work.private && (work.status === 'private' || work.status === 'approved');
   const canMakePrivate = work.public;
+  // 画像を足せるのも、自分だけの作品の今の版（DOC002「3」）。いちばん新しい版が今の版なので、その下書きの枠で撮る
+  const canAddThumb = canPublish;
 
   const act = async (kind: Exclude<Pending, null>) => {
     setBusy(true);
@@ -130,6 +134,11 @@ function WorkRow({ work, reload }: { work: OwnWork; reload: () => Promise<void> 
               {firstDraft ? text.resume : text.edit}
             </Link>
           )}
+          {canAddThumb && (
+            <button type="button" aria-label={text.addThumbLabel(title)} onClick={() => setCapturing(true)} className={WHITE_BUTTON}>
+              {work.thumb ? text.changeThumb : text.addThumb}
+            </button>
+          )}
           {canPublish && pending !== 'publish' && (
             <button type="button" aria-label={text.publishLabel(title)} onClick={() => setPending('publish')} className={WHITE_BUTTON}>
               {text.publish}
@@ -166,6 +175,19 @@ function WorkRow({ work, reload }: { work: OwnWork; reload: () => Promise<void> 
           {message}
         </p>
       </div>
+      {capturing && (
+        <ThumbCapture
+          workId={work.id}
+          title={title}
+          frameUrl={`/draft-frame/${work.revision_id}/desktop.html`}
+          onClose={() => setCapturing(false)}
+          onDone={() => {
+            setCapturing(false);
+            setMessage(text.capture.sent);
+            void reload();
+          }}
+        />
+      )}
     </li>
   );
 }

@@ -188,6 +188,7 @@ AI がふつうに書いた1つの HTML 文書を、そのまま置き、その�
 - 種類は画面（`screen`）。部品の種類（`Components`）の作品やリミックスの元から来ても、文書の版は `Web` にする（中央寄せだと背景が縮むため）。ID は題（`<title>`）の英数字から作る。
 - 持ち方：R2 の版の置き場に `meta.json`（`"format": "document"`）と `index.html` だけ。D1 は変えない（migration なし）。`loadRevisionFiles` は `part.html` がないときだけ `index.html` を読むので、今ある作品の読み方は変わらない。
 - 枠（`/frame/...`、`/draft-frame/...`）は、文書を1文字も変えずに返し、`<!doctype>` の直後（なければ頭）に、サイトの小さなスクリプト（CSP の meta、storage の代わり、DPR、「読み込めた」の知らせ、「動きを見る」のときの matchMedia）だけを差し込む（`packages/render/src/document.ts`）。応答の頭、`Sec-Fetch-Dest` の確かめ、sandbox、`frame-ancestors` は今の枠と同じ。文書の CSS の `@media (prefers-reduced-motion)` は書き換えない。
+- 画像を付ける（11/12、DOC002）：自分だけの作品は、「自分の作品」と作品のページの「画像を付ける」で、画像だけを足した新しい版を今の版にできる（`POST /api/post/works/:id/thumb`。今の版のファイルを写す。今の版は書き換えない）。文書の作品は、持ち主の下書きの枠（`/draft-frame/...?capture=1`）にだけ撮る仕掛け（`packages/render/src/capture.ts`）を差し込み、枠の中で DOM を SVG の foreignObject（data:）で絵にする。公開の枠と、`capture` のない枠の HTML は変えない。撮れないとき（白紙、汚れた、Shadow DOM の中がある）は、ファイルを選ぶ。
 - コピーされるコードは、その文書。クレジット行は `<!doctype html>` の直後に入れる（前に入れると互換モードになるため。だから文書の作品では、クレジット行は2行目になる）。リミックスの2行目も同じ場所。置くときは、その場所にあるクレジット行を外す（取ったコードを送り直しても重ならない）。
 
 ```html

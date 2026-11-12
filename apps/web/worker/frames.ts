@@ -24,8 +24,11 @@ type FrameContext = Context<{ Bindings: Env }>;
 
 const FROM_IFRAME = 'iframe';
 
-/** 枠の応答。公開の版も下書きも同じ守り（sandbox、CSP、キャッシュしない）。 */
-function frameResponse(c: FrameContext, work: Work, file: string): Response {
+/**
+ * 枠の応答。公開の版も下書きも同じ守り（sandbox、CSP、キャッシュしない）。
+ * capture：撮る仕掛けを足す（DOC002「2」）。持ち主の下書きの枠の文書の作品で、?capture=1 のときだけ。ほかの枠の HTML は変えない。
+ */
+function frameResponse(c: FrameContext, work: Work, file: string, capture = false): Response {
   // ?motion=1：見る人が「動きを見る」を選んだ枠（docs/tasks/FIX-motion.md「1」）。守りとキャッシュの決まりは同じ
   const motion = c.req.query('motion') === '1';
   // 壁紙は本人が選んで置くものなので、端末の「動きを減らす」設定でも動かす（WALL001「1」）
@@ -36,7 +39,7 @@ function frameResponse(c: FrameContext, work: Work, file: string): Response {
         ? { palette: 'author' as const, placement: 'fill' as const, motion: true }
         : { palette: 'author' as const, width: FRAME_WIDTHS[file === 'mobile.html' ? 'mobile' : 'desktop'], motion };
   // 文書の作品は、置き方（中央、幅、ヘッダー、全画面）を文書が自分で決める。変えるのは「動きを見る」だけ
-  const html = typeof work.document === 'string' ? buildDocumentFrameHtml(work.document, { motion: options.motion }) : buildFrameHtml(work, options);
+  const html = typeof work.document === 'string' ? buildDocumentFrameHtml(work.document, { motion: options.motion, capture }) : buildFrameHtml(work, options);
   return new Response(html, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
@@ -68,8 +71,11 @@ frames.get('/draft-frame/:rid/:file{desktop\\.html|mobile\\.html}', async (c) =>
     c.header('Vary', 'Sec-Fetch-Dest');
     return c.redirect('/account/works', 302);
   }
-  const revision = await readableRevision(c.env.DB, rid, await getSessionUser(c));
+  const user = await getSessionUser(c);
+  const revision = await readableRevision(c.env.DB, rid, user);
   const work = revision ? await loadRevisionFiles(c.env.PARTS, revision.r2_prefix) : null;
   if (!work) return c.json({ error: 'not_found' }, 404);
-  return frameResponse(c, work, file);
+  // 撮る仕掛け（DOC002「2」）は、持ち主が「画像を付ける」で開いた文書の作品の枠だけ。運営が審査で見る枠には入れない
+  const capture = c.req.query('capture') === '1' && typeof work.document === 'string' && user !== null && revision?.owner_id === user.id;
+  return frameResponse(c, work, file, capture);
 });

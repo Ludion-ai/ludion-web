@@ -7,6 +7,7 @@
 //   差し込む場所は <!doctype> の直後（なければ文書の頭）。パーサーはそこを <head> の最初に入れるので、文書のどのスクリプトよりも先に動く。
 // - コピーされるコードは、その文書。クレジット行は <!doctype> の直後に入れる（前に入れると互換モードになるため）。
 
+import { CAPTURE_SCRIPT } from './capture.ts';
 import { ALLOW_MOTION_SCRIPT } from './motion.ts';
 import { DPR_SCRIPT, FRAME_CSP, LOADED_SCRIPT } from './frame.ts';
 import { creditText, remixCreditText, type RemixSource } from './snippet.ts';
@@ -44,15 +45,21 @@ export function isHtmlDocument(text: string): boolean {
 export interface DocumentFrameOptions {
   /** 端末の「動きを減らす」設定を「減らさない」として見せる（motion.ts の JS の道だけ。文書の CSS は書き換えない） */
   motion?: boolean;
+  /**
+   * 撮る仕掛け（capture.ts）を足す。持ち主だけが見る下書きの枠で、持ち主が「画像を付ける」を開いたときだけ（DOC002「2」）。
+   * 既定は足さない（公開の枠と、今ある作品の枠の HTML は変わらない）。
+   */
+  capture?: boolean;
 }
 
-/** 文書の頭に差し込むもの。順は、今の枠と同じ（storage の代わりが最初、次に DPR と「読み込めた」、次に「動きを見る」）。 */
+/** 文書の頭に差し込むもの。順は、今の枠と同じ（storage の代わりが最初、次に DPR と「読み込めた」、次に「動きを見る」）。撮る仕掛けは最後。 */
 function headInsert(options: DocumentFrameOptions): string {
   return (
     `<meta http-equiv="Content-Security-Policy" content="${FRAME_CSP}">` +
     `<script>${STORAGE_SCRIPT}</script>` +
     `<script>${DPR_SCRIPT}${LOADED_SCRIPT}</script>` +
-    (options.motion ? `<script>${ALLOW_MOTION_SCRIPT}</script>` : '')
+    (options.motion ? `<script>${ALLOW_MOTION_SCRIPT}</script>` : '') +
+    (options.capture ? `<script>${CAPTURE_SCRIPT}</script>` : '')
   );
 }
 
