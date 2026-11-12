@@ -471,9 +471,8 @@ oauth.post('/authorize', async (c) => {
   await db.batch([
     db.prepare('DELETE FROM oauth_codes WHERE code_hash IN (SELECT code_hash FROM oauth_codes WHERE expires_at <= ? LIMIT 50)').bind(now),
     db
-      // 求めに redirect_uri があったかを残す。あったなら、トークンの口で同じ値を必ず求める（RFC 6749 の 4.1.3。OAuth 2.1 の 10.2 の、2.0 のクライアントとの互換）
-      .prepare('INSERT INTO oauth_codes (code_hash, client_id, user_id, redirect_uri, redirect_uri_sent, code_challenge, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .bind(await hashToken(code), request.client.id, user.id, request.redirectUri, params.get('redirect_uri') !== null ? 1 : 0, request.challenge, now + CODE_TTL_MS),
+      .prepare('INSERT INTO oauth_codes (code_hash, client_id, user_id, redirect_uri, code_challenge, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(await hashToken(code), request.client.id, user.id, request.redirectUri, request.challenge, now + CODE_TTL_MS),
   ]);
   return c.redirect(withParams(request.redirectUri, { code, ...state, iss }));
 });
@@ -548,15 +547,13 @@ oauth.post('/token', async (c) => {
     if (!VERIFIER_PATTERN.test(verifier)) return oauthError(c, 400, 'invalid_grant', 'PKCE code_verifier is required.');
     // 1回だけ使える：消しながら読む。2回目は見つからない
     const row = await db
-      .prepare('DELETE FROM oauth_codes WHERE code_hash = ? RETURNING client_id, user_id, redirect_uri, redirect_uri_sent, code_challenge, expires_at')
+      .prepare('DELETE FROM oauth_codes WHERE code_hash = ? RETURNING client_id, user_id, redirect_uri, code_challenge, expires_at')
       .bind(await hashToken(code))
-      .first<{ client_id: string; user_id: string; redirect_uri: string; redirect_uri_sent: number; code_challenge: string; expires_at: number }>();
+      .first<{ client_id: string; user_id: string; redirect_uri: string; code_challenge: string; expires_at: number }>();
     if (!row || row.client_id !== client.id || row.expires_at <= now) return oauthError(c, 400, 'invalid_grant', 'The code is wrong or expired.');
+    // redirect_uri は、送られたときだけ比べる。OAuth 2.1 はトークンの口から外した（証は PKCE の S256 で、この AI に結んでいる）
     const redirect = params.get('redirect_uri');
-    // 許可の求めに redirect_uri があったなら、同じ値が要る。無かったなら、送られたときだけ比べる
-    if (row.redirect_uri_sent ? redirect !== row.redirect_uri : redirect !== null && redirect !== row.redirect_uri) {
-      return oauthError(c, 400, 'invalid_grant', 'redirect_uri does not match.');
-    }
+    if (redirect !== null && redirect !== row.redirect_uri) return oauthError(c, 400, 'invalid_grant', 'redirect_uri does not match.');
     if ((await s256(verifier)) !== row.code_challenge) return oauthError(c, 400, 'invalid_grant', 'PKCE verification failed.');
     if (!(await db.prepare('SELECT 1 FROM users WHERE id = ?').bind(row.user_id).first())) return oauthError(c, 400, 'invalid_grant', 'The account no longer exists.');
 

@@ -310,7 +310,7 @@ test.describe('AI につなぐ：許可とトークン', () => {
     expect(database).toContain(row.access_hash as string);
   });
 
-  test('トークン：許可の求めに redirect_uri があったなら、同じ値が要る。無かったなら省いてよい（OAUTH002）', async () => {
+  test('トークン：redirect_uri は省いてよい（OAuth 2.1）。送るなら、許可の求めの戻り先と同じ値（OAUTH002）', async () => {
     const { visitor } = await person();
     const client = await register('Claude');
     /** 許可して出た証で、トークンの口を叩く */
@@ -324,11 +324,11 @@ test.describe('AI につなぐ：許可とトークン', () => {
       const response = await form('/oauth/token', body);
       return { status: response.status, body: (await response.json()) as { error?: string; access_token?: string } };
     };
-    // 許可の求めに redirect_uri があった：送らない、違う値は invalid_grant。同じ値は通る
-    expect(await exchange(null)).toMatchObject({ status: 400, body: { error: 'invalid_grant' } });
-    expect(await exchange('https://claude.example/api/mcp/other')).toMatchObject({ status: 400, body: { error: 'invalid_grant' } });
+    // 許可の求めに redirect_uri があった：省いても、同じ値でも通る。違う値は invalid_grant
+    expect((await exchange(null)).status).toBe(200);
     expect((await exchange(REDIRECT)).status).toBe(200);
-    // 許可の求めに redirect_uri が無かった（登録した戻り先が1つ）：省いてよい。送るなら同じ値
+    expect(await exchange('https://claude.example/api/mcp/other')).toMatchObject({ status: 400, body: { error: 'invalid_grant' } });
+    // 許可の求めに redirect_uri が無かった（登録した戻り先が1つ）：同じく、省いてよい。送るなら同じ値
     expect((await exchange(null, false)).status).toBe(200);
     expect((await exchange(REDIRECT, false)).status).toBe(200);
     expect(await exchange('https://claude.example/api/mcp/other', false)).toMatchObject({ status: 400, body: { error: 'invalid_grant' } });
