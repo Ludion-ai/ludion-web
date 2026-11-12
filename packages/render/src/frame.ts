@@ -5,6 +5,7 @@
 // - CSP の meta で、作品から外への通信を止める（書体だけは通す）。フォームの送信先への送信も止める。
 // - localStorage、sessionStorage、document.cookie は、投げるときだけメモリだけの代わりにする（storage.ts）。読み直すと消える。
 
+import { CAPTURE_SCRIPT } from './capture.ts';
 import { NEUTRAL_PALETTES, tokenDeclarations } from './tokens.ts';
 import { escapeRawText, stripExports } from './js.ts';
 import { ALLOW_MOTION_SCRIPT, allowMotionCss } from './motion.ts';
@@ -54,6 +55,11 @@ export interface FrameOptions {
   placement?: 'center' | 'top' | 'inline' | 'fill';
   /** 端末の「動きを減らす」設定を「減らさない」として見せる。見る人が「動きを見る」を選んだときだけ（motion.ts）。 */
   motion?: boolean;
+  /**
+   * 撮る仕掛け（capture.ts）を足す。持ち主だけが見る下書きの枠で、?capture=1 のときだけ（THUMB001）。
+   * 既定は足さない（公開の枠と、capture のない枠の HTML は変わらない）。
+   */
+  capture?: boolean;
 }
 
 function escapeHtml(text: string): string {
@@ -197,6 +203,8 @@ export function buildFrameHtml(work: Work, options: FrameOptions): string {
     // 作品の JS が devicePixelRatio を読む前に、見えている細かさに置き換える
     `<script>${DPR_SCRIPT}${LOADED_SCRIPT}</script>`,
     options.motion ? `<script>${ALLOW_MOTION_SCRIPT}</script>` : '',
+    // 撮る仕掛けは、作品の JS より先に置く（WebGL の絵を読めるようにするため）
+    options.capture ? `<script>${CAPTURE_SCRIPT}</script>` : '',
     '</head>',
     '<body>',
     `<div id="${HOST_ID}" data-ld-id="${escapeHtml(meta.id)}" data-ld-type="${meta.type}"${hasJs ? '' : ' data-ld-mount="none"'}${hostStyle}>` +

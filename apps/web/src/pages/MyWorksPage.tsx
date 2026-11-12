@@ -1,6 +1,7 @@
 import { ChevronLeft } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
+import { AutoThumb } from '../components/AutoThumb';
 import { chipClass } from '../components/chip';
 import { ThumbCapture } from '../components/ThumbCapture';
 import { useAccount } from '../hooks/useAccount';
@@ -85,6 +86,11 @@ function WorkRow({ work, reload }: { work: OwnWork; reload: () => Promise<void> 
     <li data-own-work={work.id} data-own-work-state={state} className="flex flex-col gap-3 border-t border-site-line py-5 sm:flex-row">
       {work.thumb ? (
         <img src={work.thumb} alt="" width={work.thumb_w} height={work.thumb_h} loading="lazy" className="h-auto w-full rounded-control border border-site-line bg-site-field sm:w-40 sm:shrink-0" />
+      ) : canAddThumb ? (
+        // 画像のない自分だけの作品は、枠から自動で撮って付ける（THUMB001）。撮れるまで、撮れないときは、頭文字
+        <AutoThumb key={work.revision_id} workId={work.id} revisionId={work.revision_id} title={title} onDone={() => void reload()}>
+          <NoThumb title={work.title} />
+        </AutoThumb>
       ) : (
         <NoThumb title={work.title} />
       )}

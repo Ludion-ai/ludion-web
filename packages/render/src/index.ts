@@ -10,5 +10,5 @@ export type { RemixSource } from './snippet.ts';
 export { escapeRawText, exportsMount, stripExports } from './js.ts';
 export { DOCUMENT_FILE, buildDocumentFrameHtml, buildDocumentSnippet, doctypeEnd, isHtmlDocument, stripDocumentCredits } from './document.ts';
 export type { DocumentFrameOptions } from './document.ts';
-export { CAPTURE_READY, CAPTURE_REQUEST, CAPTURE_RESULT, CAPTURE_SCRIPT } from './capture.ts';
+export { CAPTURE_FIT_SIZE, CAPTURE_READY, CAPTURE_REQUEST, CAPTURE_RESULT, CAPTURE_SCRIPT } from './capture.ts';
 export type { CaptureFailure } from './capture.ts';
