@@ -1,6 +1,7 @@
 // 作品のページのファイルの木と本文（WS003 の2つ目）：木から本文へ、行の住所で開く、印から行へ飛ぶ、コピーの文字、スマホの全画面、大きいファイル。
 // playwright.config.ts の pages（Chromium）と work-files-*（WebKit、Firefox）で流す。サーバーは pages（見本の作品が入っている）。
 // 分け目のある作品と大きい作品は、人と作品を HTTP だけで作る（偽の GitHub でログイン、AI の鍵、/api/v1。thumb-capture.spec.ts と同じ）。
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -486,6 +487,57 @@ test.describe('スマホの幅（390）', () => {
     await expect(node(page, 'part.js')).toBeFocused();
   });
 
+  test('全画面の間は、後ろのページにフォーカスが入らない（Tab と読み上げは、見えている物だけ）。閉じると元に戻る', async ({ page }) => {
+    await openWork(page, `/p/${MOTION}`);
+    await node(page, 'part.js').click();
+    await line(page, 1).waitFor();
+    const panel = page.locator('[data-code-panel]');
+    await expect(page.getByRole('link', { name: '作品のページに戻る' })).toBeFocused();
+    // 後ろの物（頭、動く作品、木、サイトの頭、下の並び）は inert。本文の入れ物と、その中は inert でない
+    const state = () =>
+      page.evaluate(() => {
+        const inert = (selector: string) => Boolean(document.querySelector(selector)?.closest('[inert]'));
+        return {
+          head: inert('[data-work-head]'),
+          stage: inert('[data-work-stage]'),
+          side: inert('[data-work-side]'),
+          tree: inert('[data-file-tree]'),
+          siteHeader: inert('header'),
+          lists: inert('[data-masonry]'),
+          panel: inert('[data-code-panel]'),
+          body: inert('[data-code-body]'),
+        };
+      });
+    expect(await state()).toEqual({ head: true, stage: true, side: true, tree: true, siteHeader: true, lists: true, panel: false, body: false });
+    // Tab を押し続けても、Shift+Tab で戻っても、フォーカスは全画面の中（か、ブラウザの枠）
+    for (const key of ['Tab', 'Tab', 'Tab', 'Tab', 'Tab', 'Tab', 'Tab', 'Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab']) {
+      await page.keyboard.press(key);
+      const where = await page.evaluate(() => {
+        const el = document.activeElement;
+        if (!el || el === document.body) return 'body';
+        return el.closest('[data-code-panel]') ? 'panel' : `outside:${el.tagName}:${(el.textContent ?? '').trim().slice(0, 20)}`;
+      });
+      expect(['panel', 'body'], `${key} → ${where}`).toContain(where);
+    }
+    await expect(panel).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+    expect(await state()).toEqual({ head: false, stage: false, side: false, tree: false, siteHeader: false, lists: false, panel: false, body: false });
+  });
+
+  test('「この作品について」の印から開いた時も、閉じるとフォーカスが印に戻る。英語のページの戻るは、英語の作品のページ', async ({ page }) => {
+    await openWork(page, `/en/p/${MOTION}`);
+    const chip = page.locator('[data-about-item="raf"]');
+    await chip.click();
+    await expect(page).toHaveURL(new RegExp(`/en/p/${MOTION}/code/part\\.js#L\\d+$`));
+    const back = page.getByRole('link', { name: 'Back to the work' });
+    await expect(back).toBeFocused();
+    await expect(back).toHaveAttribute('href', `/en/p/${MOTION}`);
+    await back.click();
+    await expect(page).toHaveURL(`/en/p/${MOTION}`);
+    await expect(chip).toBeFocused();
+  });
+
   test('住所で直接開いた時：戻るは、作品のページへ替える（サイトの外へ出ない）。Esc でも閉じる', async ({ page }) => {
     await openWork(page, `/p/${MOTION}/code/part.js#L20`);
     await expect(line(page, 20)).toHaveAttribute('data-selected', '');
@@ -516,5 +568,34 @@ test.describe('スマホの幅（390）', () => {
     // 折り返している
     await expect(target.locator('span').first()).toHaveCSS('white-space', 'pre-wrap');
     expect((await target.boundingBox())!.height).toBeGreaterThan(20);
+  });
+});
+
+test.describe('axe-core（本文を開いた形。critical と serious が0件）', () => {
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    test(`幅${viewport.width}：ファイルの木と本文、行を選んだ形`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await openWork(page, `/p/${MOTION}/code/part.js#L10-L14`);
+      await expect(body(page).locator('[data-selected]')).toHaveCount(5);
+      await expect(body(page).locator('span.text-site-code-keyword').first()).toBeVisible();
+      // 枠の中（作品）は ld check が見る。ここではサイトの側を見る
+      const { violations } = await new AxeBuilder({ page }).exclude('iframe').analyze();
+      const blocking = violations.filter((violation) => violation.impact === 'critical' || violation.impact === 'serious');
+      expect(blocking.map((violation) => `${violation.id}: ${violation.nodes.map((item) => item.target.join(' ')).join(' | ')}`)).toEqual([]);
+    });
+  }
+
+  test('幅1440、ライト：色付けの色が、地（site-field）の上で 4.5:1 以上（axe の color-contrast）', async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light', locale: 'ja-JP' });
+    const page = await context.newPage();
+    await openWork(page, `/p/${MOTION}/code/part.js#L10-L14`);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await expect(body(page).locator('span.text-site-code-keyword').first()).toBeVisible();
+    const { violations } = await new AxeBuilder({ page }).include('[data-work-files]').analyze();
+    expect(violations.filter((violation) => violation.id === 'color-contrast').flatMap((violation) => violation.nodes.map((item) => item.target.join(' ')))).toEqual([]);
+    await context.close();
   });
 });

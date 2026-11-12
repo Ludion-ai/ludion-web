@@ -3,6 +3,7 @@
 // 結果は「どこからどこまでが、どの種類か」の並びだけ。画面には React の文字として描く（HTML の文字列にしない。CLAUDE.md 原則7）。
 
 import { lex, type Token } from '@ludion/outline/lex';
+import { lineStartsOf } from './lines';
 
 /** 色の種類。0 は地の文字（並びには入れない） */
 export const TOKEN_COMMENT = 1;
@@ -68,12 +69,6 @@ const isIdentPart = (c: number) => isIdentStart(c) || (c >= 48 && c <= 57);
 const isDigit = (c: number) => c >= 48 && c <= 57;
 const isSpace = (c: number) => c === 32 || c === 9 || c === 10 || c === 13 || c === 12;
 
-/** 行の頭の位置（0 から数える行 → 文字の位置） */
-export function lineStartsOf(text: string): Int32Array {
-  const starts = [0];
-  for (let i = text.indexOf('\n'); i !== -1; i = text.indexOf('\n', i + 1)) starts.push(i + 1);
-  return Int32Array.from(starts);
-}
 
 /** 文字の位置が入っている行（0 から数える） */
 function lineAt(lineStarts: Int32Array, offset: number): number {

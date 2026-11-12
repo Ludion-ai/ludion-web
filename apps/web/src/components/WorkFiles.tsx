@@ -1,17 +1,21 @@
 import { ArrowLeft, Braces, ChevronDown, ChevronRight, File, Hash, Image, SlidersHorizontal, Triangle } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router';
 import type { WorkTree } from '../data/pages';
 import { useCodeLink } from '../hooks/useCodeLink';
-import { useCopy } from '../hooks/useCopy';
+import { useCopy, useLocale } from '../hooks/useCopy';
 import { useHydrated } from '../hooks/useHydrated';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { codePath, fileCopyText, fileTextUrl, parseLineHash, type LineRange } from '../lib/codeAddress';
 import { COPIED_MS } from '../lib/count';
 import { buildFileTree, functionsOf, pathTo, sectionAt, shaderRanges, type TreeNode } from '../lib/fileTree';
 import { formatBytes } from '../lib/format';
-import { lineStartsOf, tokenize, type Tokens } from '../lib/highlight';
-import { CodeBody } from './CodeBody';
+import type { Tokens } from '../lib/highlight';
+import { localizedPath } from '../i18n';
+import { lineStartsOf } from '../lib/lines';
+
+// 本文の部品と色付けは、ファイルを開いた時にだけ読む（どのページにも入る最初の JS を増やさない。SPEC.md 10）
+const CodeBody = lazy(() => import('./CodeBody').then((module) => ({ default: module.CodeBody })));
 
 /** 共有する住所はいつも本番のもの（workers.dev や手元で開いていても） */
 const SHARE_ORIGIN = 'https://ludion.ai';
@@ -56,6 +60,7 @@ interface WorkFilesProps {
  */
 export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopied }: WorkFilesProps) {
   const copy = useCopy();
+  const locale = useLocale();
   const text = copy.work.files;
   const location = useLocation();
   const { go, close, stay } = useCodeLink(workId);
@@ -110,7 +115,16 @@ export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopi
   useEffect(() => {
     if (!current || colored?.file === current.file) return;
     const language = tree.files.find((item) => item.name === current.file)?.language ?? 'html';
-    return whenIdle(() => setColored({ file: current.file, tokens: tokenize(current.text, language, shaderRanges(tree, current.file), current.lineStarts) }));
+    let live = true;
+    const cancel = whenIdle(() => {
+      void import('../lib/highlight').then(({ tokenize }) => {
+        if (live) setColored({ file: current.file, tokens: tokenize(current.text, language, shaderRanges(tree, current.file), current.lineStarts) });
+      });
+    });
+    return () => {
+      live = false;
+      cancel();
+    };
   }, [current, colored, tree]);
   const tokens = current && colored?.file === current.file ? colored.tokens : null;
 
@@ -131,14 +145,38 @@ export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopi
 
   // ---- スマホの全画面：開いたらフォーカスを中へ、閉じたら押した所へ。Esc でも閉じる
   const backLink = useRef<HTMLAnchorElement>(null);
-  const opener = useRef<string | null>(null);
+  /** 本文を開いた時にフォーカスがあった物（木のリンク、「この作品について」の印）。閉じたら、そこへ戻す */
+  const opener = useRef<HTMLElement | null>(null);
   const wasOpen = useRef(false);
   useEffect(() => {
-    if (!window.matchMedia(NARROW_QUERY).matches) return;
-    if (openFile && !wasOpen.current) backLink.current?.focus();
-    if (!openFile && wasOpen.current && opener.current) document.querySelector<HTMLElement>(`[data-tree-key="${CSS.escape(opener.current)}"]`)?.focus();
+    if (!window.matchMedia(NARROW_QUERY).matches) {
+      wasOpen.current = openFile !== null;
+      return;
+    }
+    if (openFile && !wasOpen.current) {
+      opener.current = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+      backLink.current?.focus();
+    }
+    if (!openFile && wasOpen.current && opener.current?.isConnected) opener.current.focus();
     wasOpen.current = openFile !== null;
   }, [openFile]);
+  // 全画面の間は、後ろのページ（頭、動く作品、木、下の並び、サイトの頭と下のタブ）を、キーの Tab と読み上げから外す。
+  // 見えていない物にフォーカスが入らないように（Tab と読み上げの順は、見えている順）
+  useEffect(() => {
+    if (!openFile || !narrow || !panel) return;
+    const hidden: Element[] = [];
+    for (let node: Element = panel; node.parentElement && node !== document.body; node = node.parentElement) {
+      for (const sibling of node.parentElement.children) {
+        if (sibling !== node && !sibling.hasAttribute('inert') && sibling.tagName !== 'SCRIPT' && sibling.tagName !== 'STYLE') {
+          sibling.setAttribute('inert', '');
+          hidden.push(sibling);
+        }
+      }
+    }
+    return () => {
+      for (const element of hidden) element.removeAttribute('inert');
+    };
+  }, [openFile, narrow, panel]);
   useEffect(() => {
     if (!openFile || !narrow) return;
     const onKey = (event: KeyboardEvent) => {
@@ -149,10 +187,9 @@ export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopi
   }, [openFile, narrow, close]);
 
   // ---- 住所を替える（hooks/useCodeLink.ts）。開いている間の移動は、履歴を増やさない（戻るは1回で閉じる）
-  const onLink = (event: MouseEvent<HTMLAnchorElement>, key: string, toFile: string, toRange: LineRange | null) => {
+  const onLink = (event: MouseEvent<HTMLAnchorElement>, toFile: string, toRange: LineRange | null) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
     event.preventDefault();
-    opener.current = key;
     go(toFile, toRange);
   };
   const selectLine = useCallback(
@@ -220,7 +257,7 @@ export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopi
             data-tree-key={node.key}
             data-tree-kind={node.kind}
             aria-current={selected ? 'true' : undefined}
-            onClick={(event) => onLink(event, node.key, node.file, node.range)}
+            onClick={(event) => onLink(event, node.file, node.range)}
             className={`flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-control py-1 pr-2 text-small max-md:min-h-11 ${real ? 'font-semibold text-site-fg' : 'text-site-fg-3'} hover:text-site-fg`}
           >
             <Icon size={14} strokeWidth={real ? 1.75 : 2} aria-hidden="true" className={`shrink-0 ${real ? 'text-site-fg-3' : node.kind === 'shader' || node.kind === 'group' ? 'text-site-code-name' : 'text-site-fg-2'}`} />
@@ -282,7 +319,7 @@ export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopi
               <div className="flex min-w-0 items-center gap-1 md:min-h-8">
                 <a
                   ref={backLink}
-                  href={`/p/${encodeURIComponent(workId)}`}
+                  href={localizedPath(locale, `/p/${encodeURIComponent(workId)}`)}
                   aria-label={text.back}
                   onClick={(event) => {
                     event.preventDefault();
@@ -312,6 +349,7 @@ export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopi
                 <button type="button" aria-label={text.copyFileLabel(openFile)} disabled={!current} onClick={() => void copyFile()} className={`${SMALL_BUTTON} disabled:opacity-60`}>
                   {label('file', text.copyFile)}
                 </button>
+                {/* 生の文字（WS006）。言語のない道 */}
                 <a href={`/p/${encodeURIComponent(workId)}/raw/${openFile}`} target="_blank" rel="noopener" className={`${SMALL_BUTTON} max-md:hidden`}>
                   {text.raw}
                 </a>
@@ -327,19 +365,27 @@ export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopi
             <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_200px]">
               <div className="min-w-0">
                 {current ? (
-                  <CodeBody
-                    key={current.file}
-                    text={current.text}
-                    lineStarts={current.lineStarts}
-                    tokens={tokens}
-                    selected={range}
-                    wrap={wrap}
-                    root={narrow ? panel : null}
-                    jump={jump}
-                    label={text.body(current.file)}
-                    hrefFor={hrefFor}
-                    onSelect={selectLine}
-                  />
+                  <Suspense
+                    fallback={
+                      <p role="status" className="px-4 py-10 text-center text-body text-site-fg-2">
+                        {text.loading}
+                      </p>
+                    }
+                  >
+                    <CodeBody
+                      key={current.file}
+                      text={current.text}
+                      lineStarts={current.lineStarts}
+                      tokens={tokens}
+                      selected={range}
+                      wrap={wrap}
+                      root={narrow ? panel : null}
+                      jump={jump}
+                      label={text.body(current.file)}
+                      hrefFor={hrefFor}
+                      onSelect={selectLine}
+                    />
+                  </Suspense>
                 ) : failed ? (
                   <p role="alert" className="px-4 py-10 text-center text-body text-site-fg-2">
                     {text.loadError}
@@ -362,7 +408,7 @@ export function WorkFiles({ workId, version, tree, credit, snippet, file, onCopi
                       <li key={`${item.start}-${item.name}`}>
                         <Link
                           to={codePath(workId, item.file, { start: item.start, end: item.end })}
-                          onClick={(event) => onLink(event, `${item.file}:function:${item.start}`, item.file, { start: item.start, end: item.end })}
+                          onClick={(event) => onLink(event, item.file, { start: item.start, end: item.end })}
                           aria-current={range?.start === item.start && range.end === item.end ? 'true' : undefined}
                           className={`flex items-baseline gap-2 rounded-control px-2 py-1 font-mono text-small text-site-fg-3 hover:bg-site-hover hover:text-site-fg ${
                             range?.start === item.start && range.end === item.end ? 'bg-site-hover text-site-fg' : ''
