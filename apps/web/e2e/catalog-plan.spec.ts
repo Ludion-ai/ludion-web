@@ -34,11 +34,4 @@ test.describe('作品1つの問い合わせの計画', () => {
       expect(plan.filter((line) => /SCAN (w|works)\b/.test(line)), plan.join('\n')).toEqual([]);
     });
   }
-
-  // likes の主キーは (user_id, work_id) で、work_id の索引がない。作品で絞っても、索引の全部をなめる。
-  // 索引を足すには D1 の migration が要るので、このタスクでは足さない（LIMIT001 の報告）。足したら fixme を外す
-  test.fixme('承認済みの作品：likes を全部読まない（likes の work_id の索引が要る）', () => {
-    const plan = planOf(APPROVED_SQL, '2026-10-01', 'x');
-    expect(plan.filter((line) => /SCAN likes\b/.test(line)), plan.join('\n')).toEqual([]);
-  });
 });

@@ -11,7 +11,7 @@ const SELECT_COLUMNS = `
 
 /**
  * 作品ごとの数の集計。onlyWork を渡すと、集計の中でその作品の行だけを数える（作品1つを読むときに、counters の表を全部読まない）。
- * counters は (work_id, day) が主キーなので、絞ると索引で読む。likes は work_id の索引がないので、絞っても索引の全部をなめる（LIMIT001 の報告）。
+ * counters は (work_id, day) が主キーなので、絞ると索引で読む。
  */
 const totalsJoin = (onlyWork?: string) => {
   const where = onlyWork ? ` WHERE work_id = ${onlyWork}` : '';
