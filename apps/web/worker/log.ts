@@ -2,7 +2,7 @@
 // 決まった短いエラーの名前と、決まった値（道の種類など）だけを出す。
 // 例外の中身、要求の URL、見出し、本文、バインドした値は出さない。例外の文に、SQL の値や IP や URL が入ることがあるため。
 
-type LogName = 'internal_error' | 'github_failed' | 'google_failed' | 'rate_limit_failed' | 'rate_key_missing' | 'admin_token_missing' | 'cache_purge_failed' | 'ssr_failed';
+type LogName = 'internal_error' | 'github_failed' | 'google_failed' | 'rate_limit_failed' | 'rate_key_missing' | 'admin_token_missing' | 'cache_purge_failed' | 'ssr_failed' | 'outline_failed';
 
 const ROUTE_KINDS = new Set(['api', 'auth', 'frame', 'p', 'c', 'w', 'files', 'saved', 'account', 'login', 'signup', 'privacy', 'about', 'assets', 'new', 'admin', 'draft-frame', 'draft-thumb', 'oauth', 'mcp', '.well-known']);
 

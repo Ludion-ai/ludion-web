@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { deflateSync, crc32 } from 'node:zlib';
 import { createServer } from 'vite';
 import { POST_LIMITS, SIGNUP_LIMITS } from '../worker/quotaLimits';
+import { buildOutline } from '@ludion/outline';
 import { pageOverflow } from './helpers';
 import { Visitor, ownOrigin } from './visitor';
 
@@ -193,6 +194,10 @@ test.describe('下書き', () => {
     expect([og.readUInt32BE(16), og.readUInt32BE(20)]).toEqual([1200, 630]);
     const meta = JSON.parse(r2(`${row.r2_prefix}/meta.json`)!.toString());
     expect(meta).toMatchObject({ id: made.id, type: 'component', platform: null, category: 'Components', creator: handle, license: 'MIT', version: '1', pin_order: null });
+    // 中身の地図（WS002）：版の置き場に outline.json。置いたファイルから作る
+    const outline = JSON.parse(r2(`${row.r2_prefix}/outline.json`)!.toString());
+    expect(outline).toEqual(buildOutline({ html: r2(`${row.r2_prefix}/part.html`)!.toString(), css: r2(`${row.r2_prefix}/part.css`)!.toString(), js: r2(`${row.r2_prefix}/part.js`)?.toString() ?? null }));
+    expect(outline).toMatchObject({ version: 1, format: 'parts' });
 
     // 新しい作者は、まだ公開の作り手のページに出ない
     expect((await new Visitor().fetch(`/c/${handle}`)).status).toBe(404);
@@ -236,6 +241,9 @@ test.describe('下書き', () => {
     expect(rows[0].r2_prefix).not.toBe(before.r2_prefix);
     expect(r2(`${before.r2_prefix}/part.html`)).toBeNull();
     expect(r2(`${rows[0].r2_prefix}/part.html`)!.toString()).toContain('直した');
+    // 地図も、古い置き場から消え、新しい置き場にできる（WS002）
+    expect(r2(`${before.r2_prefix}/outline.json`)).toBeNull();
+    expect(JSON.parse(r2(`${rows[0].r2_prefix}/outline.json`)!.toString()).files[0]).toMatchObject({ name: 'part.html', language: 'html' });
     // 画像を出さなければ、前の画像を引き継ぐ
     expect(r2(`${rows[0].r2_prefix}/thumb.webp`)).not.toBeNull();
     expect(r2(`${rows[0].r2_prefix}/og.png`)).not.toBeNull();

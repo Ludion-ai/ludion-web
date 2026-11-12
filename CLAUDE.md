@@ -67,6 +67,8 @@ LudionはUIのPinterest。作り手が置いたUIの作品（画面と部品）�
 
 `part.html`、`part.css`、`part.js`（動きがあるときだけ）、`meta.json`、`thumb.webp`（オーナーの作品は `ld upload` が作る。投稿の作品は、作り手が出した画像を Worker が読み直して作る）。
 
+版の置き場（R2）には、置くときにサイトが作る中身の地図 `outline.json`（ファイル、分け目、技術、言語の帯。`packages/outline`、WS002）も置く。作品のファイルではないので、作り手は書かない。今ある版は、初めて要るときに作って置く。手元では `npx ld outline <id>` で同じ地図を見られる。
+
 ### トークン
 
 | トークン | 意味 |
@@ -186,7 +188,7 @@ AI がふつうに書いた1つの HTML 文書を、そのまま置き、その�
 - 分け方（`packages/rules` の `htmlForm`）：`<!doctype` か `<html` で始まる文書は、文書の作品。ただし、`<body>` の一番外の要素が1つで作者が `data-ld-part` を書き、JS がないか `mount` を export している文書は、今までどおり契約の形。断片は、いつも契約の形。
 - 検査は、大きさ（768KB まで。今の3つの上限の合計）と、読める文字（NUL と壊れたサロゲートがない）だけ（`checkDocument`）。契約の検査はしない。外への通信も検査では落とさない（枠の CSP が止める）。人をだます作りかは、公開の前に運営が見る。
 - 種類は画面（`screen`）。部品の種類（`Components`）の作品やリミックスの元から来ても、文書の版は `Web` にする（中央寄せだと背景が縮むため）。ID は題（`<title>`）の英数字から作る。
-- 持ち方：R2 の版の置き場に `meta.json`（`"format": "document"`）と `index.html` だけ。D1 は変えない（migration なし）。`loadRevisionFiles` は `part.html` がないときだけ `index.html` を読むので、今ある作品の読み方は変わらない。
+- 持ち方：R2 の版の置き場に `meta.json`（`"format": "document"`）と `index.html` だけ（ほかに、サイトが作る地図 `outline.json`）。D1 は変えない（migration なし）。`loadRevisionFiles` は `part.html` がないときだけ `index.html` を読むので、今ある作品の読み方は変わらない。
 - 枠（`/frame/...`、`/draft-frame/...`）は、文書を1文字も変えずに返し、`<!doctype>` の直後（なければ頭）に、サイトの小さなスクリプト（CSP の meta、storage の代わり、DPR、「読み込めた」の知らせ、「動きを見る」のときの matchMedia）だけを差し込む（`packages/render/src/document.ts`）。応答の頭、`Sec-Fetch-Dest` の確かめ、sandbox、`frame-ancestors` は今の枠と同じ。文書の CSS の `@media (prefers-reduced-motion)` は書き換えない。
 - 画像を付ける（11/12、DOC002）：自分だけの作品は、「自分の作品」と作品のページの「画像を付ける」で、画像だけを足した新しい版を今の版にできる（`POST /api/post/works/:id/thumb`。今の版のファイルを写す。今の版は書き換えない）。文書の作品は、持ち主の下書きの枠（`/draft-frame/...?capture=1`）にだけ撮る仕掛け（`packages/render/src/capture.ts`）を差し込み、枠の中で DOM を SVG の foreignObject（data:）で絵にする。公開の枠と、`capture` のない枠の HTML は変えない。撮れないとき（白紙、汚れた、Shadow DOM の中がある）は、ファイルを選ぶ。
 - コピーされるコードは、その文書。クレジット行は `<!doctype html>` の直後に入れる（前に入れると互換モードになるため。だから文書の作品では、クレジット行は2行目になる）。リミックスの2行目も同じ場所。置くときは、その場所にあるクレジット行を外す（取ったコードを送り直しても重ならない）。
