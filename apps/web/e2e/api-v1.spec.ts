@@ -283,7 +283,7 @@ test.describe('AI の口 /api/v1', () => {
     expect(await third.json()).toMatchObject({ id: part, version: '4', visibility: 'public' });
     expect(latestRevision(part)).toMatchObject({ status: 'draft', version: '4' });
     expect(d1<{ version: string; status: string }>(`SELECT version, status FROM works WHERE id = ${quote(part)}`)[0]).toEqual({ version: '3', status: 'approved' });
-    expect(await (await new Visitor().fetch(`/p/${part}/code?public`)).text()).not.toContain('次の版');
+    expect(await (await new Visitor().fetch(`/p/${part}/code`)).text()).not.toContain('次の版');
 
     // 鍵を消すと 401
     expect((await owner.visitor.post(`/api/account/ai-keys/${key.id}/delete`)).status).toBe(204);

@@ -46,7 +46,12 @@
     // 回復のコードを試す回数。打ち間違えを何度か直せる数。コードは130ビットなので、総当たりの守りとしてはこれで足りる
     { "name": "LIMIT_RECOVERY", "namespace_id": "11005", "simple": { "limit": 5, "period": 60 } },
     // 作品の投稿の保存。画像を作り直すので重い。人が1分に10回保存することはない。1日の上限は worker/quota.ts
-    { "name": "LIMIT_POST", "namespace_id": "11006", "simple": { "limit": 10, "period": 60 } }
+    { "name": "LIMIT_POST", "namespace_id": "11006", "simple": { "limit": 10, "period": 60 } },
+    // AI のクライアントの登録（worker/oauth.ts）。AI のサーバーは多くの人が同じ IP を通るので、人の登録が重なっても超えない数。1日の数は worker/quotaLimits.ts
+    { "name": "LIMIT_REGISTER", "namespace_id": "11007", "simple": { "limit": 20, "period": 60 } },
+    // キャッシュに当たらなかった作品のページ、作者のページ、ファイルの本文、一覧の API（LIMIT001）。当たった分は Worker に来ないので数えない。
+    // 1つの作品のページは、ファイルの本文を何本か読むので、閲覧の束縛（LIMIT_COUNT）とは分ける
+    { "name": "LIMIT_PAGE", "namespace_id": "11008", "simple": { "limit": 120, "period": 60 } }
   ],
   "d1_databases": [
     {

@@ -295,9 +295,9 @@ test.describe('handle の決まり', () => {
     const renamed = newLogin('moved');
     expect((await visitor.post('/api/account/handle', { handle: renamed })).status).toBe(200);
     expect(await d1(`SELECT handle FROM creators WHERE id = ${quote(creatorId)}`)).toEqual([{ handle: renamed }]);
-    const moved = await new Visitor().fetch(`/c/${creator}?a=1`);
+    const moved = await new Visitor().fetch(`/c/${creator}?utm_source=a`);
     expect(moved.status).toBe(301);
-    expect(moved.headers.get('location')).toBe(`/c/${renamed}?a=1`);
+    expect(moved.headers.get('location')).toBe(`/c/${renamed}?utm_source=a`);
     expect(moved.headers.get('cache-control')).toBe('private, no-store');
     expect((await new Visitor().fetch(`/en/c/${creator}`)).headers.get('location')).toBe(`/en/c/${renamed}`);
     expect((await request.get(`/c/${renamed}`)).status()).toBe(200);

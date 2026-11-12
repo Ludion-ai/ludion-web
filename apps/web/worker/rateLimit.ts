@@ -7,7 +7,7 @@ import type { Env } from './env';
 import { limitKey } from './limitKey';
 import { logError, routeKind } from './log';
 
-export type LimitBinding = 'LIMIT_COUNT' | 'LIMIT_TOGGLE' | 'LIMIT_AUTH' | 'LIMIT_ACCOUNT' | 'LIMIT_RECOVERY' | 'LIMIT_POST';
+export type LimitBinding = 'LIMIT_COUNT' | 'LIMIT_TOGGLE' | 'LIMIT_AUTH' | 'LIMIT_ACCOUNT' | 'LIMIT_RECOVERY' | 'LIMIT_POST' | 'LIMIT_REGISTER' | 'LIMIT_PAGE';
 
 /** 窓の長さ（wrangler.jsonc の period と同じ）。 */
 const RETRY_AFTER_SECONDS = 60;

@@ -55,8 +55,14 @@ app.get('/p/:id/code', rateLimit('LIMIT_COUNT'));
 app.get(WORK_MAP_ROUTE, rateLimit('LIMIT_COUNT'));
 app.get('/p/:id/raw/:file', rateLimit('LIMIT_COUNT'));
 // AI につなぐ（MCP001）。許可の画面は人が開くので、ログインと同じ束縛で数える。
-// 登録、トークン、/mcp は AI のサーバーから来る（多くの人が同じ IP を通る）ので IP では数えない（oauth.ts、mcp.ts の頭）
+// 登録は、多くの人が同じ IP を通る AI のサーバーから来るので、大きめの専用の束縛で数える（ひとりで全体の1日の数を使い切らせない。LIMIT001。oauth.ts の頭）。
+// トークンと /mcp は IP では数えない（oauth.ts、mcp.ts の頭）
 app.use('/oauth/authorize', rateLimit('LIMIT_AUTH'));
+app.post('/oauth/register', rateLimit('LIMIT_REGISTER'));
+// キャッシュに当たらなかった、作品と作者の読み口（LIMIT001）。当たった分は Worker に来ないので数えない。
+// '/p/:id' は地図（/p/<id>.json）にも当たるので、地図は LIMIT_COUNT とこれの両方で数える
+const PAGE_ROUTES = ['/api/works', '/p/:id', '/en/p/:id', '/p/:id/code/:file', '/en/p/:id/code/:file', '/p/:id/file/:version/:file', '/p/:id/wall', '/c/:handle', '/en/c/:handle'];
+for (const route of PAGE_ROUTES) app.get(route, rateLimit('LIMIT_PAGE'));
 
 app.route('/.well-known', wellKnown);
 app.route('/oauth', oauth);

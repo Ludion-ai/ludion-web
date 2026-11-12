@@ -26,8 +26,23 @@ export const API_LIMITS = {
   readsPerUserHour: 300,
 } as const;
 
-/** 新しい人を作る上限（docs/tasks/T021.md、T020 報告の [CTO]）。 */
+/**
+ * 新しい人を作る上限（docs/tasks/T021.md、T020 報告の [CTO]）。IP の鍵ごとの数が先に効く。
+ * 全体は、ひとりで使い切れない大きさ（LIMIT001。前は1時間 200）。人を作るには GitHub か Google かパスキーが要る。
+ */
 export const SIGNUP_LIMITS = {
   perKeyDay: 5,
-  allHour: 200,
+  allHour: 1000,
 } as const;
+
+/**
+ * AI のクライアントの登録（worker/oauth.ts。LIMIT001）。IP の鍵ごとの1日の数が先に効き、全体の1日の数は余裕を持たせる（前は全体で1日 2000 だけ）。
+ * 登録は AI のサーバーから来て、多くの人が同じ IP を通るので、IP の鍵ごとの数も大きめにする。
+ */
+export const REGISTER_LIMITS = {
+  perKeyDay: 200,
+  allDay: 10000,
+} as const;
+
+/** 全体の数が、上限のこの割合に届いたら記録に残す（worker/quota.ts の takeQuota）。 */
+export const NEAR_LIMIT_RATIO = 0.8;

@@ -227,6 +227,8 @@ test.describe('ログに要求と例外の中身を出さない（原則6）', (
     LIMIT_AUTH: passLimit,
     LIMIT_ACCOUNT: passLimit,
     LIMIT_RECOVERY: passLimit,
+    LIMIT_REGISTER: passLimit,
+    LIMIT_PAGE: passLimit,
     RATE_KEY_SECRET: LEAKS.bound,
     DB: {
       prepare: () => {

@@ -176,7 +176,8 @@ async function checkFrameDirect(id, version) {
 
 async function checkHeaders() {
   // キャッシュを許す道の確かめは scripts/verify-cache.mjs
-  for (const path of ['/api/works', '/api/me']) {
+  // /api/works はキャッシュを許す道（LIMIT001）
+  for (const path of ['/api/me']) {
     const response = await fetch(`${PROD}${path}`);
     check(`${path} は Cache-Control: private, no-store`, response.headers.get('cache-control') === 'private, no-store', response.headers.get('cache-control') ?? '');
   }

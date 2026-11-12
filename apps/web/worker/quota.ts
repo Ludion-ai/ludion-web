@@ -3,7 +3,8 @@
 
 import type { Env } from './env';
 import { limitKey } from './limitKey';
-import { API_LIMITS, POST_LIMITS, PRIVATE_LIMITS, SIGNUP_LIMITS } from './quotaLimits';
+import { logError } from './log';
+import { API_LIMITS, NEAR_LIMIT_RATIO, POST_LIMITS, PRIVATE_LIMITS, REGISTER_LIMITS, SIGNUP_LIMITS } from './quotaLimits';
 import { LOOPBACK } from './rateLimit';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -14,16 +15,26 @@ const EXPIRED_BATCH = 50;
 const dayBucket = (now: number) => new Date(now).toISOString().slice(0, 10);
 const hourBucket = (now: number) => new Date(now).toISOString().slice(0, 13);
 
-/** 1つ数える。上限に達していれば数えずに false。1つの文なので、同時に来ても上限を超えない。 */
+/**
+ * 1つ数える。上限に達していれば数えずに false。1つの文なので、同時に来ても上限を超えない。
+ * 全体の数（鍵が「:*」で終わる）は、上限の 8 割と上限に届いたときに1回ずつ記録に残す（運営が気づけるように）。記録には数の名前だけを出す。
+ */
 export async function takeQuota(db: D1Database, key: string, bucket: string, limit: number, expiresAt: number): Promise<boolean> {
-  const result = await db
+  const row = await db
     .prepare(
       `INSERT INTO quotas (key, bucket, n, expires_at) VALUES (?1, ?2, 1, ?4)
-       ON CONFLICT (key, bucket) DO UPDATE SET n = n + 1 WHERE n < ?3`,
+       ON CONFLICT (key, bucket) DO UPDATE SET n = n + 1 WHERE n < ?3
+       RETURNING n`,
     )
     .bind(key, bucket, limit, expiresAt)
-    .run();
-  return result.meta.changes > 0;
+    .first<{ n: number }>();
+  if (!row) return false;
+  if (key.endsWith(':*')) {
+    const name = key.slice(0, -2);
+    if (row.n === limit) logError('quota_full', { quota: name });
+    else if (row.n === Math.ceil(limit * NEAR_LIMIT_RATIO)) logError('quota_near_limit', { quota: name });
+  }
+  return true;
 }
 
 /** 切れた行を少し消す。 */
@@ -103,4 +114,23 @@ export async function takeSignupQuota(env: Pick<Env, 'DB' | 'RATE_KEY_SECRET'>, 
   } catch {
     return true;
   }
+}
+
+/** 数える相手の、IP の鍵（limitKey の頭の32文字）。数えない相手（手元のサーバー、IP がない、秘密の値がない）は null。 */
+async function subjectKey(env: Pick<Env, 'RATE_KEY_SECRET'>, ip: string | undefined, now: number): Promise<string | null> {
+  if (!ip || LOOPBACK.has(ip) || !env.RATE_KEY_SECRET) return null;
+  return (await limitKey(ip, env.RATE_KEY_SECRET, new Date(now))).slice(0, 32);
+}
+
+/**
+ * AI のクライアントを登録してよいか（worker/oauth.ts。LIMIT001）。IP の鍵ごとの1日の数が先で、IP の上限に当たれば全体を減らさない。
+ * IP はその場で HMAC にして数え、生の IP は置かない（CLAUDE.md 原則6）。数えない相手は、全体の数だけで止める。
+ */
+export async function takeRegisterQuota(env: Pick<Env, 'DB' | 'RATE_KEY_SECRET'>, ip: string | undefined, now = Date.now()): Promise<boolean> {
+  const bucket = dayBucket(now);
+  const expires = now + 2 * DAY_MS;
+  await sweepQuotas(env.DB, now);
+  const key = await subjectKey(env, ip, now);
+  if (key && !(await takeQuota(env.DB, `oauth-register:${key}`, bucket, REGISTER_LIMITS.perKeyDay, expires))) return false;
+  return takeQuota(env.DB, 'oauth-register:*', bucket, REGISTER_LIMITS.allDay, expires);
 }

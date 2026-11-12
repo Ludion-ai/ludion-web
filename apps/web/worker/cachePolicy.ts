@@ -23,6 +23,15 @@ export const workTag = (id: string) => `work-${id}`;
 
 const AVATAR_FILE = 'avatar-[0-9a-f]{12}\\.webp';
 
+/**
+ * キャッシュの道で残す URL の値（LIMIT001）。キーは道と URL の値なので、知らない値を付けた要求はキャッシュに当たらず、毎回 D1 を読む。
+ * だから、ここにない値を付けた要求は、その値を外した URL へ送り直す（canonicalCacheUrl）。
+ * ホームは c、sort、q、type を Worker が読む（SPEC.md「0」）。人が開くページは、どこから来たかを GA4 で見るために UTM を残す（src/lib/analytics.ts）。
+ */
+const UTM_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'] as const;
+const PAGE_PARAMS: readonly string[] = UTM_PARAMS;
+const HOME_PARAMS: readonly string[] = ['c', 'sort', 'q', 'type', ...UTM_PARAMS];
+
 interface CacheRule {
   /** apps/web/worker/ の Hono のルート。e2e/cache.spec.ts が app.routes と突き合わせる */
   route: string;
@@ -31,36 +40,40 @@ interface CacheRule {
   tag?: (match: RegExpExecArray) => string;
   /** SPA の index.html（知らない道への 200）を混ぜない */
   notHtml?: boolean;
+  /** 残す URL の値。なければ、どの値も外す */
+  params?: readonly string[];
 }
 
 export const CACHE_RULES: CacheRule[] = [
-  { route: '/', path: /^\/$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
+  { route: '/', path: /^\/$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG, params: HOME_PARAMS },
   // 作品の地図と、ファイルの生の文字（WS006）。公開の作品はだれにでも同じ中身。自分だけの作品は、道が no-store を付けるので残らない。
   // 地図は '/p/:id' の形にも当たるので、それより先に書く
   { route: '/p/:file{[a-z0-9-]+\\.json}', path: /^\/p\/[^/]+\.json$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   { route: '/p/:id/raw/:file', path: /^\/p\/[^/]+\/raw\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
-  { route: '/p/:id', path: /^\/p\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
+  { route: '/p/:id', path: /^\/p\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG, params: PAGE_PARAMS },
   // 作品のコードの文字（docs/tasks/T031.md「1」）。作品のページと同じ扱いで、取り下げと版の差し替えのときに消える
   { route: '/p/:id/code', path: /^\/p\/[^/]+\/code$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   // 行の住所（WS003）。作品のページと同じ HTML。本文の読み口も、作品のページと同じ扱いにする：同じ版の中身は ld upload で置き直せるので、
   // 版の番号だけでは「変わらない」と言えない。取り下げと置き直しは一覧の札で消え、消すのに失敗しても 60 秒で消える
-  { route: '/p/:id/code/:file', path: /^\/p\/[^/]+\/code\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
+  { route: '/p/:id/code/:file', path: /^\/p\/[^/]+\/code\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG, params: PAGE_PARAMS },
   { route: '/p/:id/file/:version/:file', path: /^\/p\/[^/]+\/file\/[^/]+\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   // 全画面の住所（WALL001）。作品のページと同じ扱い。中の枠（/frame/...）はキャッシュしない
-  { route: '/p/:id/wall', path: /^\/p\/[^/]+\/wall$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
-  { route: '/c/:handle', path: /^\/c\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
+  { route: '/p/:id/wall', path: /^\/p\/[^/]+\/wall$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG, params: PAGE_PARAMS },
+  { route: '/c/:handle', path: /^\/c\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG, params: PAGE_PARAMS },
   // 一覧を含まないので札は要らない。文を変えるのはデプロイのときだけで、Worker の版が変わればキャッシュも変わる
-  { route: '/privacy', path: /^\/privacy$/, cacheControl: PAGE_CACHE_CONTROL },
-  { route: '/about', path: /^\/about$/, cacheControl: PAGE_CACHE_CONTROL },
-  { route: '/terms', path: /^\/terms$/, cacheControl: PAGE_CACHE_CONTROL },
+  { route: '/privacy', path: /^\/privacy$/, cacheControl: PAGE_CACHE_CONTROL, params: PAGE_PARAMS },
+  { route: '/about', path: /^\/about$/, cacheControl: PAGE_CACHE_CONTROL, params: PAGE_PARAMS },
+  { route: '/terms', path: /^\/terms$/, cacheControl: PAGE_CACHE_CONTROL, params: PAGE_PARAMS },
   // 英語のページ。道が違うので、日本語と混ざらない（SPEC.md 9）
-  { route: '/en', path: /^\/en$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
-  { route: '/en/p/:id', path: /^\/en\/p\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
-  { route: '/en/p/:id/code/:file', path: /^\/en\/p\/[^/]+\/code\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
-  { route: '/en/c/:handle', path: /^\/en\/c\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
-  { route: '/en/privacy', path: /^\/en\/privacy$/, cacheControl: PAGE_CACHE_CONTROL },
-  { route: '/en/about', path: /^\/en\/about$/, cacheControl: PAGE_CACHE_CONTROL },
-  { route: '/en/terms', path: /^\/en\/terms$/, cacheControl: PAGE_CACHE_CONTROL },
+  { route: '/en', path: /^\/en$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG, params: HOME_PARAMS },
+  { route: '/en/p/:id', path: /^\/en\/p\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG, params: PAGE_PARAMS },
+  { route: '/en/p/:id/code/:file', path: /^\/en\/p\/[^/]+\/code\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG, params: PAGE_PARAMS },
+  { route: '/en/c/:handle', path: /^\/en\/c\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG, params: PAGE_PARAMS },
+  { route: '/en/privacy', path: /^\/en\/privacy$/, cacheControl: PAGE_CACHE_CONTROL, params: PAGE_PARAMS },
+  { route: '/en/about', path: /^\/en\/about$/, cacheControl: PAGE_CACHE_CONTROL, params: PAGE_PARAMS },
+  { route: '/en/terms', path: /^\/en\/terms$/, cacheControl: PAGE_CACHE_CONTROL, params: PAGE_PARAMS },
+  // ホームからは呼ばない一覧の API（SPEC.md「8」）。中身はホームの一覧と同じで、人によって変わらない（LIMIT001）
+  { route: '/api/works', path: /^\/api\/works$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   // 作品の一覧と同じ札で、承認と取り下げのときに消える
   { route: '/sitemap.xml', path: /^\/sitemap\.xml$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   { route: '/w/:id/:version/thumb.webp', path: /^\/w\/([^/]+)\/[^/]+\/thumb\.webp$/, cacheControl: THUMB_CACHE_CONTROL, tag: (match) => workTag(match[1]) },
@@ -90,6 +103,27 @@ export function applyCachePolicy(response: Response, method: string, pathname: s
     return copy;
   }
   return copy;
+}
+
+/**
+ * キャッシュの道の GET と HEAD で、残さない URL の値（知らない値、2つ目の同じ名前）が付いていれば、それを外した道と値を返す（LIMIT001）。
+ * 外すものがなければ null。値の順は変えない（ふつうのリンクを送り直さないため）。D1 を読む前に送り直すので、値を変えた要求で D1 を読ませない。
+ */
+export function canonicalCacheUrl(method: string, url: URL): string | null {
+  if ((method !== 'GET' && method !== 'HEAD') || url.search === '') return null;
+  const rule = CACHE_RULES.find((one) => one.path.test(url.pathname));
+  if (!rule) return null;
+  const allowed = new Set(rule.params ?? []);
+  const kept = new URLSearchParams();
+  // 空の区切り（?&、&&、終わりの &）も、値を変えずにキーだけを増やせるので外す
+  let dropped = url.search.slice(1).split('&').some((part) => part === '');
+  for (const [name, value] of url.searchParams) {
+    if (allowed.has(name) && !kept.has(name)) kept.append(name, value);
+    else dropped = true;
+  }
+  if (!dropped) return null;
+  const search = kept.toString();
+  return search ? `${url.pathname}?${search}` : url.pathname;
 }
 
 export const CANONICAL_ORIGIN = 'https://ludion.ai';

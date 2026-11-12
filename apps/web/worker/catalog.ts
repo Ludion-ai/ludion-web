@@ -2,6 +2,7 @@
 
 import type { CreatorProfile, CreatorTotals } from '../src/data/pages';
 import type { Work } from '../src/data/works';
+import { APPROVED_SQL, PRIVATE_SQL, SELECT_WORKS } from './catalogSql';
 
 /** 一覧に出す上限（SPEC.md「8」）。 */
 const MAX_WORKS = 200;
@@ -44,24 +45,11 @@ interface WorkRow {
   site_url: string | null;
 }
 
-// ?1 はコピー数を数え始める日
-const SELECT_WORKS = `
-  SELECT w.id, w.title, w.type, w.platform, w.category, w.subtype, w.tags, w.version, w.license, w.pin_order,
-    w.thumb_key, w.thumb_w, w.thumb_h, w.published_at, w.is_remix,
-    COALESCE(n.views, 0) AS views, COALESCE(n.copies, 0) AS copies, COALESCE(n.copies_30d, 0) AS copies_30d, COALESCE(l.likes, 0) AS likes,
-    w.creator_id, c.handle, c.name, c.kind, c.avatar_url AS avatar_key, c.x_url, c.site_url
-  FROM works w
-  JOIN creators c ON c.id = w.creator_id
-  LEFT JOIN (
-    SELECT work_id, SUM(views) AS views, SUM(copies) AS copies, SUM(CASE WHEN day >= ?1 THEN copies ELSE 0 END) AS copies_30d
-    FROM counters GROUP BY work_id
-  ) n ON n.work_id = w.id
-  LEFT JOIN (SELECT work_id, COUNT(*) AS likes FROM likes GROUP BY work_id) l ON l.work_id = w.id`;
 
 // 並びは lib/popular.ts の comparePopular と同じ。上限で切るので SQL で並べる（テストが一致を確かめる）
-// ?2 は上限、?3 は作者で絞る（null なら全員）、?4 は作品で絞る（null なら全部）
+// ?2 は上限、?3 は作者で絞る（null なら全員）
 const LIST_SQL = `${SELECT_WORKS}
-  WHERE w.status = 'approved' AND (?3 IS NULL OR w.creator_id = ?3) AND (?4 IS NULL OR w.id = ?4)
+  WHERE w.status = 'approved' AND (?3 IS NULL OR w.creator_id = ?3)
   ORDER BY w.pin_order IS NULL, w.pin_order, copies_30d DESC, likes DESC, w.published_at DESC, w.id
   LIMIT ?2`;
 
@@ -127,11 +115,11 @@ function toProfile(row: Pick<WorkRow, 'handle' | 'name' | 'kind' | 'avatar_key' 
 /** カウンタの日は UTC の YYYY-MM-DD。 */
 export const utcDay = (time: number) => new Date(time).toISOString().slice(0, 10);
 
-async function queryWorks(db: D1Database, filter: { creatorId?: string; workId?: string; limit?: number }): Promise<WorkRow[]> {
+async function queryWorks(db: D1Database, filter: { creatorId?: string; limit?: number }): Promise<WorkRow[]> {
   const since = utcDay(Date.now() - COPY_WINDOW_DAYS * DAY_MS);
   const { results } = await db
     .prepare(LIST_SQL)
-    .bind(since, filter.limit ?? MAX_WORKS, filter.creatorId ?? null, filter.workId ?? null)
+    .bind(since, filter.limit ?? MAX_WORKS, filter.creatorId ?? null)
     .all<WorkRow>();
   return results;
 }
@@ -157,14 +145,11 @@ export async function listLikedWorks(db: D1Database, userId: string): Promise<Wo
 
 /** 承認済みの作品を1つ、作者と一緒に返す。なければ null（下書きと取り下げも null。CLAUDE.md 原則5）。 */
 export async function getApprovedWork(db: D1Database, id: string): Promise<{ work: Work; creator: CreatorProfile; creatorId: string; prefix: string } | null> {
-  const [row] = await queryWorks(db, { workId: id, limit: 1 });
+  const since = utcDay(Date.now() - COPY_WINDOW_DAYS * DAY_MS);
+  const row = await db.prepare(APPROVED_SQL).bind(since, id).first<WorkRow>();
   // 公開の版のファイルの置き場。サムネイルと同じ場所にある
   return row ? { work: toWork(row), creator: toProfile(row), creatorId: row.creator_id, prefix: row.thumb_key.replace(/\/thumb\.webp$/, '') } : null;
 }
-
-// 自分だけの作品を1つ。持ち主だけ（docs/tasks/T036.md「2」）。?2 は作品、?3 は本人
-const PRIVATE_SQL = `${SELECT_WORKS}
-  WHERE w.id = ?2 AND w.status = 'private' AND c.user_id = ?3`;
 
 /** 自分だけの作品を1つ、作者と一緒に返す。持ち主でなければ null（ない作品と同じ）。 */
 export async function getPrivateWork(db: D1Database, id: string, userId: string): Promise<{ work: Work; creator: CreatorProfile; creatorId: string } | null> {
