@@ -1327,9 +1327,13 @@ window.__stage = {
     return readableTexts(t);
   },
   async frame(frame, url) {
+    // 送った絵の写しは、すぐには片付かない（4K では1コマ 33MB）。30コマごとに片付けさせる（舞台は --js-flags=--expose-gc で起こす）
+    if (frame % 30 === 0 && typeof globalThis.gc === 'function') globalThis.gc();
     const px = renderFrameAt(frame / TL.fps);
     const sent = performance.now();
     const res = await fetch(url, { method: 'POST', body: px });
+    // 答えの本文を必ず読み切る（読まないと、送った絵の写しが残り、4K では1コマ 33MB ずつ増えて、舞台が落ちる）
+    await res.text();
     if (!res.ok) throw new Error(`絵を送れなかった: ${res.status}`);
     timings.post = performance.now() - sent;
     return timings;
@@ -1337,6 +1341,7 @@ window.__stage = {
   async still(t, url) {
     const px = renderFrameAt(t);
     const res = await fetch(url, { method: 'POST', body: px });
+    await res.text();
     if (!res.ok) throw new Error(`絵を送れなかった: ${res.status}`);
     return timings;
   },
@@ -1387,5 +1392,5 @@ for (;;) {
   } catch (e) {
     error = e && e.stack ? e.stack : String(e);
   }
-  await fetch(`/rpc/result/${job.id}`, { method: 'POST', body: JSON.stringify({ result, error }) });
+  await (await fetch(`/rpc/result/${job.id}`, { method: 'POST', body: JSON.stringify({ result, error }) })).text();
 }
