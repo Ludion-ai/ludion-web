@@ -5,6 +5,7 @@ import { NoscriptSiteInfo } from './components/NoscriptSiteInfo';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { AccountProvider } from './hooks/useAccount';
+import { OwnWorksProvider } from './hooks/useOwnWorks';
 import { usePageData } from './hooks/usePageData';
 import { trackLocationChange } from './lib/analytics';
 import { CreatorPage } from './pages/CreatorPage';
@@ -34,6 +35,7 @@ function Shell() {
 
   return (
     <AccountProvider>
+      <OwnWorksProvider>
       <Header />
       <div className="flex lg:min-h-[calc(100dvh-var(--spacing-header))]">
         <Sidebar />
@@ -43,6 +45,7 @@ function Shell() {
       </div>
       <NoscriptSiteInfo />
       <BottomTabs />
+      </OwnWorksProvider>
     </AccountProvider>
   );
 }

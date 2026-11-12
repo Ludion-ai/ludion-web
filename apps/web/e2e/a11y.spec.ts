@@ -119,11 +119,11 @@ async function focusedName(page: Page) {
 test.describe('キーボードだけで操作する', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('Tab の順：ロゴ→検索→ダークモード→メニュー→ログイン→サイドバー→チップ→並び→カード→保存。すべて枠が見える', async ({ page }) => {
+  test('Tab の順：ロゴ→検索→ダークモード→メニュー→ログイン→サイドバー（自分の作品まで）→チップ→並び→カード→保存。すべて枠が見える', async ({ page }) => {
     await openHome(page);
     const visited: string[] = [];
     // サイトの情報（利用規約など）は、サイドバーの下からヘッダーのメニューへ移った（T035「1」）
-    for (let i = 0; i < 22; i += 1) {
+    for (let i = 0; i < 23; i += 1) {
       await page.keyboard.press('Tab');
       await expectVisibleFocus(page, `Tab ${i + 1}回目`);
       visited.push((await focusedName(page))!);
@@ -137,6 +137,8 @@ test.describe('キーボードだけで操作する', () => {
       'ホーム',
       '探す',
       '保存',
+      // ログインしていない人の「自分の作品」（WS001）。押すとログインへ
+      '自分の作品',
       'すべて',
       'Web',
       'モバイル',

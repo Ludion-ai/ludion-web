@@ -48,6 +48,27 @@ export const copy = {
     saved: '保存',
     post: '作品を置く',
   },
+  /** 左のナビとスマホのシートの「自分の作品」（WS001） */
+  ownNav: {
+    heading: '自分の作品',
+    /** スマホの下のボタン */
+    tab: '作品',
+    newWork: '新しく',
+    newWorkLabel: '新しい作品を置く',
+    search: '題で探す',
+    all: 'すべての作品',
+    version: (version: string) => `版 ${version}`,
+    collapse: 'たたむ',
+    collapseLabel: '左のナビをたたむ',
+    expandLabel: '左のナビを広げる',
+    loggedOut: 'ログインすると、作った作品がここに並ぶ',
+    login: 'ログイン',
+    empty: 'AI につなぐと、作ったものがここに並ぶ',
+    connectAi: 'AI のつなぎ方',
+    noMatch: '合う作品はありません',
+    loadError: '自分の作品を読み込めませんでした',
+    close: '閉じる',
+  },
   /** サイトの情報への導線 */
   siteInfo: {
     label: 'サイトの情報',

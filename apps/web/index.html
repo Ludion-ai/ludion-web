@@ -24,6 +24,15 @@
       })();
     </script>
     <script>
+      // 最初の描画の前に、左のナビの幅を決める（WS001。src/lib/navOpen.ts）。前に開いた形だった端末だけ、開いた形で描く。
+      // ログインの答えを待たずに決めるので、中身の幅が後から動かない。違っていたら、答えが来たときに直す
+      (function () {
+        try {
+          if (localStorage.getItem('ld-nav-open') === '1') document.documentElement.setAttribute('data-nav', 'open');
+        } catch (e) {}
+      })();
+    </script>
+    <script>
       // 最初の描画の前に言語を決める（SPEC.md 9）。HTML はキャッシュされるので Worker では決められない。
       // 順番：切り替えで選んだ言語 → ブラウザの言語（ja があれば日本語）。/en を直接開いた人は、選んでいなければそのまま。
       (function () {
