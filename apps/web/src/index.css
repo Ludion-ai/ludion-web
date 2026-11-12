@@ -22,6 +22,10 @@
   --color-site-tab: rgb(38 38 44 / .78);
   --color-site-scrim: rgb(0 0 0 / .64);
   --color-site-remix: #1d4ed8;
+  --color-site-lang-js: #9a6700;
+  --color-site-lang-glsl: #2f6f9f;
+  --color-site-lang-css: #7c4dba;
+  --color-site-lang-html: #c9431e;
 
   --radius-*: initial;
   --radius-control: 12px;
@@ -88,6 +92,10 @@
   --color-site-tab: rgb(44 44 52 / .86);
   --color-site-scrim: rgb(0 0 0 / .64);
   --color-site-remix: #2a5ae6;
+  --color-site-lang-js: #e3c341;
+  --color-site-lang-glsl: #6fa8cc;
+  --color-site-lang-css: #b18ceb;
+  --color-site-lang-html: #f0764f;
 }
 
 /* index.html が最初の描画の前に付ける */

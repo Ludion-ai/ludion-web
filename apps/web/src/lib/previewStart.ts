@@ -7,7 +7,7 @@
  * 2. 枠の幅に合わせて iframe を縮める倍率を決める。
  * 3. 枠を、見えている細かさ（実際の DPR × 縮めた割合）を付けた URL で読み始める（PREVIEW-DPR。lib/frame.ts の startFrame）。
  */
-import { BOX_CLASS, FRAME_CLASS, frameScale, isPhone, previewScale, startFrame, type FrameSize } from './frame';
+import { BOX_CLASS, FRAME_CLASS, fitFrameTop, frameScale, isPhone, previewScale, startFrame, type FrameSize } from './frame';
 
 export function startPreview(): void {
   const phone = isPhone();
@@ -25,6 +25,8 @@ export function startPreview(): void {
     }
     frameBox.style.setProperty('--frame-scale', String(frameScale(frameBox.dataset.frameSize as FrameSize, frameBox.clientWidth)));
   }
+  // 狭い画面の枠の高さは、枠の上の端の位置から決める（作品の頭の高さが題で変わるため。WS003）。枠を読み始める前に入れる
+  for (const box of document.querySelectorAll<HTMLElement>('[data-frame-box]')) fitFrameTop(box);
   for (const frame of document.querySelectorAll<HTMLIFrameElement>('iframe[data-ld-frame][data-src]')) {
     // 部品の枠は縮めない（data-frame-size のない入れ物）。スマホの Mobile の枠も縮めない（previewScale）
     const box = frame.closest<HTMLElement>('[data-frame-size]');

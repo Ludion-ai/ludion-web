@@ -4,7 +4,7 @@ import type { Copy } from '../copy';
 import { useCopy } from '../hooks/useCopy';
 import type { Work } from '../data/works';
 import { useMediaQuery } from '../hooks/useMediaQuery';
-import { BOX_CLASS, FRAME_CLASS, frameScale, frameUrl, isPhone, PHONE_QUERY, previewScale, startFrame, type FrameSize } from '../lib/frame';
+import { BOX_CLASS, FRAME_CLASS, fitFrameTop, frameScale, frameUrl, isPhone, PHONE_QUERY, previewScale, startFrame, type FrameSize } from '../lib/frame';
 import { setShowMotion, useShowMotion } from '../lib/motionChoice';
 import { webglAvailable } from '../lib/webgl';
 import { chipClass } from './chip';
@@ -96,6 +96,17 @@ export function FramePreview({ work, background, frames = null }: { work: Work; 
     return () => observer.disconnect();
   }, [shown, isComponent, repairs]);
 
+  // 狭い画面の枠の高さは、枠の上の端の位置から決める（lib/frame.ts の fitFrameTop）。beforeApp が先に入れている。
+  // ここでは、入れ物を作り直した後と、画面の向きや幅が変わった後に入れ直す
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    if (!box) return;
+    const fit = () => fitFrameTop(box);
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [repairs]);
+
   // 載せた時に、Worker の HTML（と beforeApp が替えた後）の枠が、ここで描く形と違っていたら、入れ物ごと作り直す。
   // React は、載せるときに違っていた属性を直さないため（例：beforeApp と載せる間に画面の幅が変わった）
   useLayoutEffect(() => {
@@ -144,6 +155,7 @@ export function FramePreview({ work, background, frames = null }: { work: Work; 
       <div key={repairs} className="@container">
         <div
           ref={boxRef}
+          data-frame-box=""
           data-frame-size={isComponent ? undefined : shown}
           // スマホで beforeApp が読み始める Mobile の枠（Worker は Desktop で描く）
           data-phone-src={webScreen ? srcOf('mobile') : undefined}

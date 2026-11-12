@@ -11,6 +11,46 @@ export type CreatorTotals = { works: number; views: number; copies: number };
 /** 壁紙の静止画の1枚（WALL002）。url は同じサイトの道（/w/<id>/<version>/wall-<幅>x<高さ>.png） */
 export type WallStill = { width: number; height: number; url: string };
 
+/** 印を押したときに見せる所（WS003）：ファイル、行、その行の前後の文字（first 行目から） */
+export type AboutSpot = { file: string; line: number; first: number; lines: string[] };
+
+/** 「この作品について」の1つの技術。id、まとまり、名前は地図（packages/outline）のもの */
+export type AboutTech = {
+  id: string;
+  group: string;
+  label: string;
+  count: number;
+  /** キー操作と読み上げ：書いてあった値（役目の名前、状態の属性の名前、キーの名前） */
+  values?: string[];
+  /** 外から読む物：住所のホスト名 */
+  hosts?: string[];
+  spot: AboutSpot | null;
+};
+
+/**
+ * 「この作品について」（WS003）。版を置いたときに機械がコードを読んで作った地図（outline.json）から、画面に出す分だけ。
+ * コードに書いてある物だけで、見つからない物は入れない。
+ */
+export type WorkAbout = {
+  files: { name: string; bytes: number; lines: number }[];
+  /** 全部のファイルの UTF-8 のバイト数 */
+  bytes: number;
+  /** 言語の帯（大きい順） */
+  languages: { language: 'html' | 'css' | 'js' | 'glsl'; percent: number }[];
+  shaders: { count: number; bytes: number; glsl: string[]; spot: AboutSpot | null } | null;
+  /** 関数の数 */
+  functions: number;
+  tech: AboutTech[];
+  /** ld upload が ld check（アクセシビリティの検査 axe を含む）を通して置いた版か */
+  checked: boolean;
+};
+
+/** 版の一覧の1行（新しい順）。at は置いた時刻 */
+export type WorkVersion = { version: string; at: number };
+
+/** 系譜：この作品のリミックス（公開のものだけ）。count は全部の数 */
+export type WorkLineage = { remixes: { id: string; title: string; handle: string }[]; count: number };
+
 /**
  * Worker が HTML に埋め込むページのデータ（worker/pages.ts）。ブラウザで取り直さない。
  * 人によって変わる情報は入れない（SPEC.md 10）。
@@ -43,6 +83,12 @@ export type PageData =
       private: { frames: { desktop: string; mobile: string } } | null;
       /** 壁紙の静止画（WALL002）。ld upload が置いた公開の壁紙の作品にだけある（大きい順）。ほかは空 */
       stills: WallStill[];
+      /** 「この作品について」（WS003）。地図が作れなければ null（節を出さない） */
+      about: WorkAbout | null;
+      /** 版の一覧（新しい順。公開の作品は承認済みの版だけ） */
+      versions: WorkVersion[];
+      /** この作品のリミックス（公開のものだけ） */
+      lineage: WorkLineage;
     }
   | { kind: 'creator'; creator: CreatorProfile; totals: CreatorTotals; works: Work[] }
   /** ログインの画面。使える手段はサイトの設定で決まる（Google とパスキーは workers.dev で使えない） */

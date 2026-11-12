@@ -343,7 +343,8 @@ test.describe('プレビュー', () => {
   test('2列：左が約65%、右が約35%、間隔32px。1023px以下は1列で、プレビューが上', async ({ page }) => {
     await openWork(page, 'fx-button');
     const left = (await page.locator('iframe').boundingBox())!;
-    const right = (await page.getByRole('heading', { level: 1 }).boundingBox())!;
+    // 右の列は、タブの中身（「この作品について」から。WS003）
+    const right = (await page.locator('[data-work-about]').boundingBox())!;
     expect(right.x - (left.x + left.width)).toBeGreaterThanOrEqual(31);
     expect(right.x - (left.x + left.width)).toBeLessThanOrEqual(33);
     const total = 1440 - 68 - 48 - 32;
@@ -351,9 +352,13 @@ test.describe('プレビュー', () => {
 
     await page.setViewportSize({ width: 1023, height: 900 });
     const narrowFrame = (await page.locator('iframe').boundingBox())!;
+    const narrowAbout = (await page.locator('[data-work-about]').boundingBox())!;
+    expect(narrowAbout.y).toBeGreaterThan(narrowFrame.y + narrowFrame.height);
+    // 枠の線（1px）の外側と、箱の左の端がそろう
+    expect(Math.abs(narrowFrame.x - 1 - narrowAbout.x)).toBeLessThan(2);
+    // 頭（題名）は枠の上
     const narrowTitle = (await page.getByRole('heading', { level: 1 }).boundingBox())!;
-    expect(narrowTitle.y).toBeGreaterThan(narrowFrame.y + narrowFrame.height);
-    expect(Math.abs(narrowFrame.x - narrowTitle.x)).toBeLessThan(2);
+    expect(narrowTitle.y + narrowTitle.height).toBeLessThanOrEqual(narrowFrame.y);
   });
 
   test('部品：切り替えがなく、枠の中央に置かれ、地は作品の背景', async ({ page }) => {
@@ -516,7 +521,7 @@ test.describe('コピー', () => {
 
   test('コードの箱：コピー用の文字列を等幅で出す。高さは最大320pxでスクロールし、1行目のクレジット行が最初に見える', async ({ page }) => {
     await openWork(page, 'fx-landing');
-    const code = page.getByRole('region').or(page.locator('pre')).first();
+    const code = page.locator('pre:has([data-ld-code])');
     await expect(code).toHaveCSS('font-family', /mono|consolas|courier/i);
     const box = (await code.boundingBox())!;
     expect(box.height).toBeLessThanOrEqual(320);
@@ -574,7 +579,8 @@ test.describe('レーベルの表示（CLAUDE.md 原則10）', () => {
     await expect(label).toBeVisible();
     await expect(label).toHaveCSS('font-size', '13px');
     await expect(label).toHaveCSS('color', 'rgb(107, 107, 118)');
-    const name = (await page.getByRole('link', { name: work.creator.name }).first().boundingBox())!;
+    // 名前は数の行にある（頭の1行目は @handle。WS003）
+    const name = (await page.locator('[data-work-counts]').getByRole('link', { name: work.creator.name }).boundingBox())!;
     expect((await label.boundingBox())!.x).toBeGreaterThan(name.x + name.width - 1);
 
     await page.goto(`/c/${work.creator.handle}`);
@@ -678,9 +684,12 @@ test.describe('作品のページの情報', () => {
     await expect(title).toHaveText(work.title);
     await expect(title).toHaveCSS('font-size', '24px');
     await expect(title).toHaveCSS('font-weight', '700');
+    // 種類は、頭の札（WS003）
     const meta = page.getByText(`${copy.categories[work.category] ?? work.category} · ${copy.subtypes[work.subtype] ?? work.subtype}`, { exact: true }).first();
-    await expect(meta).toHaveCSS('font-size', '14px');
-    await expect(meta).toHaveCSS('color', 'rgb(107, 107, 118)');
+    await expect(meta).toHaveCSS('font-size', '12px');
+    await expect(meta).toHaveCSS('color', 'rgb(74, 74, 85)');
+    // 頭の1行目に @handle（作り手のページへ）
+    await expect(page.locator('[data-work-head]').getByRole('link', { name: '@seed_a', exact: true })).toHaveAttribute('href', '/c/seed_a');
 
     const author = page.getByRole('link', { name: work.creator.name }).first();
     await expect(author).toHaveAttribute('href', '/c/seed_a');
@@ -725,7 +734,7 @@ test.describe('作品のページの情報', () => {
     expect(same.length).toBeGreaterThan(4);
     expect(other.length).toBeGreaterThan(0);
 
-    const headings = page.locator('section > h2');
+    const headings = page.locator('section:has([data-masonry]) > h2');
     await expect(headings).toHaveText(['@fixture のほかの作品', 'ほかの作品']);
     const lists = page.locator('[data-masonry][data-placed]');
     await expect(lists).toHaveCount(2);
@@ -1103,13 +1112,19 @@ test.describe('共有', () => {
     expect(await other.evaluate(() => navigator.clipboard.readText())).toBe(SHARED_URL);
   });
 
-  test('幅390：共有のボタンは、いいねとしおりのすぐ下で、44pxの高さ', async ({ page }) => {
+  test('幅390：共有のボタンは、いいねとしおりと同じ行で、44pxの高さ。「リミックス」のすぐ下（WS003）', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openWork(page, 'fx-toggle');
     const like = (await page.getByRole('button', { name: /^いいね/ }).boundingBox())!;
+    const save = (await page.getByRole('button', { name: '保存', exact: true }).boundingBox())!;
     const share = (await page.getByRole('button', { name: '共有', exact: true }).boundingBox())!;
+    const remix = (await page.getByRole('button', { name: 'リミックス', exact: true }).boundingBox())!;
     expect(share.height).toBe(44);
-    expect(share.y).toBe(like.y + like.height + 12);
+    expect([save.y, share.y]).toEqual([like.y, like.y]);
+    expect(like.y).toBe(remix.y + remix.height + 12);
+    // 3つで幅を分ける（間隔12px）
+    expect(Math.abs(like.width - share.width)).toBeLessThan(1);
+    expect(share.x + share.width).toBeCloseTo(390 - 24, 0);
   });
 });
 
@@ -1241,7 +1256,8 @@ test.describe('英語のページ（SPEC 9）', () => {
     expect(response!.status()).toBe(200);
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.getByRole('button', { name: copyEn.work.copyCode })).toBeVisible();
-    await expect(page.getByText(`${work.category} · ${work.subtype}`, { exact: true })).toBeVisible();
+    // 種類の札（幅で置き場所が変わるので2つ描いてある。見えているのは1つ）
+    await expect(page.getByText(`${work.category} · ${work.subtype}`, { exact: true }).locator('visible=true')).toHaveCount(1);
     await expect(page).toHaveTitle(copyEn.work.pageTitle(work.title, work.creator.handle));
     const creatorLink = page.locator(`main a[href="/en/c/${work.creator.handle}"]`).first();
     await creatorLink.click();

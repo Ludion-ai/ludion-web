@@ -268,15 +268,20 @@ test.describe('置き場所', () => {
     expect((await openButton(page).boundingBox())!.y).toBe(box.y - 300);
   });
 
-  test('幅1440：「コードをコピー」のすぐ上にある', async ({ page }) => {
+  test('幅1440：頭の右のボタンの列にある（保存と共有の間。WS003）', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openWork(page, 'fx-toggle');
     const box = (await openButton(page).boundingBox())!;
-    const copyCode = (await page.getByRole('button', { name: copy.work.copyCode, exact: true }).boundingBox())!;
-    expect(box.height).toBe(44);
-    expect(copyCode.y).toBe(box.y + box.height + 12);
-    expect(box.width).toBe(copyCode.width);
-    expect(box.y + box.height).toBeLessThanOrEqual(900);
+    const save = (await page.getByRole('button', { name: copy.work.save, exact: true }).boundingBox())!;
+    const share = (await page.getByRole('button', { name: copy.work.share, exact: true }).boundingBox())!;
+    const title = (await page.getByRole('heading', { level: 1 }).boundingBox())!;
+    expect(box.height).toBe(36);
+    expect([save.y, share.y]).toEqual([box.y, box.y]);
+    expect(box.x).toBeCloseTo(save.x + save.width + 8, 0);
+    expect(share.x).toBeCloseTo(box.x + box.width + 8, 0);
+    // 題名と同じ行（最初の画面の上の方）
+    expect(box.y).toBeLessThan(title.y + title.height);
+    expect(box.y + box.height).toBeGreaterThan(title.y);
   });
 
   for (const width of [320, 390, 767]) {

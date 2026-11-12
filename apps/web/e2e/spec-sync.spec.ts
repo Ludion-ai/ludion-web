@@ -187,6 +187,9 @@ const LATIN_ALLOWED = [
   'html',
   'ld_session',
   'LUDION_KEY',
+  // 作品のページ「キー操作と読み上げ」（WS003）。検査の道具の名前
+  'ld check',
+  'axe',
   // AI につなぐ（MCP001「3」）。認証のしくみの名前（ChatGPT の画面の語）
   'OAuth',
   'Lattice_Node',

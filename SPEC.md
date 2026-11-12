@@ -49,6 +49,10 @@
 | `site-tab` | `rgb(38 38 44 / .78)` | `rgb(44 44 52 / .86)` | 上の白い文字 7.3 / 12.5 | 下のタブのボタンの地（少し透ける濃い地）。ダークでは文字に `site-fg` を使う |
 | `site-scrim` | `rgb(0 0 0 / .64)` | `rgb(0 0 0 / .64)` | — | カードの hover で、絵の下の方を暗くする。ダークでは文字に `site-fg` を使う |
 | `site-remix` | `#1D4ED8` | `#2A5AE6` | 上の文字 6.7 / 4.9 | リミックスの帯の地。文字はライトでは白（`site-bg`）、ダークでは `site-fg`。色味は同じで、ダークでは少し明るい |
+| `site-lang-js` | `#9A6700` | `#E3C341` | 地の上 4.9 / 11.1（図形なので 3:1 以上） | 作品のページの言語の帯の JavaScript（WS003） |
+| `site-lang-glsl` | `#2F6F9F` | `#6FA8CC` | 地の上 5.4 / 7.4 | 言語の帯の GLSL |
+| `site-lang-css` | `#7C4DBA` | `#B18CEB` | 地の上 5.8 / 7.1 | 言語の帯の CSS |
+| `site-lang-html` | `#C9431E` | `#F0764F` | 地の上 4.9 / 6.8 | 言語の帯の HTML |
 
 ### 角丸
 
@@ -415,10 +419,51 @@ Worker で描く。ヘッダー、サイドバー、下のタブはホームと�
 ### 骨組み
 
 - 上の余白：幅768px以上はヘッダーの下から40px、767px以下は8px。左右の余白は24px（ホームと同じ）。
-- 本体は、幅1024px以上で2列（左 65fr、右 35fr）、間隔32px。1023px以下は1列で、プレビューが上、間隔32px。
+- リポジトリの形（WS003。11/12）。上から、頭 → タブ → 本体。
+- 本体は、幅1024px以上で2列（左 65fr に動く作品、右 35fr にタブの中身）、間隔32px。タブは2列の上に、幅いっぱい。
+- 1023px以下は1列で、頭 → 動く作品 → ボタン → 数の行 → タブ → タブの中身。動く作品を最初の画面に入れるため、数の行とタブは枠の下に置く（HTML の順は変えず、CSS の `order` で並べる）。
+- 動く作品は、どのタブでも出したまま。タブを替えても枠を作り直さない（タブの中身は、選んでいない物を `hidden` で隠すだけ）。
+
+### 頭
+
+- 1行目：アバター32pxの円（767px以下は出さない）、`@handle`（`/c/:handle` へのリンク。`text-subhead`、`site-fg-3`。767px以下は `text-body`）、「/」（767px以下は出さない）、題名（`h1`。`text-title`、太さ700）、札を3つ。767px以下は、`@handle` と札が1行目、題名が次の行。
+  - 札：高さ24px、枠1px `site-line-2`、角丸 `radius-chip`、左右8px、`text-small`、`site-fg-3`。状態（lucide の印12px＋「公開」`globe`／「自分だけ」`lock`／ほかは `clock`。文字は「自分の作品」の状態の札と同じ）、「版 N」（今の版）、種類（「Web · Landing Page」の形）。
+  - 状態は、Worker の HTML では「公開」か「自分だけ」。持ち主には、読み込みの後に自分の作品の一覧（`GET /api/post/works`。左のナビと同じ答え）から、審査待ちなどの今の状態に替える。
+- 右（幅1024px以上）：ボタンを横に並べる。高さ36px、角丸 `radius-control`、左右14px、`text-small`／太さ600、アイコン18px、間隔8px。いいね（lucide `heart`＋数。`aria-label="Like, {n} likes"`）、保存（`bookmark`）、リミックス（`git-fork`）、壁紙にする（壁紙の作品だけ。`monitor`）、共有（`share-2`）。白、枠 `site-line-2`、hover は `site-hover`。いいねと保存は `aria-pressed` を付け、押した状態はアイコンを塗る。
+  - 持ち主には、左の端に「新しい版を置く」（`/new?work=<id>` へのリンク。地 `site-primary`、lucide `upload` 16px）。後から出ても、ほかのボタンが動かないよう、左に足す。
+  - 自分だけの作品では、いいね、保存、リミックス、共有を出さない（「新しい版を置く」だけ）。
+- 数の行：`text-small`、`site-fg-3`、間隔12px。作者の名前（`site-fg`）、レーベルの表示（作者の `kind` が `label` なら「· Ludion Studio label」。`text-meta`、`site-fg-2`）、X のリンク、lucide `eye` 16px＋閲覧数、`copy` 16px＋コピー数、`heart` 16px＋いいねの数（自分だけの作品では出さない）。書き方は「数の書き方」。幅1024px以上は頭のすぐ下（上に8px）、1023px以下は枠とボタンの下（上に16px）。
+  - X のリンク：X のロゴ14px＋間隔4px＋lucide `arrow-up-right` 14px を、高さ32px、枠 `site-line-2`、角丸 `radius-chip`、左右の余白10px の枠に入れる（文字 `site-fg`、hover は `site-hover`。別のタブで開く。`aria-label` と `title` は「X を新しいタブで開く」）。`http(s)` の URL だけをリンクにする。
+- リミックスの元の帯と、自分だけの作品の知らせ（「自分だけの作品です。…」と「自分の作品へ」）は、数の行の下、タブの上（1023px以下は枠の上）。
+- 作り方は出さない（CLAUDE.md 原則9）。`made_with` はデータとして持つが、公開の HTML と API にも入れない。
+
+### タブ
+
+- 「コード｜版 N｜系譜 N｜設定」。`role="tablist"`（名前は「作品の中身」）と `role="tab"`、中身は `role="tabpanel"`。高さ44px、左右14px、`text-body`／太さ600、lucide の印16px（`code-2`、`history`、`git-fork`、`sliders-horizontal`。767px以下は印を出さず、幅を等しく分ける）。選んだタブは下に2pxの線（`site-fg`）、ほかは `site-fg-2`。タブの列の下に1pxの線 `site-line`。
+- 数は、版の数と、リミックスの数（`site-key` の地の小さな丸。0 なら出さない）。公開の作品では、承認済みの版と、承認済みのリミックスだけを数える。
+- 初めに開くのは、だれでも「コード」。URL からは選ばない。矢印の左右で隣のタブ、Home と End で端へ移り、選んだタブだけが Tab の順に入る。
+- 「設定」は持ち主だけ。公開の作品では、読み込みの後に足す（Worker の HTML には入れない。人によって HTML を変えないため）。
+- コード：上から「この作品について」、「Copy code」、ライセンスの行、問題を報告、コードの箱。
+- 版：版の一覧（新しい順）。「版 N」、置いた日（UTC の `YYYY-MM-DD`）、今の版に「今の版」の札。版の違いは WS004。
+- 系譜：元の作品（リミックスのとき。公開されていなければ「元の作品は見られません」）と、この作品のリミックスの一覧（公開のものだけ。新しい順に50件まで。題と `@handle`、作品のページへのリンク）。なければ「まだリミックスはありません」。
+- 設定：「自分の作品へ」（公開の申請、自分だけにする、取り下げは「自分の作品」でする）、「新しい版を置く」、自分だけの作品には「画像を付ける」（DOC002）。
+
+### この作品について
+
+版を置いたときに、機械がコードを読んで作った地図（`outline.json`。`packages/outline`、WS002）から出す。コードに書いてある物だけで、見つからない物は出さない。推測で埋めない。
+
+- 箱：枠1px `site-line`、角丸 `radius-card`、余白20px（767px以下は16px）。見出し「この作品について」（`text-body`／太さ600）と、1行の説明（`text-small`、`site-fg-2`。767px以下は出さない）。
+- 行（名前は `text-small`、`site-fg-2`、幅92px）：描き方（WebGL2、WebGL、WebGPU、Canvas 2D、SVG、DOM + CSS）、シェーダー（「16 本」と GLSL の版）、音（Web Audio。合成だけなら「合成（録音なし）」）、操作（ポインター、キー、ホイール、端末の傾き）、気づかい（動きを減らす設定に従う、見えないと止まる。lucide `check` 14px）、外から読む物（なければ「なし」）、大きさ（全部のバイト数、ファイルの数、行の数。1 KB は 1000 B）。
+- キー操作と読み上げ：役目（`role` の値）、状態（`aria-checked`、`aria-selected`、`aria-valuetext` など）、名前（`aria-label`、`aria-labelledby`、`<label>`）、キー（`keydown` で見ているキー：矢印、Home、End、Space、Enter など）、フォーカスの枠（`:focus-visible`）、知らせ（`aria-live`）。値は等幅で、コードに書いてあるとおりに出す。なければ「コードからは見つかりませんでした」。
+  - `ld upload` が置いた版（管理 API の置き場 `works/<id>/<version>`）には、「ld check のアクセシビリティ（axe）を通った」を出す。`ld upload` は `ld check` が通らない作品を送らない。検査の結果そのものは持っていない。
+- 印：高さ28px（767px以下は32px）、角丸 `radius-chip`、左右10px、`text-small`／太さ600、地 `site-key`、hover は `site-hover`。行のある印はボタンで、押すと、その行（最初に見つけた所）を箱の中の下に出す（`aria-expanded`、`aria-controls`。選んだ印は地 `site-primary`）。もう一度押すか「閉じる」で閉じる。行のない物（「なし」、大きさ）は、ただの文字。
+  - 出す行：「part.js の 204 行目」と、見つけた数（2つ以上なら「全部で N か所」）。その行と前後2行を、本当のファイルの行の番号（コピーされるコードの行ではない）と一緒に、等幅で出す。その行は地 `site-key`。1行は160文字まで。ファイルの全部の本文と、行の住所は、ファイルの木と一緒に作る（WS003 の2つ目）。
+  - 767px以下：印を1行に横へ流す（行の名前は読み上げだけ。折り返さず、その行の中で横に送る）。
+- 言語の帯：高さ8px、角丸 `radius-chip`、間2px。色は「2」の `site-lang-*`（JavaScript、GLSL、CSS、HTML。シェーダーの文字列は GLSL、文書の中の `<style>` は CSS、`<script>` は JavaScript として数える）。下に、色の丸8pxと「JavaScript 87.8%」の形の一覧（`text-small`、`site-fg-3`）。
 
 ### プレビュー（左）
 
+- ボタン（幅1023px以下）：枠のすぐ下、上に12px。1行目に「リミックス」（壁紙の作品は「壁紙にする」と幅を分ける）、その下12pxに、いいね、しおり、共有を同じ幅で3つ。どれも高さ44px、白、枠 `site-line-2`、角丸 `radius-control`、`text-body`／太さ600。自分だけの作品では、代わりに「新しい版を置く」（地 `site-primary`）。
 - 「リミックス」（幅1023px以下）：枠のすぐ下、上に12px、幅いっぱい、いいねとしおりと同じ形。ふつうの流れに置き、浮かせない（浮いているのは下のタブだけ）。スマホでも最初の画面に入れるため、右の列ではなくここに置く（右の「コードをコピー」は最初の画面の外になる）。部品と Web の画面は、幅390×844と390×664で最初の画面に入る。枠が画面より長いスマホの画面は入らないが、作品を小さくして入れることはしない。このときボタンは、送る途中で下のタブの後ろを通る。ページと一緒に流れて留まらなければよい。
 - 枠：角丸 `radius-card`、枠1px `site-line`、はみ出しを隠す。地は作品の背景（Worker が `part.css` の根の `--_bg` の作者の値を読む。色として読めない形なら地を付けない）。
 - 中身は `<iframe sandbox="allow-scripts allow-forms" src="/frame/<id>/<version>/<desktop|mobile>.html" title="Preview of {title}">`。`allow-same-origin` は付けない（CLAUDE.md「描画」）。枠から親へ来るのは「読み込めた」の知らせ（`postMessage`）だけで、枠が自分で移ったときに親が読み直すために使う。作品の JS を2つ動かさないよう、選んだ幅の iframe だけを作る。
@@ -427,7 +472,7 @@ Worker で描く。ヘッダー、サイドバー、下のタブはホームと�
   - Desktop：1280×800 で描き、枠の幅に合わせて倍率を変える（枠が広ければ広げる）。枠の縦横比は 1280:800。
   - Mobile：390×844 で描き、枠の左右の中央に上から置く。縮めるだけで、広げない。枠の高さは `min(844px, 枠の幅 × 844 / 390)`。
 - スマホの画面（`platform` が `mobile`）：切り替えを出さない。上の Mobile の形だけ。
-- スマホで見るとき（`pointer: coarse` で、画面の幅が767px以下）：Web の画面も切り替えを出さず、Mobile の枠だけを見せる。枠は 390×844 を縮めずに、その大きさのまま描く（CSS の scale を使わない）。枠の幅は本文の幅。高さは「見えている画面の高さ（`100svh`）− ヘッダー64px − 上の余白8px − 下に残す72px」で、縦÷横が 1.3 から 1.8 の間に収める。開いたとき、枠の下の端が画面に収まり、すぐ下のボタン（「リミックス」「壁紙にする」）が見える。Worker は端末を知らないので Desktop の枠で描き、HTML の直後のスクリプトが、React が載る前に Mobile の枠に替える。PC と、幅が広い端末は、上の形のまま。
+- スマホで見るとき（`pointer: coarse` で、画面の幅が767px以下）：Web の画面も切り替えを出さず、Mobile の枠だけを見せる。枠は 390×844 を縮めずに、その大きさのまま描く（CSS の scale を使わない）。枠の幅は本文の幅。高さは「見えている画面の高さ（`100svh`）− 枠の上の端までの高さ − 下に残す72px」で、枠の上の端までの高さは、ヘッダー64px、上の余白8px、作品の頭（`@handle` と題名。題名の長さで変わる）の合計。HTML の直後のスクリプトが、枠を読み始める前に測って入れる（`--frame-top`。測る前の値は72px）。縦÷横が 1.3 から 1.8 の間に収める。開いたとき、枠の下の端が画面に収まり、すぐ下のボタン（「リミックス」「壁紙にする」）が見える。Worker は端末を知らないので Desktop の枠で描き、HTML の直後のスクリプトが、React が載る前に Mobile の枠に替える。PC と、幅が広い端末は、上の形のまま。
 - 作品の音：iPhone の消音モードでも鳴るよう、親のページが `navigator.audioSession.type = 'playback'` と宣言する（Safari だけにある。HTML の直後のスクリプトで、どのページでも）。作品の枠の中からは宣言できないため。鳴り始めるのは、今までどおり、見る人が作品を触ってから。鳴っている間は、ほかのアプリの音楽が止まる。
 - `motion` の作品：枠の右下（右と下から12px）に「Replay」。高さ38px、角丸999px、白、枠 `site-line-2`、影 `shadow-card`、左右16px、lucide `rotate-ccw` 18px（`site-fg-3`）＋間隔9px＋文字12px／太さ600。押すと iframe を作り直す。
 - 知らせ（枠の上、切り替えがあればその下。間12px、地 `site-field`、角丸 `radius-control`、余白 上下10px 左右12px、`text-small`、`site-fg-2`）。全部の作品のページで同じ。
@@ -446,21 +491,11 @@ Worker で描く。ヘッダー、サイドバー、下のタブはホームと�
 - `iframe` のとき：作品と版が承認済みのときだけ返す（前の版も、その版を取り下げるまでは返す）。なければ 404。`Cache-Control: private, no-store`、`X-Content-Type-Options: nosniff`、`Vary: Sec-Fetch-Dest`。
 - 応答の頭の CSP：`sandbox allow-scripts allow-forms; form-action 'none'; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src data: blob:; frame-ancestors 'self'`。自分のサイトの中でしか枠に入れられない。
 
-### 情報（右）
+### コードのタブ（右）
 
-上から順に：
+「この作品について」の下に、上から順に：
 
-- 題名：`text-title`、太さ700。
-- 2行目：「Web · Landing Page」の形。上に4px、`text-body`、`site-fg-2`。
-- 作者：上に20px。アバター32pxの円、間隔10px、名前（`/c/:handle` へのリンク。`text-body`／太さ600）。
-  - 作者の `kind` が `label` なら、名前の後ろに「· Ludion Studio label」（`text-meta`、`site-fg-2`）。
-  - X の URL があれば、リンク。X のロゴ14px＋間隔4px＋lucide `arrow-up-right` 14px を、高さ32px、枠 `site-line-2`、角丸 `radius-chip`、左右の余白10px の枠に入れる（文字 `site-fg`、hover は `site-hover`。別のタブで開く。`aria-label` と `title` は「X を新しいタブで開く」）。`http(s)` の URL だけをリンクにする。
-- 作り方は出さない（CLAUDE.md 原則9）。`made_with` はデータとして持つが、公開の HTML と API にも入れない。
-- 数：上に16px。lucide `eye` 16px＋間隔4px＋閲覧数、間隔18px、lucide `copy` 16px＋間隔4px＋コピー数（`text-small`、`site-fg-3`。書き方は「数の書き方」）。
-- いいねとしおり：上に16px、横に2つ、同じ幅、間隔12px。高さ44px、白、枠 `site-line-2`、角丸 `radius-control`、`text-body`／太さ600、hover は `site-hover`。アイコン18px（線の太さ1.75）＋間隔8px。いいねは lucide `heart`＋数（`aria-label="Like, {n} likes"`）、しおりは lucide `bookmark`＋「Save」または「Saved」。どちらも `aria-pressed` を付け、押した状態はアイコンを塗る。
-- 共有：上に12px、幅いっぱい、いいねとしおりと同じ形。lucide `share-2` 18px＋「共有」。
-- 「リミックス」（幅1024px以上）：上に12px、幅いっぱい、いいねとしおりと同じ形。lucide `git-fork` 18px＋文字。
-- 「Copy code」：上に12px、幅いっぱい、高さ44px、地 `site-primary`、文字白、`text-body`／太さ600、角丸 `radius-control`。
+- 「Copy code」：上に16px、幅いっぱい、高さ44px、地 `site-primary`、文字白、`text-body`／太さ600、角丸 `radius-control`。
 - ライセンスの行：上に8px、「MIT · The author's name stays in the first line of the code.」（`text-meta`、`site-fg-2`）。
 - コードの箱：上に16px。コピー用の文字列（CLAUDE.md「コピーされるコード」）。最大の高さ320pxでスクロール、余白12px、角丸 `radius-control`、枠1px `site-line`、地 `site-field`、等幅の書体（Tailwind の `font-mono`）、`text-small`、`site-fg`、折り返す。キーボードでフォーカスでき、`aria-label="Code of {title}"`。開いたときは1行目のクレジット行が見える。
   - 幅767px以下では、はじめはたたむ：1行目のクレジット行を含む3行（高さ74px）だけを見せる。箱の下、上に8px、幅いっぱい、いいねとしおりと同じ形のボタン「コードを全部見る」（`aria-expanded`、`aria-controls`）で開くと、最大の高さ320pxの箱になり、ボタンは「コードをたたむ」になる。幅768px以上では、たたまず、ボタンも出さない。「コードをコピー」は、たたんだままでも全部をコピーする。

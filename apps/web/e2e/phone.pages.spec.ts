@@ -6,7 +6,7 @@ import { framedAt } from './helpers';
 const WALLPAPER = 'fx-wallpaper';
 const MOBILE_FRAME = `/frame/${WALLPAPER}/1/mobile.html`;
 
-/** ヘッダー64px、main の上の余白8px、枠の下に残す72px（src/lib/frame.ts の BOX_CLASS.mobile） */
+/** ヘッダー64px、main の上の余白8px、枠の下に残す72px（src/lib/frame.ts の BOX_CLASS.mobile）。枠の上には、作品の頭もある（WS003） */
 const HEADER = 64;
 const TOP_GAP = 8;
 const BELOW = 72;
@@ -59,6 +59,7 @@ const layout = (page: Page) =>
     const mainStyle = getComputedStyle(main);
     const buttons = [...document.querySelectorAll('button[aria-haspopup="dialog"]')].filter((el) => el.getBoundingClientRect().height > 0);
     return {
+      head: rect(document.querySelector('[data-work-head]')!),
       box: rect(box),
       frame: rect(frame),
       frameClient: [frame.clientWidth, frame.clientHeight],
@@ -102,14 +103,18 @@ for (const phone of PHONES) {
       expect(Math.abs(now.frame.width - now.frameClient[0])).toBeLessThan(1);
       expect(Math.abs(now.frame.height - now.frameClient[1])).toBeLessThan(1);
 
-      // 高さは「見えている画面の高さ − ヘッダー − 余白」。3. 縦÷横は 1.3 から 1.8
-      const wanted = Math.min(Math.max(height - HEADER - TOP_GAP - BELOW, now.box.width * 1.3), now.box.width * 1.8);
+      // 高さは「見えている画面の高さ − 枠の上の端まで（ヘッダー、余白、作品の頭）− 下に残す分」。3. 縦÷横は 1.3 から 1.8
+      const wanted = Math.min(Math.max(height - Math.round(now.box.top) - BELOW, now.box.width * 1.3), now.box.width * 1.8);
       expect(Math.abs(now.box.height - wanted)).toBeLessThan(1);
       expect(now.box.height / now.box.width).toBeGreaterThanOrEqual(1.3 - 0.01);
       expect(now.box.height / now.box.width).toBeLessThanOrEqual(1.8 + 0.01);
 
       // 枠の下の端が画面の中に収まり、「リミックス」「壁紙にする」が見える（枠のすぐ下。画面の中に20px以上）
-      expect(now.box.top).toBeCloseTo(HEADER + TOP_GAP, 0);
+      // 枠の上は、ヘッダー、余白、作品の頭（@作者と札の行、題名の行）。頭は 100px より低い
+      expect(now.box.top).toBeGreaterThan(HEADER + TOP_GAP);
+      expect(now.box.top).toBeLessThan(HEADER + TOP_GAP + 100);
+      expect(now.head.top).toBeCloseTo(HEADER + TOP_GAP, 0);
+      expect(now.head.bottom).toBeLessThanOrEqual(now.box.top);
       expect(now.box.bottom).toBeLessThanOrEqual(height - BELOW + 0.5);
       expect(now.buttons.length).toBe(2);
       for (const button of now.buttons) {
@@ -152,6 +157,8 @@ for (const phone of PHONES) {
       expect(now.box.height / now.box.width).toBeGreaterThanOrEqual(1.3 - 0.01);
       expect(now.box.height / now.box.width).toBeLessThanOrEqual(1.8 + 0.01);
       expect(now.box.bottom).toBeLessThanOrEqual(now.viewport[1] - BELOW + 0.5);
+      // 頭は2行（@作者と札、題名）に収まる
+      expect(now.head.bottom - now.head.top).toBeLessThan(80);
       expect(now.overflow).toBe(0);
     });
   });

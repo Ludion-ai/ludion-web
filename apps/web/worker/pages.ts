@@ -16,6 +16,8 @@ import type { Env } from './env';
 import { canPost, draftFrameUrls, loadRevisionFiles, ownedWork, privateCurrentRevision, revisionFile } from './revisions';
 import { getSessionUser } from './session';
 import { renderDocument } from './ssr';
+import { loadOutline } from './outline';
+import { buildAbout, isCheckedPrefix, loadHistory } from './workAbout';
 
 type PageContext = Context<{ Bindings: Env }>;
 
@@ -125,6 +127,11 @@ export async function renderWorkPage(c: PageContext): Promise<Response> {
   }
 
   const { work, creator, files, snippet, source } = loaded;
+  // 「この作品について」は地図から（WS003）。地図は版ごとに置き場にあり、なければここで作って置く（worker/outline.ts）
+  const [outline, history] = await Promise.all([
+    loadOutline(c.env.PARTS, loaded.prefix, async () => files),
+    loadHistory(db, work.id, loaded.private !== null),
+  ]);
   // 作品のページから行き止まりをなくす（docs/tasks/T018.md「1」）。同じ作者が先で、それぞれ Popular の順
   const rest = (await listApprovedWorks(db)).filter((other) => other.id !== work.id);
 
@@ -140,6 +147,9 @@ export async function renderWorkPage(c: PageContext): Promise<Response> {
       source,
       private: loaded.private && { frames: draftFrameUrls(loaded.private.revisionId) },
       stills: loaded.private ? [] : await wallStills(c.env.PARTS, work, loaded.prefix),
+      about: outline && buildAbout(outline, files, isCheckedPrefix(loaded.prefix)),
+      versions: history.versions,
+      lineage: history.lineage,
     },
     // 自分だけの作品には共有の画像と canonical を付けない（公開の道からは見えない）
     head: loaded.private
