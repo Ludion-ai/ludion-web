@@ -1,10 +1,13 @@
 import { Folder } from 'lucide-react';
-import { useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router';
 import { useAccount } from '../hooks/useAccount';
 import { useCopy } from '../hooks/useCopy';
 import { activeNav, navItems } from './navItems';
-import { OwnWorksSheet } from './OwnWorksSheet';
+import { loadOwnWorksSheet } from './ownWorksChunks';
+
+// シートはログインしている人にしか要らないので、ホームの最初の JS に入れない（ログインの答えの後に読み始める）
+const OwnWorksSheet = lazy(loadOwnWorksSheet);
 
 const TAB = 'pointer-events-auto flex size-12 items-center justify-center rounded-tab bg-site-tab backdrop-blur-md';
 const tone = (current: boolean) => (current ? 'text-site-bg dark:text-site-fg' : 'text-site-bg/65 dark:text-site-fg/65');
@@ -23,6 +26,9 @@ export function BottomTabs() {
   const [sheetAnchor, setSheetAnchor] = useState<HTMLElement | null>(null);
   const items = navItems(copy);
   const onWorks = pathname === '/account/works';
+  useEffect(() => {
+    if (user && window.matchMedia('(max-width: 1023px)').matches) void loadOwnWorksSheet();
+  }, [user]);
 
   const tab = ({ id, label, to, icon: Icon }: (typeof items)[number]) => (
     <Link key={id} to={to} aria-label={label} aria-current={active === id ? 'page' : undefined} className={`${TAB} ${tone(active === id)}`}>
@@ -46,7 +52,11 @@ export function BottomTabs() {
         </button>
       )}
       {items.slice(2).map(tab)}
-      {sheetAnchor && <OwnWorksSheet anchor={sheetAnchor} onClose={() => setSheetAnchor(null)} />}
+      {sheetAnchor && (
+        <Suspense fallback={null}>
+          <OwnWorksSheet anchor={sheetAnchor} onClose={() => setSheetAnchor(null)} />
+        </Suspense>
+      )}
     </nav>
   );
 }
