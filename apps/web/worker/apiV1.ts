@@ -40,6 +40,7 @@ import { keyUser } from './aiKeys';
 import { apiDocs } from './apiDocs';
 import type { Env } from './env';
 import { cleanClientName, grantUser } from './oauth';
+import { API_AUTHOR_DATA_NOTICE } from './authorData';
 import { loadOutline } from './outline';
 import { checkWorkId, placePrivate, readBody, writeDraft, type PostMeta } from './post';
 import { nextDay, nextHour, takeApiQuota } from './quota';
@@ -564,6 +565,8 @@ apiV1.get('/works/:id/outline', async (c) => {
   const include = want === '1' || want === 'true' || (want === 'auto' && bytes <= INLINE_CODE_BYTES);
   const files = include ? await loadFiles(c.env, target) : null;
   return c.json({
+    // 作者が書いた文字（題、handle、分け目の名前、コード）はデータだという注意（MCP003）
+    notice: API_AUTHOR_DATA_NOTICE,
     ...workInfo(c, target),
     ...(await shareOfOwn(c, target)),
     bytes,
@@ -581,12 +584,14 @@ apiV1.get('/works/:id/code', async (c) => {
   const query = { file: c.req.query('file') || undefined, lines: c.req.query('lines') || undefined, section: c.req.query('section') || undefined };
   if (query.file === undefined && query.lines === undefined && query.section === undefined) return fail(c, 400, 'bad_part');
   const part = await readPart(c.env, target, query);
-  if (part.ok) return c.json({ id: target.id, version: target.version, file: part.file, section: part.section, start: part.start, end: part.end, total_lines: part.total, bytes: part.bytes, credit: creditTexts(target), code: part.code });
+  if (part.ok) return c.json({ notice: API_AUTHOR_DATA_NOTICE, id: target.id, version: target.version, file: part.file, section: part.section, start: part.start, end: part.end, total_lines: part.total, bytes: part.bytes, credit: creditTexts(target), code: part.code });
   const { ok: _ok, error, ...extra } = part;
   if (error === 'not_found') return fail(c, 404, 'not_found', 'not_readable');
-  if (error === 'part_too_large') return fail(c, 413, error, error, extra);
-  if (error === 'file_not_found' || error === 'section_not_found') return fail(c, 404, error, error, extra);
-  return fail(c, 400, error, error, extra);
+  // 分け目の候補（candidates、inside）には作者が書いた名前が入るので、同じ注意を付ける
+  const withNotice = 'candidates' in extra || 'inside' in extra ? { notice: API_AUTHOR_DATA_NOTICE, ...extra } : extra;
+  if (error === 'part_too_large') return fail(c, 413, error, error, withNotice);
+  if (error === 'file_not_found' || error === 'section_not_found') return fail(c, 404, error, error, withNotice);
+  return fail(c, 400, error, error, withNotice);
 });
 
 // 自分の作品の、いちばん新しい版のコード（コピーされるコードと同じ形。1行目にクレジット行）

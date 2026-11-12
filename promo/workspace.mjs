@@ -260,7 +260,7 @@ async function openStage(width, height, samples) {
   // Windows のサンドボックスはこの起動のしかたでは権限で落ちるので外す。この舞台で動くのは promo/workspace/ のコードだけで、作品の JS は動かさない
   const child = spawn(
     headlessShellPath(),
-    ['--headless', '--no-sandbox', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--disable-lcd-text', '--use-angle=d3d11', '--ignore-gpu-blocklist', '--enable-gpu', '--disable-gpu-watchdog', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--disable-background-networking', '--disable-component-update', '--disable-default-apps', '--disable-sync', '--disable-domain-reliability', '--no-pings', '--metrics-recording-only', '--safebrowsing-disable-auto-update', `--proxy-server=http://127.0.0.1:${port}`, '--window-size=800,450', `http://127.0.0.1:${port}/stage.html?w=${width}&h=${height}&samples=${samples}`],
+    ['--headless', '--no-sandbox', '--js-flags=--expose-gc', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--disable-lcd-text', '--use-angle=d3d11', '--ignore-gpu-blocklist', '--enable-gpu', '--disable-gpu-watchdog', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--disable-background-networking', '--disable-component-update', '--disable-default-apps', '--disable-sync', '--disable-domain-reliability', '--no-pings', '--metrics-recording-only', '--safebrowsing-disable-auto-update', `--proxy-server=http://127.0.0.1:${port}`, '--window-size=800,450', `http://127.0.0.1:${port}/stage.html?w=${width}&h=${height}&samples=${samples}`],
     { stdio: 'ignore' },
   );
   const close = async () => {

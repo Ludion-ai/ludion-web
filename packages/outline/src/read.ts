@@ -72,11 +72,22 @@ export function numberLines(text: string, start: number): string {
 
 const KINDS: ReadonlySet<string> = new Set<SectionKind>(['shader', 'settings', 'heading', 'function', 'style', 'script', 'asset']);
 
+/** 地図の文は呼び名を JSON の文字列で出す（MCP003）。引用ごと渡されても読めるように、外す */
+function unquote(value: string): string {
+  if (value.length < 2 || !value.startsWith('"') || !value.endsWith('"')) return value;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === 'string' ? parsed.trim() : value;
+  } catch {
+    return value;
+  }
+}
+
 const keyOf = (section: Pick<Section, 'kind' | 'name'>) => `${section.kind}:${section.name}`;
 
 /**
  * 分け目の呼び名を作る関数。`shader:WINDOW_FRAG` の形。同じ種類と名前が2つ以上あるものは、始まりの行を付ける（`function:step@2950`）。
- * 地図の文（formatMap）と、断るときの候補は、この呼び名をそのまま出す。read の section にそのまま渡せる。
+ * 地図の文（formatMap）と、断るときの候補は、この呼び名を JSON の文字列で出す（MCP003）。引用の中身を read の section に渡す。
  */
 export function selectorNames(outline: Outline): (section: Section) => string {
   const counts = new Map<string, number>();
@@ -95,7 +106,7 @@ export const MAX_CANDIDATES = 12;
  * どこかで2つ以上に当たれば、選ばずに候補を返す（ambiguous）。
  */
 export function findSection(outline: Outline, selector: string, file?: string): SectionMatch {
-  const raw = selector.trim();
+  const raw = unquote(selector.trim());
   const colon = raw.indexOf(':');
   const hasKind = colon > 0 && KINDS.has(raw.slice(0, colon));
   const kind = hasKind ? raw.slice(0, colon) : null;
@@ -168,7 +179,8 @@ export const MAX_MAP_SECTIONS = 400;
 
 /**
  * 地図を、AI が読む短い文にする。ファイル、言語、技術（初めの行）、分け目（呼び名、行、大きさ）。
- * 分け目の呼び名は、そのまま read の section に渡せる形。
+ * 分け目の呼び名と、外の住所の名前は、作者が書いた文字なので、JSON の文字列（引用した形）で出す（MCP003）。
+ * 呼び名は、引用の中身を read の section に渡す（引用ごと渡しても読める。findSection）。
  */
 export function formatMap(outline: Outline, { maxSections = MAX_MAP_SECTIONS }: { maxSections?: number } = {}): string {
   const out: string[] = [];
@@ -177,7 +189,7 @@ export function formatMap(outline: Outline, { maxSections = MAX_MAP_SECTIONS }: 
   if (outline.languages.length > 0) out.push(`Languages: ${outline.languages.map((item) => `${LANGUAGE_LABELS[item.language] ?? item.language} ${item.percent}%`).join(', ')}`);
   out.push(
     outline.tech.length > 0
-      ? `Tech (first line found): ${outline.tech.map((tech) => `${tech.label} (${tech.hits[0] ? `${tech.hits[0].file}:${tech.hits[0].line}` : '?'}${tech.hosts ? `; ${tech.hosts.join(' ')}` : ''})`).join(', ')}`
+      ? `Tech (first line found): ${outline.tech.map((tech) => `${tech.label} (${tech.hits[0] ? `${tech.hits[0].file}:${tech.hits[0].line}` : '?'}${tech.hosts ? `; ${tech.hosts.map((host) => JSON.stringify(host)).join(' ')}` : ''})`).join(', ')}`
       : 'Tech: none found',
   );
 
@@ -202,7 +214,7 @@ export function formatMap(outline: Outline, { maxSections = MAX_MAP_SECTIONS }: 
     out.push(`${file.name}`);
     for (const section of sections) {
       const extra = [section.bytes !== undefined ? size(section.bytes) : '', section.glsl ? `GLSL ${section.glsl}` : '', section.stage ?? '', section.mime ?? ''].filter(Boolean).join(', ');
-      out.push(`${'  '.repeat(section.depth + 1)}${nameOf(section)} — ${section.start}-${section.end}${extra ? ` — ${extra}` : ''}`);
+      out.push(`${'  '.repeat(section.depth + 1)}${JSON.stringify(nameOf(section))} — ${section.start}-${section.end}${extra ? ` — ${extra}` : ''}`);
     }
   }
   if (omitted > 0) out.push(`(${omitted} deeper sections are not listed; read the lines of the section around them.)`);

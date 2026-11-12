@@ -1,6 +1,6 @@
 // 文書の作品（DOC001）：文書をそのまま動かす枠と、コピーされるコード。
 import { expect, test } from '@playwright/test';
-import { CAPTURE_SCRIPT, DPR_SCRIPT, FRAME_CSP, LOADED_SCRIPT, STORAGE_SCRIPT, ALLOW_MOTION_SCRIPT, buildCopySnippet, buildDocumentFrameHtml, buildDocumentSnippet, doctypeEnd, isHtmlDocument, stripDocumentCredits } from '../src/index.ts';
+import { CAPTURE_SCRIPT, DPR_SCRIPT, FRAME_CSP, FRAME_GUARD_SCRIPT, LOADED_SCRIPT, STORAGE_SCRIPT, ALLOW_MOTION_SCRIPT, buildCopySnippet, buildDocumentFrameHtml, buildDocumentSnippet, doctypeEnd, isHtmlDocument, stripDocumentCredits } from '../src/index.ts';
 import type { Creator, Work } from '../src/index.ts';
 
 const DOC = `<!doctype html>
@@ -19,7 +19,7 @@ document.getElementById('b').addEventListener('click', () => document.body.datas
 </html>
 `;
 
-const INSERT = `<meta http-equiv="Content-Security-Policy" content="${FRAME_CSP}"><script>${STORAGE_SCRIPT}</script><script>${DPR_SCRIPT}${LOADED_SCRIPT}</script>`;
+const INSERT = `<meta http-equiv="Content-Security-Policy" content="${FRAME_CSP}"><script>${FRAME_GUARD_SCRIPT}</script><script>${STORAGE_SCRIPT}</script><script>${DPR_SCRIPT}${LOADED_SCRIPT}</script>`;
 
 test.describe('文書の形か', () => {
   test('<!doctype と <html で始まるものだけ。頭の空白、BOM、コメントは飛ばす', () => {
