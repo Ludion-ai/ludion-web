@@ -365,7 +365,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
             </p>
           )}
 
-          <div role="tablist" aria-label={copy.work.tabs.label} onKeyDown={onTabKey} className="mt-3 flex gap-1 overflow-x-auto border-b border-site-line">
+          <div role="tablist" aria-label={copy.work.tabs.label} onKeyDown={onTabKey} className="mt-3 flex gap-1 border-b border-site-line">
             {tabs.map(({ id: tabId, label, icon: Icon, count }) => (
               <button
                 key={tabId}
@@ -376,7 +376,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
                 aria-controls={`${tabsId}-panel-${tabId}`}
                 tabIndex={shownTab === tabId ? 0 : -1}
                 onClick={() => setTab(tabId)}
-                className={`-mb-px inline-flex h-11 flex-1 shrink-0 items-center justify-center gap-2 border-b-2 px-2.5 text-body font-semibold ${
+                className={`-mb-px inline-flex h-11 min-w-0 flex-1 items-center justify-center gap-2 border-b-2 px-1 text-body font-semibold whitespace-nowrap ${
                   shownTab === tabId ? 'border-site-fg text-site-fg' : 'border-transparent text-site-fg-2 hover:text-site-fg'
                 }`}
               >

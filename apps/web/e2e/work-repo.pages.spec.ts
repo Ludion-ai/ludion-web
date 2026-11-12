@@ -303,20 +303,22 @@ for (const { label, viewport, columns } of [
           const el = document.activeElement as HTMLElement | null;
           if (!el || el === document.body) return null;
           const { left, top, right, bottom } = el.getBoundingClientRect();
-          return { name: (el.getAttribute('aria-label') ?? el.textContent ?? '').trim().slice(0, 24) || el.tagName, role: el.getAttribute('role'), rect: { left, top: top + window.scrollY, right, bottom: bottom + window.scrollY } };
+          // Firefox は、横に送れる入れ物（スマホの印の行）にも Tab で止まる。中の印の順を見るので、入れ物は数えない
+          const container = el.tagName === 'DL';
+          return { container, name: (el.getAttribute('aria-label') ?? el.textContent ?? '').trim().slice(0, 24) || el.tagName, rect: { left, top: top + window.scrollY, right, bottom: bottom + window.scrollY } };
         });
         if (!now) break;
-        seen.push(now);
+        if (!now.container) seen.push(now);
         // 「この作品について」の最初の印まで来たら終わり
         if (seen.length > 1 && (await page.evaluate(() => document.activeElement?.hasAttribute('data-about-item') ?? false))) break;
-        // WebKit は、Option を押さないと、リンクを Tab で飛ばす（Safari の決まり）。ボタンは進む
-        await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab');
+        await page.keyboard.press('Tab');
       }
       const names = seen.map((item) => item.name);
       // リミックス → いいね → 保存 → 共有 → 作者の名前 → 選んだタブ（コード）→ 最初の印
       expect(names.slice(0, 4)).toEqual(['リミックス', expect.stringMatching(/^いいね/), '保存', '共有']);
-      expect(names).toContain('Fixture');
-      expect(names.indexOf('コード')).toBeGreaterThan(names.indexOf('Fixture'));
+      // WebKit は、Tab でリンクを飛ばす（Safari の初めの設定と同じ）。ボタン、タブ、印の順は同じ
+      if (browserName === 'webkit') expect(names).toEqual(['リミックス', expect.stringMatching(/^いいね/), '保存', '共有', 'コード', 'DOM + CSS']);
+      else expect(names.slice(4)).toEqual(['Fixture', 'コード', 'DOM + CSS']);
       expect(names.at(-1)).toBe('DOM + CSS');
       expect(names.indexOf('DOM + CSS')).toBe(names.indexOf('コード') + 1);
       const stage = (await page.locator('[data-work-stage]').boundingBox())!;
