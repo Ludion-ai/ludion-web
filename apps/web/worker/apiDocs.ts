@@ -1,5 +1,6 @@
 // GET /api/v1 の説明（docs/tasks/T037.md「4」）。AI が読んで使えるように、Markdown で返す。中身は docs/tasks/T037.md「2」の表と同じ。
 
+import { MAX_PART_READ_BYTES, TECH_LIST } from '@ludion/outline';
 import { MAX_DOCUMENT_BYTES, MAX_PART_BYTES } from '@ludion/rules';
 import type { Locale } from '../src/i18n';
 import { MAX_KEYS_PER_USER } from './aiKeys';
@@ -8,6 +9,8 @@ import { PRIVATE_WORKS_LIMIT } from './revisions';
 
 const KB = MAX_PART_BYTES / 1024;
 const DOC_KB = MAX_DOCUMENT_BYTES / 1024;
+const READ_KB = MAX_PART_READ_BYTES / 1024;
+const TECH_NAMES = TECH_LIST.map((tech) => `\`${tech.id}\``).join(', ');
 
 const en = (origin: string) => `# Ludion API v1
 
@@ -29,8 +32,25 @@ Bodies and responses are JSON. Send \`Content-Type: application/json\`. \`Accept
 | --- | --- | --- |
 | \`POST /api/v1/works\` | \`{ "html": "…", "title"?: "…", "from"?: "<source work ID>" }\` | 201 \`{ "id", "version", "url", "code_url", "visibility" }\` |
 | \`POST /api/v1/works/:id/versions\` | \`{ "html": "…", "title"?: "…" }\` | 201 \`{ "id", "version", "url", "code_url", "visibility" }\` |
-| \`GET /api/v1/works\` | — | 200 \`{ "works": [{ "id", "title", "visibility", "status", "version", "updated_at", "url" }] }\` (your works only) |
-| \`GET /api/v1/works/:id\` | — | 200 \`{ "id", "title", "visibility", "status", "version", "from", "url", "code" }\` (your works only; other people's works are 404) |
+| \`GET /api/v1/works\` | — | 200 \`{ "works": [{ "id", "title", "visibility", "status", "version", "updated_at", "url" }] }\` (your works only). \`?tech=webgl2\` lists only the works that use that tech; \`?with=tech\` adds \`"tech"\` to each work |
+| \`GET /api/v1/works/:id\` | — | 200 \`{ "id", "title", "visibility", "status", "version", "from", "url", "code" }\` (your works only; other people's works are 404). The whole code |
+| \`GET /api/v1/works/:id/outline\` | — | 200 \`{ "id", "title", "creator", "own", "visibility", "status", "version", "from", "url", "bytes", "max_read_bytes", "outline" }\`. The map of the work, without the code |
+| \`GET /api/v1/works/:id/code?section=…\` or \`?file=…&lines=…\` | — | 200 \`{ "id", "version", "file", "section", "start", "end", "total_lines", "bytes", "credit", "code" }\`. One part of the code |
+
+## Reading: the map first, then the part you need
+
+Do not read a large work whole when a part is enough. Two requests:
+
+1. **The map**: \`GET /api/v1/works/:id/outline\`. \`outline\` has \`files\` (name, bytes, lines), \`languages\`, \`tech\` (what the work uses, and the lines where it was found) and \`sections\` (\`kind\`, \`name\`, \`file\`, \`start\`, \`end\`; kinds: \`shader\`, \`settings\`, \`heading\`, \`function\`, \`style\`, \`script\`, \`asset\`). Lines count from 1 and \`end\` is included.
+2. **The part**: \`GET /api/v1/works/:id/code\` with either \`section=<kind>:<name>\` (for example \`section=shader:WINDOW_FRAG\`, \`section=function:render\`) or \`file=part.js&lines=200-760\`. \`file\` alone reads that whole file. \`code\` is the stored text of lines \`start\`…\`end\`, unchanged; line numbers are the same as in the map. \`credit\` is the credit line(s) to keep with the code.
+
+- One read can be up to ${READ_KB}KB. A larger part is 413 \`part_too_large\` with \`inside\` (the sections in it); read those, or a smaller line range.
+- When two sections share a kind and a name, add the first line: \`section=function:step@2950\`. An ambiguous name is 400 \`ambiguous_section\` with \`candidates\`; a missing one is 404 \`section_not_found\`.
+- \`version=<version from the map>\` (optional) refuses the read with 409 \`version_changed\` if the work has changed since.
+- These two endpoints read your own works (the latest version) and any public work (its public version). **For a public work they need no key.** Other people's works that are not public are 404.
+- \`outline?code=1\` also returns the whole code as \`code\` (the same text as \`GET /api/v1/works/:id\`); \`code=auto\` only when the work is small.
+- Tech names for \`?tech=\` (separate with commas for works that use all of them): ${TECH_NAMES}. Also \`webgl\` (WebGL or WebGL2), \`canvas\`, \`audio\`.
+- On the site, without a key: \`${origin}/p/<id>.json\` (the same map) and \`${origin}/p/<id>/raw/<file>\` (one file as plain text). A raw file starts with the credit line(s), so its line numbers are shifted from the map's; read by line with \`/api/v1/works/:id/code\`.
 
 ## The html
 
@@ -74,6 +94,7 @@ Use this only when you want the work to be a component that can be pasted into o
 
 Every error is \`{ "error": "<fixed word>", "message": "…" }\`:
 \`unauthorized\` (401), \`bad_request\`, \`unknown_field\`, \`bad_html\`, \`bad_title\` (400), \`not_found\` (404), \`in_review\`, \`private_limit\`, \`conflict\` (409), \`too_large\` (413), \`invalid_work\`, \`bad_from\` (422), \`rate_limited\` (429), \`posting_closed\` (403).
+Reading: \`bad_part\`, \`file_required\`, \`ambiguous_section\`, \`out_of_range\`, \`bad_tech\` (400), \`file_not_found\`, \`section_not_found\` (404), \`version_changed\` (409), \`part_too_large\` (413).
 `;
 
 const ja = (origin: string) => `# Ludion API v1
@@ -96,8 +117,25 @@ Ludion は UI の作品（画面と部品）を置く場所です。この API �
 | --- | --- | --- |
 | \`POST /api/v1/works\` | \`{ "html": "…", "title"?: "…", "from"?: "<元の作品の ID>" }\` | 201 \`{ "id", "version", "url", "code_url", "visibility" }\` |
 | \`POST /api/v1/works/:id/versions\` | \`{ "html": "…", "title"?: "…" }\` | 201 \`{ "id", "version", "url", "code_url", "visibility" }\` |
-| \`GET /api/v1/works\` | — | 200 \`{ "works": [{ "id", "title", "visibility", "status", "version", "updated_at", "url" }] }\`（自分の作品だけ） |
-| \`GET /api/v1/works/:id\` | — | 200 \`{ "id", "title", "visibility", "status", "version", "from", "url", "code" }\`（自分の作品だけ。ほかの人のは 404） |
+| \`GET /api/v1/works\` | — | 200 \`{ "works": [{ "id", "title", "visibility", "status", "version", "updated_at", "url" }] }\`（自分の作品だけ）。\`?tech=webgl2\` で、その技術を使う作品だけ。\`?with=tech\` で、それぞれに \`"tech"\` を足す |
+| \`GET /api/v1/works/:id\` | — | 200 \`{ "id", "title", "visibility", "status", "version", "from", "url", "code" }\`（自分の作品だけ。ほかの人のは 404）。コードの全部 |
+| \`GET /api/v1/works/:id/outline\` | — | 200 \`{ "id", "title", "creator", "own", "visibility", "status", "version", "from", "url", "bytes", "max_read_bytes", "outline" }\`。作品の地図。コードは入らない |
+| \`GET /api/v1/works/:id/code?section=…\` か \`?file=…&lines=…\` | — | 200 \`{ "id", "version", "file", "section", "start", "end", "total_lines", "bytes", "credit", "code" }\`。コードの一部 |
+
+## 読み方：まず地図、次に要る部分
+
+大きい作品を、要るのが一部のときに全部読まないでください。2回で済みます。
+
+1. **地図**：\`GET /api/v1/works/:id/outline\`。\`outline\` に、\`files\`（名前、バイト数、行の数）、\`languages\`、\`tech\`（使っている技術と、見つけた行）、\`sections\`（\`kind\`、\`name\`、\`file\`、\`start\`、\`end\`。種類は \`shader\`、\`settings\`、\`heading\`、\`function\`、\`style\`、\`script\`、\`asset\`）。行は 1 から数え、\`end\` を含みます。
+2. **要る部分**：\`GET /api/v1/works/:id/code\` に、\`section=<種類>:<名前>\`（例：\`section=shader:WINDOW_FRAG\`、\`section=function:render\`）か、\`file=part.js&lines=200-760\` のどちらか。\`file\` だけなら、そのファイルの全部。\`code\` は、置いてあるファイルの \`start\` 行から \`end\` 行の文字そのままで、行の番号は地図と同じです。\`credit\` は、コードと一緒に残すクレジット行です。
+
+- 1回に読めるのは ${READ_KB}KB まで。超える部分は 413 \`part_too_large\` と \`inside\`（その中の分け目）。それを1つずつ読むか、行の範囲を狭めます。
+- 種類も名前も同じ分け目が2つ以上あるときは、始まりの行を付けます：\`section=function:step@2950\`。決まらない名前は 400 \`ambiguous_section\` と \`candidates\`、ない名前は 404 \`section_not_found\`。
+- \`version=<地図の version>\`（任意）を付けると、その後に作品が変わっていたら 409 \`version_changed\` で断ります。
+- この2つの口で読めるのは、自分の作品（いちばん新しい版）と、公開されている作品（公開の版）です。**公開の作品は、鍵なしで読めます。** 公開されていないほかの人の作品は 404。
+- \`outline?code=1\` で、コードの全部も \`code\` に入ります（\`GET /api/v1/works/:id\` と同じ文字）。\`code=auto\` は、小さい作品のときだけ入れます。
+- \`?tech=\` の技術の名前（, で区切ると、全部を使う作品）：${TECH_NAMES}。ほかに \`webgl\`（WebGL か WebGL2）、\`canvas\`、\`audio\`。
+- サイトの側（鍵なし）：\`${origin}/p/<id>.json\`（同じ地図）、\`${origin}/p/<id>/raw/<file>\`（1つのファイルの生の文字）。生の文字は頭にクレジット行が入るので、行の番号が地図とずれます。行で読むときは \`/api/v1/works/:id/code\` を使います。
 
 ## html
 
@@ -141,6 +179,7 @@ Ludion は UI の作品（画面と部品）を置く場所です。この API �
 
 どれも \`{ "error": "<決まった語>", "message": "…" }\`：
 \`unauthorized\`（401）、\`bad_request\`、\`unknown_field\`、\`bad_html\`、\`bad_title\`（400）、\`not_found\`（404）、\`in_review\`、\`private_limit\`、\`conflict\`（409）、\`too_large\`（413）、\`invalid_work\`、\`bad_from\`（422）、\`rate_limited\`（429）、\`posting_closed\`（403）。
+読むとき：\`bad_part\`、\`file_required\`、\`ambiguous_section\`、\`out_of_range\`、\`bad_tech\`（400）、\`file_not_found\`、\`section_not_found\`（404）、\`version_changed\`（409）、\`part_too_large\`（413）。
 `;
 
 export const apiDocs = (locale: Locale, origin: string) => (locale === 'ja' ? ja(origin) : en(origin));

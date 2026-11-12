@@ -323,7 +323,7 @@ test.describe('MCP サーバー /mcp', () => {
     const notified = await json('/mcp', { jsonrpc: '2.0', method: 'notifications/initialized' }, { Authorization: `Bearer ${token}` });
     expect(notified.status).toBe(202);
     const listed = (await rpc(token, 'tools/list')).body!.result as { tools: { name: string; description: string; inputSchema: { required?: string[] } }[] };
-    expect(listed.tools.map((tool) => tool.name)).toEqual(['save_work', 'list_my_works', 'get_work', 'get_public_work']);
+    expect(listed.tools.map((tool) => tool.name)).toEqual(['save_work', 'list_my_works', 'get_work', 'get_public_work', 'read_work_code']);
     const save = listed.tools[0];
     // いつ呼ぶかが書いてある
     expect(save.description).toContain('every time you finish making a working HTML');

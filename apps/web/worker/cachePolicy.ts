@@ -35,6 +35,10 @@ interface CacheRule {
 
 export const CACHE_RULES: CacheRule[] = [
   { route: '/', path: /^\/$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
+  // 作品の地図と、ファイルの生の文字（WS006）。公開の作品はだれにでも同じ中身。自分だけの作品は、道が no-store を付けるので残らない。
+  // 地図は '/p/:id' の形にも当たるので、それより先に書く
+  { route: '/p/:file{[a-z0-9-]+\\.json}', path: /^\/p\/[^/]+\.json$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
+  { route: '/p/:id/raw/:file', path: /^\/p\/[^/]+\/raw\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   { route: '/p/:id', path: /^\/p\/[^/]+$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },
   // 作品のコードの文字（docs/tasks/T031.md「1」）。作品のページと同じ扱いで、取り下げと版の差し替えのときに消える
   { route: '/p/:id/code', path: /^\/p\/[^/]+\/code$/, cacheControl: PAGE_CACHE_CONTROL, tag: () => CATALOG_TAG },

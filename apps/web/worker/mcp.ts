@@ -6,14 +6,16 @@
 // - 道具の中身は、AI の口（worker/apiV1.ts、T037）をそのまま中から呼ぶ：同じ検査、同じ上限、同じクレジット行、同じ「自分だけ」。
 //   新しい保存の仕組みは作らない。
 // - 道具の説明に「いつ呼ぶか」を書く。AI はこれを読んで、作り終えるたびに自分から保存する。
+// - 読むときは「まず地図、次に要る部分」（WS006）。get_work と get_public_work は地図（ファイル、行の数、技術、分け目）を返し、
+//   コードの全部は、小さい作品（INLINE_CODE_BYTES まで）か code: true のときだけ。大きい作品は read_work_code で要る部分だけを読む。
 // - cookie は読まない。応答はキャッシュしない（cachePolicy.ts の既定）。
 
+import { MAX_PART_READ_BYTES, TECH_LIST, formatMap, numberLines, selectorNames, type Outline } from '@ludion/outline';
 import { ID_PATTERN } from '@ludion/rules';
 import { Hono, type Context } from 'hono';
-import { apiUser, apiV1 } from './apiV1';
+import { INLINE_CODE_BYTES, apiUser, apiV1 } from './apiV1';
 import type { Env } from './env';
 import { CORS_HEADERS, resourceMetadataUrl } from './oauth';
-import { approvedSnippet } from './pages';
 import { takeApiQuota } from './quota';
 
 type McpContext = Context<{ Bindings: Env }>;
@@ -30,7 +32,9 @@ const INSTRUCTIONS = `Ludion (ludion.ai) keeps the UI works a person makes with 
 
 Whenever you finish making a working HTML (a UI, an animation, a wallpaper, a game, something with sound) as one file, call save_work every time, without being asked, to save it to the person's Ludion as "Only me". After saving, tell the person the address. When you change the same work later in the conversation, call save_work again with its work_id so it becomes a new version of the same work.
 
-Saved works are visible only to the person. They can publish a work themselves from the site (it is reviewed first); you cannot publish.`;
+Saved works are visible only to the person. They can publish a work themselves from the site (it is reviewed first); you cannot publish.
+
+Ludion is also the person's reference shelf of code. To read a work, read the map first, then only the part you need: get_work (the person's own) or get_public_work (anyone's public work) returns a map of the work — files, line counts, tech, and sections such as shaders, settings, headings and functions. Then call read_work_code with a section from the map (for example "shader:WINDOW_FRAG") or a file and a line range. Do not read a large work whole when a part is enough. list_my_works can filter by tech (for example "webgl2").`;
 
 const FORMAT = `Send the work as one ordinary, self-contained HTML document, as it is (it starts with <!doctype html>). Ludion keeps it exactly as written and runs it as a full-width screen:
 - Put images, sounds and fonts inside the file (inline <svg>, data: URLs, CSS drawing, Web Audio). Requests to outside are blocked in the frame (only Google Fonts load), so nothing from a CDN will work.
@@ -46,6 +50,15 @@ const LANGUAGE = {
 };
 
 const WORK_ID = { type: 'string', pattern: '^[a-z0-9-]{1,60}$', description: 'The work ID that save_work returned (or one from list_my_works).' };
+
+const KB = (bytes: number) => `${Math.round(bytes / 1024)} KB`;
+
+const CODE_FLAG = {
+  type: 'boolean',
+  description: `Leave it out in most cases: you get the map, and the whole code with it only when the work is small (up to ${KB(INLINE_CODE_BYTES)}). true: also return the whole code, at any size. false: the map only.`,
+};
+
+const READ_FIRST = `Read the map first, then only the part you need: for a work larger than ${KB(INLINE_CODE_BYTES)} this returns the map without the code, and you read parts with read_work_code (a section from the map, or a file and a line range).`;
 
 export const TOOLS = [
   {
@@ -75,23 +88,57 @@ Publishing is done by the person on the site (with review); this tool never publ
   {
     name: 'list_my_works',
     title: 'List my Ludion works',
-    description: 'List the person\'s own works on Ludion (newest first): work_id, title, visibility (private = Only me, public, draft), version and address. Use it to find a work to continue, or to use past works as material for a new one.',
-    inputSchema: { type: 'object', properties: { language: LANGUAGE }, additionalProperties: false },
+    description:
+      'List the person\'s own works on Ludion (newest first): work_id, title, visibility (private = Only me, public, draft), version, address, and the tech each work uses (WebGL2, Canvas 2D, Web Audio, …). Use it to find a work to continue, or to use past works as material for a new one. Pass tech to list only the works that use it (for example "the works where I used WebGL").',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tech: {
+          type: 'string',
+          description: `Only works that use this tech. Separate with commas for works that use all of them (for example "webgl2,webaudio"). Names: ${TECH_LIST.map((tech) => tech.id).join(', ')}. Also: webgl (WebGL or WebGL2), canvas, audio (any sound).`,
+        },
+        language: LANGUAGE,
+      },
+      additionalProperties: false,
+    },
     annotations: { title: 'List my Ludion works', readOnlyHint: true, openWorldHint: false },
   },
   {
     name: 'get_work',
     title: 'Get one of my Ludion works',
-    description: 'Get the code of one of the person\'s own works (its latest version), to continue it or use it as material. Saving edited code with save_work and this work_id makes a new version. Keep the credit lines at the top.',
-    inputSchema: { type: 'object', properties: { work_id: WORK_ID, language: LANGUAGE }, required: ['work_id'], additionalProperties: false },
+    description: `Get one of the person's own works (its latest version), to continue it or use it as material: a map of the work (files, line counts, tech, and sections such as shaders, settings, headings and functions), and its code. ${READ_FIRST} Saving edited code with save_work and this work_id makes a new version. Keep the credit lines at the top.`,
+    inputSchema: { type: 'object', properties: { work_id: WORK_ID, code: CODE_FLAG, language: LANGUAGE }, required: ['work_id'], additionalProperties: false },
     annotations: { title: 'Get one of my Ludion works', readOnlyHint: true, openWorldHint: false },
   },
   {
     name: 'get_public_work',
     title: 'Get a public Ludion work',
-    description: 'Get the code of a public work on Ludion (anyone\'s), as material for a remix. Keep its credit lines (<!-- UI by @… -->) at the top, and pass its work_id as "from" when you save the remix with save_work.',
-    inputSchema: { type: 'object', properties: { work_id: WORK_ID, language: LANGUAGE }, required: ['work_id'], additionalProperties: false },
+    description: `Get a public work on Ludion (anyone's), as material for a remix or as a reference: a map of the work (files, line counts, tech, and sections such as shaders, settings, headings and functions), and its code. ${READ_FIRST} Keep its credit lines (<!-- UI by @… -->) at the top, and pass its work_id as "from" when you save the remix with save_work.`,
+    inputSchema: { type: 'object', properties: { work_id: { ...WORK_ID, description: 'The ID in a ludion.ai/p/<work_id> address.' }, code: CODE_FLAG, language: LANGUAGE }, required: ['work_id'], additionalProperties: false },
     annotations: { title: 'Get a public Ludion work', readOnlyHint: true, openWorldHint: true },
+  },
+  {
+    name: 'read_work_code',
+    title: 'Read part of a Ludion work',
+    description: `Read one part of a work's code, with line numbers: a section from the map ("shader:WINDOW_FRAG", "function:render", "settings:TUNE", "heading:…"), or a line range of a file. Works for the person's own works (latest version) and for public works.
+
+When to call: after get_work or get_public_work gave you the map, call this for each part you need, instead of reading the whole work. For "read only the shader of my rain window": get the map, then read_work_code with that shader's section.
+
+Give either section, or file and lines (file alone reads that whole file). Up to ${KB(MAX_PART_READ_BYTES)} per call: a larger part is refused, with the sections inside it so you can narrow. Line numbers are those of the stored file, the same as in the map. The first line of the result is the credit line; keep it when you use the code.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        work_id: { ...WORK_ID, description: 'The work ID (from list_my_works, get_work, get_public_work, or a ludion.ai/p/<work_id> address).' },
+        section: { type: 'string', maxLength: 300, description: 'A section selector, exactly as the map writes it: "shader:WINDOW_FRAG", "function:render", "function:step@2950". Use this or lines, not both.' },
+        file: { type: 'string', maxLength: 40, description: 'A file name from the map: part.js, part.css, part.html, or index.html. Needed with lines when the work has more than one file.' },
+        lines: { type: 'string', pattern: '^[0-9]{1,7}(-[0-9]{1,7})?$', description: 'A line range in the file, both ends included: "200-760". One line: "200".' },
+        version: { type: 'string', maxLength: 20, description: 'Optional: the version the map was for. If the work has changed since, the call is refused instead of returning lines that no longer match.' },
+        language: LANGUAGE,
+      },
+      required: ['work_id'],
+      additionalProperties: false,
+    },
+    annotations: { title: 'Read part of a Ludion work', readOnlyHint: true, openWorldHint: true },
   },
 ];
 
@@ -135,14 +182,15 @@ interface Call {
 const languageOf = (args: Record<string, unknown>) => (args.language === 'ja' ? 'ja' : 'en');
 
 /** AI の口を中から呼ぶ。答えの状態と JSON。 */
-async function callApi(call: Call, method: 'GET' | 'POST', path: string, body?: unknown): Promise<{ status: number; data: Record<string, unknown> }> {
+async function callApi(call: Call, method: 'GET' | 'POST', path: string, body?: unknown, { anonymous = false }: { anonymous?: boolean } = {}): Promise<{ status: number; data: Record<string, unknown> }> {
   const origin = new URL(call.c.req.url).origin;
   const response = await apiV1.request(
     `${origin}${path}`,
     {
       method,
       headers: {
-        Authorization: call.authorization,
+        // anonymous：鍵を付けずに呼ぶ（公開の作品の公開の版だけが読める。get_public_work）
+        ...(anonymous ? {} : { Authorization: call.authorization }),
         'Accept-Language': languageOf(call.args),
         // AI の鍵でつないだときは、置き場の印を「MCP」にする（トークンでつないだときは、その AI の名前）
         ...(call.viaKey ? { 'X-Ludion-Client': 'MCP' } : {}),
@@ -204,44 +252,137 @@ async function saveWork(call: Call): Promise<ToolResult> {
   return text(lines.join('\n'), { work_id: data.id, version: data.version, url: data.url, visibility: data.visibility });
 }
 
+const size = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`);
+
+/** 一覧の1行に出す技術の印：描き方と音だけ（全部の id は structuredContent にある）。ほかの描き方があれば「DOM + CSS」は出さない。 */
+function techMarks(ids: string[]): string {
+  const shown = TECH_LIST.filter((tech) => (tech.group === 'draw' || tech.group === 'sound') && ids.includes(tech.id));
+  const draws = shown.filter((tech) => tech.group === 'draw');
+  return shown
+    .filter((tech) => tech.id !== 'dom-css' || draws.length === 1)
+    .map((tech) => tech.label)
+    .join(', ');
+}
+
 async function listMyWorks(call: Call): Promise<ToolResult> {
-  const { status, data } = await callApi(call, 'GET', '/works');
-  if (status !== 200) return apiFailure(status, data);
-  const works = (data.works as { id: string; title: string; visibility: string; status: string; version: string; updated_at: string; url: string }[]) ?? [];
-  if (works.length === 0) return text('The person has no works on Ludion yet.', { works: [] });
-  const lines = works.map((work) => `- ${work.title} — work_id: ${work.id}, ${work.visibility === 'private' ? 'Only me' : work.visibility}, version ${work.version}, updated ${work.updated_at.slice(0, 10)}, ${work.url}`);
-  return text(`${works.length} work(s), newest first:\n${lines.join('\n')}`, { works });
+  const tech = optionalString(call.args, 'tech');
+  if (tech === null) return text('tech must be a string when given.', { error: 'bad_request' }, true);
+  const filter = tech !== undefined && tech.trim() !== '' ? tech.trim() : null;
+  const { status, data } = await callApi(call, 'GET', filter === null ? '/works?with=tech' : `/works?tech=${encodeURIComponent(filter)}`);
+  if (status !== 200) return apiFailure(status, data, Array.isArray(data.allowed) ? `Tech names: ${(data.allowed as string[]).join(', ')}; also webgl, canvas, audio.` : '');
+  const works = (data.works as { id: string; title: string; visibility: string; status: string; version: string; updated_at: string; url: string; tech?: string[] | null }[]) ?? [];
+  const unknown = typeof data.tech_unknown === 'number' ? data.tech_unknown : 0;
+  const note = unknown > 0 ? `\n(${unknown} work(s) could not be checked for tech this time${filter === null ? '' : ' and are left out'}; call again to check more.)` : '';
+  if (works.length === 0) return text(filter === null ? 'The person has no works on Ludion yet.' : `None of the person's works use ${filter}.${note}`, { works: [], ...(unknown > 0 ? { tech_unknown: unknown } : {}) });
+  const lines = works.map((work) => {
+    const marks = Array.isArray(work.tech) ? techMarks(work.tech) : '';
+    return `- ${work.title} — work_id: ${work.id}, ${work.visibility === 'private' ? 'Only me' : work.visibility}, version ${work.version}, updated ${work.updated_at.slice(0, 10)}, ${work.url}${marks ? `, tech: ${marks}` : ''}`;
+  });
+  const head = filter === null ? `${works.length} work(s), newest first:` : `${works.length} work(s) that use ${filter}, newest first:`;
+  return text(`${head}\n${lines.join('\n')}${note}\nTo read one: get_work with its work_id gives a map; then read_work_code for the part you need.`, { works, ...(unknown > 0 ? { tech_unknown: unknown } : {}) });
+}
+
+const NOT_OWN: Record<'ja' | 'en', string> = { ja: '作品が見つかりません。自分の作品の ID を入れてください', en: 'Work not found. Use the ID of one of your own works.' };
+
+/** code の引数を、AI の口の ?code= にする。だめなら null。 */
+function codeParam(args: Record<string, unknown>): string | null {
+  if (args.code === undefined || args.code === null) return 'auto';
+  return typeof args.code === 'boolean' ? (args.code ? '1' : '0') : null;
+}
+
+/** 地図の答え。コードがあれば（小さい作品か code: true）、今までと同じ場所（content の2つ目、structuredContent.code）に入れる。 */
+function mapResult(tool: 'get_work' | 'get_public_work', data: Record<string, unknown>): ToolResult {
+  const { code, outline: rawOutline, ...rest } = data;
+  const outline = rawOutline as Outline;
+  const id = String(rest.id);
+  const map = formatMap(outline);
+  const hasCode = typeof code === 'string';
+  const example = outline.sections.find((section) => section.kind === 'shader') ?? outline.sections.find((section) => section.kind === 'function') ?? outline.sections[0];
+  const head =
+    tool === 'get_work'
+      ? `${String(rest.title)} — work_id: ${id}, version ${String(rest.version)}, ${rest.visibility === 'private' ? 'Only me' : String(rest.visibility)}, ${String(rest.url)}`
+      : `${String(rest.title)} by @${String(rest.creator)} — work_id: ${id}, version ${String(rest.version)}, ${String(rest.url)} (MIT)`;
+  const how = hasCode
+    ? 'Below: the map of the work, then its whole code.'
+    : `Below is the map of the work, not its code (${size(Number(rest.bytes))} in all). To read code, call read_work_code with work_id "${id}" and either section (a selector from the map, exactly as written${example ? `, for example "${selectorNames(outline)(example)}"` : ''}) or file and lines (for example file "${outline.files[outline.files.length - 1]?.name ?? 'index.html'}", lines "1-200"). Up to ${KB(MAX_PART_READ_BYTES)} per call. For the whole code in one piece, call ${tool} again with code: true.`;
+  const next =
+    tool === 'get_work'
+      ? `To save changes as a new version, call save_work with work_id "${id}". Keep the credit lines at the top.`
+      : `To remix: change only what needs to change, keep the credit lines at the top, and call save_work with from "${id}".`;
+  const summary = { files: outline.files, tech: outline.tech.map((tech) => tech.id), map };
+  return {
+    content: [{ type: 'text', text: `${head}\n${how}\n${next}\n\n${map}` }, ...(hasCode ? [{ type: 'text' as const, text: code }] : [])],
+    structuredContent:
+      tool === 'get_work'
+        ? { ...rest, ...summary, ...(hasCode ? { code } : {}) }
+        : { work_id: id, title: rest.title, creator: rest.creator, url: rest.url, version: rest.version, bytes: rest.bytes, ...summary, ...(hasCode ? { code } : {}) },
+  };
 }
 
 async function getWork(call: Call): Promise<ToolResult> {
   const workId = call.args.work_id;
   if (typeof workId !== 'string' || !ID_PATTERN.test(workId)) return text('work_id is required (see list_my_works).', { error: 'bad_request' }, true);
-  const { status, data } = await callApi(call, 'GET', `/works/${encodeURIComponent(workId)}`);
-  if (status !== 200) return apiFailure(status, data, status === 404 ? 'Use list_my_works to see the person\'s work IDs, or get_public_work for a public work.' : '');
-  const { code, ...rest } = data;
-  return {
-    content: [
-      { type: 'text', text: `${String(rest.title)} — work_id: ${String(rest.id)}, version ${String(rest.version)}, ${rest.visibility === 'private' ? 'Only me' : String(rest.visibility)}, ${String(rest.url)}\nTo save changes as a new version, call save_work with work_id "${String(rest.id)}". Keep the credit lines at the top.` },
-      { type: 'text', text: String(code ?? '') },
-    ],
-    structuredContent: { ...rest, code },
-  };
+  const code = codeParam(call.args);
+  if (code === null) return text('code must be true or false when given.', { error: 'bad_request' }, true);
+  const hint = 'Use list_my_works to see the person\'s work IDs, or get_public_work for a public work.';
+  const { status, data } = await callApi(call, 'GET', `/works/${encodeURIComponent(workId)}/outline?code=${code}`);
+  // この道具は自分の作品だけ。ほかの人の公開の作品は、今までどおり、ない作品と同じに答える（get_public_work へ）
+  if (status === 200 && data.own !== true) return apiFailure(404, { error: 'not_found', message: NOT_OWN[languageOf(call.args)] }, hint);
+  if (status !== 200) return apiFailure(status, data, status === 404 ? hint : '');
+  return mapResult('get_work', data);
 }
 
 async function getPublicWork(call: Call, userId: string): Promise<ToolResult> {
   const workId = call.args.work_id;
   if (typeof workId !== 'string' || !ID_PATTERN.test(workId)) return text('work_id is required: the ID in a ludion.ai/p/<work_id> address.', { error: 'bad_request' }, true);
+  const code = codeParam(call.args);
+  if (code === null) return text('code must be true or false when given.', { error: 'bad_request' }, true);
   if (!(await takeApiQuota(call.c.env.DB, userId, 'read'))) return text('Too many reads this hour. Try again later.', { error: 'rate_limited' }, true);
-  const found = await approvedSnippet(call.c.env, workId);
-  if (!found) return text(`No public work "${workId}" on Ludion. Only public works can be read with this tool (for the person's own works, use get_work).`, { error: 'not_found' }, true);
-  const origin = new URL(call.c.req.url).origin;
-  const url = `${origin}${languageOf(call.args) === 'ja' ? '' : '/en'}/p/${encodeURIComponent(found.work.id)}`;
+  // 鍵を付けずに呼ぶ：公開の作品の公開の版だけ（自分の作品でも、下書きの版は返さない）
+  const { status, data } = await callApi(call, 'GET', `/works/${encodeURIComponent(workId)}/outline?code=${code}`, undefined, { anonymous: true });
+  if (status !== 200) return text(`No public work "${workId}" on Ludion. Only public works can be read with this tool (for the person's own works, use get_work).`, { error: 'not_found' }, true);
+  return mapResult('get_public_work', data);
+}
+
+type SectionRef = { section: string; file: string; start: number; end: number; bytes?: number };
+const refLine = (ref: SectionRef) => `- ${ref.section} — ${ref.file} ${ref.start}-${ref.end}${ref.bytes === undefined ? '' : ` — ${size(ref.bytes)}`}`;
+
+async function readWorkCode(call: Call): Promise<ToolResult> {
+  const { args } = call;
+  const workId = args.work_id;
+  if (typeof workId !== 'string' || !ID_PATTERN.test(workId)) return text('work_id is required (from list_my_works, get_work, get_public_work, or a ludion.ai/p/<work_id> address).', { error: 'bad_request' }, true);
+  const params = new URLSearchParams();
+  for (const name of ['section', 'file', 'lines', 'version']) {
+    const value = optionalString(args, name);
+    if (value === null) return text(`${name} must be a string when given.`, { error: 'bad_request' }, true);
+    if (value !== undefined && value.trim() !== '') params.set(name, value.trim());
+  }
+  const { status, data } = await callApi(call, 'GET', `/works/${encodeURIComponent(workId)}/code?${params.toString()}`);
+  if (status !== 200) {
+    const lines: string[] = [];
+    if (Array.isArray(data.candidates) && data.candidates.length > 0) lines.push('Sections with a close name:', ...(data.candidates as SectionRef[]).map(refLine));
+    if (Array.isArray(data.inside) && data.inside.length > 0) lines.push(`That part is ${size(Number(data.bytes))} (lines ${String(data.start)}-${String(data.end)} of ${String(data.file)}). Read these sections inside it one at a time, or a smaller line range:`, ...(data.inside as SectionRef[]).map(refLine));
+    else if (data.error === 'part_too_large') lines.push(`That part is ${size(Number(data.bytes))} (lines ${String(data.start)}-${String(data.end)} of ${String(data.file)}). Read a smaller line range.`);
+    if (Array.isArray(data.files)) lines.push(`Files: ${(data.files as string[]).join(', ')}`);
+    if (typeof data.total === 'number') lines.push(`${String(data.file)} has ${data.total} lines.`);
+    if (typeof data.current_version === 'string') lines.push(`The version now is ${data.current_version}. Call get_work or get_public_work again for the map of that version.`);
+    if (status === 404 && data.error === 'not_found') lines.push('Only the person\'s own works and public works can be read. Use list_my_works to see the person\'s work IDs.');
+    const failure = apiFailure(status, data, lines.join('\n'));
+    const { message: _message, ...details } = data;
+    return { ...failure, structuredContent: { ...details, status } };
+  }
+  const file = String(data.file);
+  const start = Number(data.start);
+  const [open, close] = file.endsWith('.html') ? ['<!-- ', ' -->'] : ['/* ', ' */'];
+  const credit = (Array.isArray(data.credit) ? (data.credit as string[]) : []).map((line) => `${open}${line}${close}`);
+  const numbered = [...credit, numberLines(String(data.code ?? ''), start)].join('\n');
+  const head = `${file} lines ${start}-${String(data.end)} of ${String(data.total_lines)} (${size(Number(data.bytes))})${data.section ? `, section ${String(data.section)}` : ''} — work_id: ${String(data.id)}, version ${String(data.version)}\nThe first ${credit.length === 1 ? 'line is the credit line' : `${credit.length} lines are the credit lines`}; then each line is "<line number><tab><code>". Line numbers are those of the stored file, the same as in the map. Keep the credit when you use this code.`;
   return {
     content: [
-      { type: 'text', text: `${found.work.title} by @${found.creator.handle} — work_id: ${found.work.id}, ${url} (MIT)\nTo remix: change only what needs to change, keep the credit lines at the top, and call save_work with from "${found.work.id}".` },
-      { type: 'text', text: found.snippet },
+      { type: 'text', text: head },
+      { type: 'text', text: numbered },
     ],
-    structuredContent: { work_id: found.work.id, title: found.work.title, creator: found.creator.handle, url, code: found.snippet },
+    structuredContent: { work_id: data.id, version: data.version, file, section: data.section ?? null, start, end: data.end, total_lines: data.total_lines, bytes: data.bytes, credit: data.credit, code: numbered },
   };
 }
 
@@ -326,6 +467,7 @@ async function handle(c: McpContext, message: unknown, who: { authorization: str
       if (name === 'list_my_works') return rpcResult(id, await listMyWorks(call));
       if (name === 'get_work') return rpcResult(id, await getWork(call));
       if (name === 'get_public_work') return rpcResult(id, await getPublicWork(call, who.userId));
+      if (name === 'read_work_code') return rpcResult(id, await readWorkCode(call));
       return rpcError(id, INVALID_PARAMS, `Unknown tool: ${String(name)}`);
     }
     default:
