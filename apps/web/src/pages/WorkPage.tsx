@@ -5,6 +5,7 @@ import { FramePreview } from '../components/FramePreview';
 import { Masonry } from '../components/Masonry';
 import { NoscriptGrid } from '../components/NoscriptGrid';
 import { RemixSheet } from '../components/RemixSheet';
+import { ThumbCapture } from '../components/ThumbCapture';
 import { WallpaperSheet } from '../components/WallpaperSheet';
 import { ReportIssue } from '../components/ReportIssue';
 import { XLink } from '../components/XLink';
@@ -57,6 +58,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
   const codeRef = useRef<HTMLPreElement>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [codeOpen, setCodeOpen] = useState(false);
+  const [capturing, setCapturing] = useState(false);
   const codeId = useId();
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const shareTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -217,6 +219,26 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
               <a href={localizedPath(locale, '/account/works')} className="mt-0.5 inline-block text-small underline">
                 {copy.work.privateToWorks}
               </a>
+              {/* 画像を付ける（DOC002「3」）。画像を足した新しい版が今の版になるので、付けたら読み込み直す */}
+              <div className="mt-2">
+                <button
+                  type="button"
+                  aria-label={copy.account.works.addThumbLabel(work.title || copy.post.untitled)}
+                  onClick={() => setCapturing(true)}
+                  className="inline-flex h-11 items-center justify-center rounded-control border border-site-line-2 bg-site-bg px-4 text-body font-semibold text-site-fg hover:bg-site-hover"
+                >
+                  {work.thumb_w > 0 ? copy.account.works.changeThumb : copy.account.works.addThumb}
+                </button>
+              </div>
+              {capturing && page.private && (
+                <ThumbCapture
+                  workId={work.id}
+                  title={work.title || copy.post.untitled}
+                  frameUrl={page.private.frames.desktop}
+                  onClose={() => setCapturing(false)}
+                  onDone={() => window.location.reload()}
+                />
+              )}
             </div>
           )}
           <h1 className="text-title font-bold text-site-fg">{work.title}</h1>

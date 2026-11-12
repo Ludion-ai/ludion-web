@@ -56,7 +56,7 @@ const PARENT_CSP_TEXT = "frame-src 'self'; frame-ancestors 'none'; base-uri 'non
  * route の手前で止まった要求（CSP、sandbox）は、ここに来ない。
  * 移った先は、frame-escape と同じく、親の見張りが待つ知らせを真似る。
  */
-async function openOutside(context: BrowserContext, page: Page, src: string) {
+async function openOutside(context: BrowserContext, page: Page, src: string, waitUntil: 'load' | 'commit' = 'load') {
   const seen: string[] = [];
   const own = ownOrigin();
   const outside = (url: URL) => url.protocol.startsWith('http') && url.origin !== own && url.origin !== OUTSIDE;
@@ -68,7 +68,7 @@ async function openOutside(context: BrowserContext, page: Page, src: string) {
   page.on('websocket', (ws) => seen.push(ws.url()));
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto(outsidePage(src));
+  await page.goto(outsidePage(src), { waitUntil });
   return { seen, errors, url: page.url() };
 }
 
@@ -77,6 +77,8 @@ const work = (page: Page): FrameLocator => embed(page).frameLocator('iframe[data
 /** 作品の枠（外の親 → /e/<id> → 作品の枠）。Playwright の Frame */
 const workFrame = (page: Page) => page.frames().find((frame) => frame.parentFrame()?.parentFrame() === page.mainFrame())!;
 const workPath = (page: Page) => new URL(workFrame(page).url()).pathname;
+/** /e/<id> の文書（外の親 → /e/<id>）。Playwright の Frame */
+const embedFrame = (page: Page) => page.frames().find((frame) => frame.parentFrame() === page.mainFrame())!;
 
 test.describe('外のサイトの中で動く', () => {
   test('fx-toggle：作品が動き、押せる。pageerror は0。枠は封をした形（sandbox、CSP）', async ({ context, page }) => {
@@ -181,6 +183,55 @@ test.describe('文書の作品（DOC001）も外のサイトの中で動く', ()
     expect(away.headers()['location']).toBe(`/p/${DOC_ID}`);
   });
 
+  test('/e/ の地：文書の作品は、枠が読み込まれるまで透明（外のページの地が見える）。読み込めた後は今までどおり黒。部品の作品は前から作者の地', async ({ context, page }) => {
+    const TRANSPARENT = 'rgba(0, 0, 0, 0)';
+    for (const [id, before, after] of [
+      [DOC_ID, TRANSPARENT, 'rgb(0, 0, 0)'],
+      // 対照：部品の作品（part.css の --_bg が #0e0f13）は、読み込まれる前から作者の地。前と同じ
+      ['fx-toggle', 'rgb(14, 15, 19)', 'rgb(14, 15, 19)'],
+    ] as const) {
+      // 作品の枠の応答を止めておき、読み込まれる前の地を見る。外のページの load は枠を待つので、住所が変わったところまでで進む
+      let release = () => {};
+      const held = new Promise<void>((resolve) => (release = resolve));
+      // 枠の URL に問い（?from= など）が付いても止める。止めた数も数える（止められていないのに通る、を防ぐ）
+      let heldRequests = 0;
+      const framePath = `/frame/${id}/1/embed.html`;
+      await context.route(
+        (url) => url.origin === ownOrigin() && url.pathname === framePath,
+        async (route) => {
+          heldRequests += 1;
+          await held;
+          await route.continue();
+        },
+      );
+      await openOutside(context, page, `${ownOrigin()}/e/${id}`, 'commit');
+      const frameElement = embed(page).locator('iframe[data-ld-frame]');
+      await expect(frameElement).toBeAttached();
+      await expect.poll(() => heldRequests, { message: id }).toBe(1);
+      // html、body、作品の枠の要素の地
+      const backgrounds = () =>
+        embedFrame(page).evaluate(() =>
+          [document.documentElement, document.body, document.querySelector('iframe[data-ld-frame]')!].map((element) => getComputedStyle(element).backgroundColor),
+        );
+      expect(await backgrounds(), id).toEqual([before, before, TRANSPARENT]);
+      await expect(frameElement).not.toHaveAttribute('data-ld-loaded', '');
+      release();
+      // 読み込めた（見張りが「読み込めた」の知らせを受けた）後
+      await expect(frameElement).toHaveAttribute('data-ld-loaded', '');
+      await expect.poll(backgrounds, { message: id }).toEqual([after, after, TRANSPARENT]);
+      expect(workPath(page)).toBe(framePath);
+      await context.unrouteAll();
+    }
+  });
+
+  test('全画面の住所（/p/<id>/wall）の地は変えない：文書の作品でも、前と同じ黒', async ({ request }) => {
+    const wall = await request.get(`/p/${DOC_ID}/wall`);
+    expect(wall.status()).toBe(200);
+    const body = await wall.text();
+    expect(body).toContain('<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000000}');
+    expect(body).not.toContain('transparent');
+  });
+
   test('mal-doc：外の枠の中の文書からも、通信、上のページ、親の DOM、新しい窓、フォーム、外へのリンクのどれも届かない', async ({ context, page }) => {
     const { seen } = await openOutside(context, page, `${ownOrigin()}/e/mal-doc`);
     const tabs: Page[] = [];
@@ -203,15 +254,31 @@ test.describe('文書の作品（DOC001）も外のサイトの中で動く', ()
     expect(seen).toEqual([]);
     expect(tabs).toEqual([]);
     expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
-    // 枠を移すもの（外へのリンク、location の代入）は最後に。移れないので、外へ届かない
-    await frame.locator('#link').click().catch(() => {});
-    await page.waitForTimeout(AFTER_GUARD_MS);
-    await workFrame(page).locator('#nav').click({ timeout: 5000 }).catch(() => {});
-    await page.waitForTimeout(AFTER_GUARD_MS);
-    expect(seen).toEqual([]);
-    expect(tabs).toEqual([]);
-    expect(withoutQuery(page.url())).toBe(`${OUTSIDE}/post`);
-    await expect(embed(page).locator('iframe[data-ld-frame]')).toBeAttached();
+    // 枠を移すもの（外へのリンク、location の代入）は最後に。移れないので、外へ届かない。
+    // 押せたことも確かめる：枠が移ろうとすると、/e/ の文書の CSP（frame-src 'self'）が止め、/e/ の文書に securitypolicyviolation が届く。
+    // 押せなかったら届かない。止めた後は、Chromium と WebKit では見張りが元の URL で読み直し、Firefox では文書がそのまま残る（どちらも元の作品）
+    const frameElement = embed(page).locator('iframe[data-ld-frame]');
+    await embedFrame(page).evaluate(() => {
+      const blocked: string[] = [];
+      document.addEventListener('securitypolicyviolation', (event) => blocked.push(`${event.violatedDirective} ${event.blockedURI}`));
+      (window as unknown as { __ldBlocked: string[] }).__ldBlocked = blocked;
+    });
+    const blocked = () => embedFrame(page).evaluate(() => [...(window as unknown as { __ldBlocked: string[] }).__ldBlocked]);
+    for (const [index, target] of ['#link', '#nav'].entries()) {
+      await expect(workFrame(page).locator('html'), target).toHaveAttribute('data-ready', '1');
+      await workFrame(page).locator(target).click();
+      await expect.poll(blocked, { message: target }).toHaveLength(index + 1);
+      expect((await blocked())[index], target).toMatch(/^frame-src https:\/\/evil\.example/);
+      await page.waitForTimeout(AFTER_GUARD_MS);
+      // 枠は元の作品のまま（外のページでも、ブラウザのエラーの画面でもない）
+      await expect(workFrame(page).locator('html'), target).toHaveAttribute('data-ready', '1');
+      await expect(frameElement).toHaveAttribute('data-ld-loaded', '');
+      expect(workPath(page), target).toBe('/frame/mal-doc/1/embed.html');
+      expect(seen, target).toEqual([]);
+      expect(tabs, target).toEqual([]);
+      expect(withoutQuery(page.url()), target).toBe(`${OUTSIDE}/post`);
+    }
+    await expect(frameElement).toBeAttached();
   });
 });
 
