@@ -29,7 +29,21 @@ import { isSameOrigin } from './origin';
 import { OUTLINE_CONTENT_TYPE, OUTLINE_FILE, outlineFromBytes, outlineJson } from './outline';
 import { purgeWithRetry } from './purge';
 import { takePostQuota, takeReviewQuota } from './quota';
-import { PRIVATE_WORKS_LIMIT, REVISION_ID, canPost, countPrivateWorks, draftFrameUrls, draftThumbUrl, loadRevisionFiles, ownedRevision, ownedWork, revisionFile, type RevisionRow } from './revisions';
+import {
+  PRIVATE_WORKS_LIMIT,
+  REVISION_ID,
+  canPost,
+  countPrivateWorks,
+  draftFrameUrls,
+  draftThumbUrl,
+  historyStatusSql,
+  loadRevisionFiles,
+  ownedRevision,
+  ownedWork,
+  revisionFile,
+  type OwnedWork,
+  type RevisionRow,
+} from './revisions';
 import { getSessionUser, randomHex, type SessionUser } from './session';
 import type { ThumbError, ThumbResult } from './thumb';
 import { CONTENT_TYPES, compareVersions } from './upload';
@@ -297,9 +311,14 @@ async function saveDraft(c: PostContext, workId: string | null): Promise<Respons
   return c.json(result.body, result.status);
 }
 
+/** 版の画像（サムネイルと共有の画像）。読み直した後のもの */
+type DraftImages = Pick<ThumbResult, 'thumb' | 'og' | 'width' | 'height'>;
+
 /**
  * 下書きを確かめて書く。新しい作品（workId が null）、新しい版、今の下書きの上書きのどれか。
- * 画面の口（saveDraft）と AI の口（worker/apiV1.ts）が同じものを使う：同じ検査、同じ上限、同じ置き方。
+ * 画面の口（saveDraft）と AI の口（worker/apiV1.ts）と「この版に戻す」（WS004）が同じものを使う：同じ検査、同じ上限、同じ置き方。
+ * - images：画像を出さないときに使う、読み直し済みの画像（戻す版の画像）。ないときは、いちばん新しい版の画像を引き継ぐ。
+ * - newOnly：直している途中の版（下書き、審査待ち）があれば上書きせずに断る（戻すは、版を消さない、上書きしない）。
  */
 export async function writeDraft(
   env: Env,
@@ -307,7 +326,7 @@ export async function writeDraft(
   workId: string | null,
   fields: DraftFields,
   meta: PostMeta,
-  { via = null, privateBound = false }: { via?: string | null; privateBound?: boolean } = {},
+  { via = null, privateBound = false, images: givenImages = null, newOnly = false }: { via?: string | null; privateBound?: boolean; images?: DraftImages | null; newOnly?: boolean } = {},
 ): Promise<DraftResult> {
   const db = env.DB;
   const fail = (body: { error: string } & Record<string, unknown>, status: 400 | 403 | 404 | 409 | 422 | 429): DraftResult => ({ ok: false, status, body });
@@ -354,6 +373,7 @@ export async function writeDraft(
   const open = revisions.find((revision) => revision.status === 'draft' || revision.status === 'submitted');
   // 審査中の版は変えない。見ているものと承認するものがずれないように
   if (open?.status === 'submitted') return fail({ error: 'in_review' }, 409);
+  if (open && newOnly) return fail({ error: 'has_draft' }, 409);
 
   const { type, platform } = workShape(meta.category);
   // 文書の作品は、作品の契約の検査をしない（大きさと読める文字は、渡す側が checkDocument で見た。DOC001）
@@ -368,8 +388,10 @@ export async function writeDraft(
   const limited = await takePostQuota(db, user.id, !open, Date.now(), scope);
   if (limited) return fail({ error: 'rate_limited', limit: limited }, 429);
 
-  let images: Pick<ThumbResult, 'thumb' | 'og' | 'width' | 'height'> | null = null;
-  if (fields.thumb) {
+  let images: DraftImages | null = null;
+  if (!fields.thumb && givenImages) {
+    images = givenImages;
+  } else if (fields.thumb) {
     // wasm は要るときだけ読む（Worker の起動を重くしない）
     const { processThumb } = await import('./thumb');
     const made = await processThumb(fields.thumb);
@@ -637,14 +659,19 @@ post.post('/revisions/:rid/submit', async (c) => {
   if (revision.thumb_w <= 0) return c.json({ error: 'thumb_required' }, 422);
   // 自分だけの作品の版は自分だけの数え方で作られたので、審査に出すときに公開の数え方（1日10）で数える（MCP001）
   if (revision.work_status === 'private' && !(await takeReviewQuota(db, user.id))) return c.json({ error: 'rate_limited', limit: 'revisions' }, 429);
+  if (!(await markSubmitted(db, rid))) return c.json({ error: 'not_draft' }, 409);
+  return c.json({ id: rid, status: 'submitted' });
+});
+
+/** 下書きを審査待ちにする（「審査に出す」と「この版に戻す」の公開の作品。題とサムネイルが要る）。できなければ false。 */
+async function markSubmitted(db: D1Database, rid: string): Promise<boolean> {
   const now = Date.now();
   const result = await db
     .prepare(`UPDATE revisions SET status = 'submitted', submitted_at = ?1, updated_at = ?1 WHERE id = ?2 AND status = 'draft' AND title <> '' AND thumb_w > 0`)
     .bind(now, rid)
     .run();
-  if (result.meta.changes === 0) return c.json({ error: 'not_draft' }, 409);
-  return c.json({ id: rid, status: 'submitted' });
-});
+  return result.meta.changes > 0;
+}
 
 /** 自分の作品を取り下げる。公開から消える。直している最中の版も止まる。もう一度出すには、新しい版を作って審査に出す。 */
 post.post('/works/:id/revoke', async (c) => {
@@ -888,6 +915,98 @@ post.post('/works/:id/thumb', async (c) => {
     work_id: work.id,
     revision: { id: revisionId, version, status: 'private', thumb: draftThumbUrl(revisionId), thumb_w: made.width, thumb_h: made.height },
   });
+});
+
+/** 版の番号の形（workFile.ts と同じ）。ほかの形では D1 を読まない */
+const VERSION_FORM = /^[A-Za-z0-9._-]{1,32}$/;
+
+type RevertPlan =
+  | { ok: true; work: OwnedWork; target: RevisionRow; next: string; mode: 'private' | 'review' }
+  | { ok: false; status: 404 | 409; error: string };
+
+/**
+ * 「この版に戻す」で、どの版の中身で、何版を作るか（WS004「3」）。
+ * - 持ち主だけ。ほかの人には、ない作品と同じ 404。
+ * - 戻せるのは、版のタブに出る版だけ（revisions.ts の historyStatuses。公開の作品は承認済み、自分だけの作品は承認済みと自分だけの版）。
+ * - 今の版には戻さない。直している途中の版（下書き、審査待ち）があるときは断る（その版を上書きしない）。
+ */
+async function planRevert(db: D1Database, user: PostUser, workId: string, version: unknown): Promise<RevertPlan> {
+  if (typeof version !== 'string' || !VERSION_FORM.test(version)) return { ok: false, status: 404, error: 'not_found' };
+  const work = await ownedWork(db, workId);
+  if (!work || work.owner_id !== user.id) return { ok: false, status: 404, error: 'not_found' };
+  if (work.status !== 'approved' && work.status !== 'private') return { ok: false, status: 409, error: 'not_placed' };
+  const isPrivate = work.status === 'private';
+  const target = await db
+    .prepare(`SELECT * FROM revisions WHERE work_id = ? AND version = ? AND status IN (${historyStatusSql(isPrivate)})`)
+    .bind(work.id, version)
+    .first<RevisionRow>();
+  if (!target) return { ok: false, status: 404, error: 'not_found' };
+  if (target.version === work.version) return { ok: false, status: 409, error: 'current' };
+  const { results } = await db.prepare('SELECT version, status FROM revisions WHERE work_id = ?').bind(work.id).all<{ version: string; status: string }>();
+  const open = results.find((row) => row.status === 'draft' || row.status === 'submitted');
+  if (open) return { ok: false, status: 409, error: open.status === 'submitted' ? 'in_review' : 'has_draft' };
+  return { ok: true, work, target, next: nextVersion(results.map((row) => row.version)), mode: isPrivate ? 'private' : 'review' };
+}
+
+/** 確かめの窓に出す：何版の中身で、何版を作り、自分だけの版になるか審査に回るか（WS004「3」）。持ち主だけ。 */
+post.get('/works/:id/revert', async (c) => {
+  const user = c.get('user');
+  if (!canPost(c.env, user)) return c.json({ error: 'not_found' }, 404);
+  const plan = await planRevert(c.env.DB, user, c.req.param('id'), c.req.query('version'));
+  if (!plan.ok) return c.json({ error: plan.error }, plan.status);
+  return c.json({ work_id: plan.work.id, from: plan.target.version, version: plan.next, mode: plan.mode });
+});
+
+/**
+ * この版に戻す（WS004「3」）。古い版の中身で、新しい版を作る。版を消さない、上書きしない。
+ * 「新しい版を置く」と同じ道を通る：writeDraft（同じ検査、同じ上限、同じ置き方）で下書きを作り、
+ * 自分だけの作品なら「自分だけで置く」（placePrivate）で今の版に、公開の作品なら「審査に出す」で審査待ちにする（審査を飛ばす道は作らない）。
+ * 同意の3つは、どちらの道でも要る（確かめの窓で選ぶ）。中身と題と種類と画像は、戻す版のもの（作品の ID とリミックスの元は変えない）。
+ */
+post.post('/works/:id/revert', async (c) => {
+  const db = c.env.DB;
+  const user = c.get('user');
+  if (!canPost(c.env, user)) return c.json({ error: 'not_found' }, 404);
+  if (Number(c.req.header('Content-Length') ?? '0') > MAX_JSON_BYTES) return c.json({ error: 'bad_request' }, 400);
+  const body = (await c.req.json().catch(() => null)) as { version?: unknown; own?: unknown; mit?: unknown; terms?: unknown } | null;
+  const plan = await planRevert(db, user, c.req.param('id'), body?.version);
+  if (!plan.ok) return c.json({ error: plan.error }, plan.status);
+  if (body?.own !== true || body.mit !== true || body.terms !== true) return c.json({ error: 'confirm_required' }, 400);
+  const { work, target } = plan;
+
+  const files = await loadRevisionFiles(c.env.PARTS, target.r2_prefix);
+  if (!files) return c.json({ error: 'not_placed' }, 409);
+  // 戻す版の画像を、そのまま写す（読み直し済み）。なければ、いちばん新しい版の画像を引き継ぐ（writeDraft と同じ）
+  let images: DraftImages | null = null;
+  if (target.thumb_w > 0) {
+    const [thumb, og] = await Promise.all(['thumb.webp', 'og.png'].map((name) => c.env.PARTS.get(revisionFile(target.r2_prefix, name))));
+    if (thumb && og) images = { thumb: new Uint8Array(await thumb.arrayBuffer()), og: new Uint8Array(await og.arrayBuffer()), width: target.thumb_w, height: target.thumb_h };
+  }
+  const meta: PostMeta = {
+    id: null,
+    title: target.title,
+    remix_of: undefined,
+    category: target.category as Category,
+    subtype: target.subtype,
+    tags: JSON.parse(target.tags) as string[],
+    made_with: target.made_with as PostMeta['made_with'],
+  };
+  const fields: DraftFields =
+    typeof files.document === 'string' ? { html: '', css: '', js: null, thumb: null, document: files.document } : { html: files.html, css: files.css, js: files.js ?? null, thumb: null };
+  const written = await writeDraft(c.env, user, work.id, fields, meta, { images, newOnly: true });
+  if (!written.ok) return c.json(written.body, written.status);
+  const made = written.body.revision;
+
+  if (plan.mode === 'private') {
+    const revision = await ownedRevision(db, made.id);
+    const placed = revision ? await placePrivate(db, user.id, revision) : ({ ok: false, status: 409, body: { error: 'not_draft' } } as const);
+    // 置けなかったときは、作った版は下書きのまま残る（「新しい版を置く」の画面で続けられる）
+    if (!placed.ok) return c.json({ ...placed.body, draft: made.version }, placed.status);
+  } else if (!(await markSubmitted(db, made.id))) {
+    const error = target.title.trim() === '' ? 'title_required' : made.thumb_w <= 0 ? 'thumb_required' : 'not_draft';
+    return c.json({ error, draft: made.version }, error === 'not_draft' ? 409 : 422);
+  }
+  return c.json({ work_id: work.id, from: target.version, version: made.version, status: plan.mode === 'private' ? 'private' : 'submitted' }, 201);
 });
 
 /**

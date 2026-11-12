@@ -4,6 +4,7 @@
 
 import type { Outline, Section, Tech } from '@ludion/outline';
 import type { AboutSpot, WorkAbout, WorkLineage, WorkTree, WorkVersion } from '../src/data/pages';
+import { historyStatusSql } from './revisions';
 
 /** 「この作品について」に出す技術のまとまり */
 const SHOWN_GROUPS = new Set(['draw', 'motion', 'sound', 'input', 'care', 'a11y', 'storage', 'external']);
@@ -86,10 +87,11 @@ export function buildTree(outline: Outline): WorkTree {
  * 自分だけの作品（持ち主にだけ描く）は、自分だけの版も数える。リミックスは、どちらでも公開のものだけ。
  */
 export async function loadHistory(db: D1Database, workId: string, isPrivate: boolean): Promise<{ versions: WorkVersion[]; lineage: WorkLineage }> {
+  // どの版を出してよいかは revisions.ts の historyStatuses の1か所で決める（版の中身の読み口と同じ。WS004）
   const [versions, remixes, total] = await db.batch<Record<string, unknown>>([
     db
       .prepare(
-        `SELECT version, created_at FROM revisions WHERE work_id = ?1 AND status IN ('approved'${isPrivate ? ", 'private'" : ''})
+        `SELECT id, version, created_at FROM revisions WHERE work_id = ?1 AND status IN (${historyStatusSql(isPrivate)})
          ORDER BY created_at DESC, version DESC LIMIT 100`,
       )
       .bind(workId),
@@ -102,7 +104,9 @@ export async function loadHistory(db: D1Database, workId: string, isPrivate: boo
     db.prepare(`SELECT COUNT(*) AS n FROM works WHERE remix_of = ?1 AND status = 'approved'`).bind(workId),
   ]);
   return {
-    versions: versions.results.map((row) => ({ version: String(row.version), at: Number(row.created_at) })),
+    // 版の id は、自分だけの作品（持ち主にだけ描き、残さないページ）でだけ渡す。下書きの枠（/draft-frame/<id>/…）で動かすため。
+    // 公開の作品のページは人によって変えないので、版の番号と日時だけ（枠は /frame/<作品>/<版>/…）
+    versions: versions.results.map((row) => ({ version: String(row.version), at: Number(row.created_at), ...(isPrivate ? { rid: String(row.id) } : {}) })),
     lineage: {
       remixes: remixes.results.map((row) => ({ id: String(row.id), title: String(row.title), handle: String(row.handle) })),
       count: Number(total.results[0]?.n ?? 0),

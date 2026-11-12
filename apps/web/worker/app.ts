@@ -45,6 +45,8 @@ app.post('/auth/passkey/recovery', rateLimit('LIMIT_RECOVERY'));
 app.use('/api/post/*', rateLimit('LIMIT_ACCOUNT'));
 app.post('/api/post/works', rateLimit('LIMIT_POST'));
 app.post('/api/post/works/:id/revisions', rateLimit('LIMIT_POST'));
+// この版に戻す（WS004）。新しい版を作るので、新しい版を置くのと同じ束縛
+app.post('/api/post/works/:id/revert', rateLimit('LIMIT_POST'));
 app.use('/api/review/*', rateLimit('LIMIT_ACCOUNT'));
 // AI の口（docs/tasks/T037.md「2」）。鍵を確かめる前に、IP の束縛で数える（違う鍵を続けて試させない）。人ごとの上限は apiV1.ts
 // '/api/v1/*' は '/api/v1' にも当たる（Hono）。'/api/v1' にも付けると、1回の要求で2回数える

@@ -9,6 +9,7 @@ import { ThumbCapture } from '../components/ThumbCapture';
 import { WallpaperSheet } from '../components/WallpaperSheet';
 import { WorkAbout } from '../components/WorkAbout';
 import { WorkFiles } from '../components/WorkFiles';
+import { useVersions, VersionCompare, VersionList } from '../components/WorkVersions';
 import { ReportIssue } from '../components/ReportIssue';
 import { XLink } from '../components/XLink';
 import { useCopy, useLocale } from '../hooks/useCopy';
@@ -19,6 +20,7 @@ import { useAccount } from '../hooks/useAccount';
 import { useOwnWorks } from '../hooks/useOwnWorks';
 import { usePageData } from '../hooks/usePageData';
 import { useResetTitle } from '../hooks/useResetTitle';
+import { useTabsFit } from '../hooks/useTabsFit';
 import { trackEvent } from '../lib/analytics';
 import { COPIED_MS, postCount } from '../lib/count';
 import { fileOfSplat } from '../lib/codeAddress';
@@ -210,6 +212,8 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
   const state: WorkState = own ? stateOf(own) : isPrivate ? 'private' : 'public';
   const StateIcon = state === 'public' ? Globe : state === 'private' ? Lock : Clock;
   const newVersionPath = localizedPath(locale, `/new?work=${encodeURIComponent(work.id)}`);
+  // 版のタブ（WS004）：一覧は右の列、2つの版の違いは下の幅いっぱい。状態はここで1つ持つ
+  const versions = useVersions(work, page.versions, page.tree?.files.some((file) => file.name === 'index.html') ?? false);
 
   const tabs: { id: TabId; label: string; icon: typeof Code2; count?: number }[] = [
     { id: 'code', label: copy.work.tabs.code, icon: Code2 },
@@ -218,6 +222,8 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
     ...(isOwner ? [{ id: 'settings' as const, label: copy.work.tabs.settings, icon: SlidersHorizontal }] : []),
   ];
   const shownTab = tabs.some((item) => item.id === tab) ? tab : 'code';
+  // タブが増えたら（持ち主とわかって設定が出たら）、入るかを測り直す
+  const tabsFit = useTabsFit<HTMLDivElement>(tabs.map((item) => `${item.id}${item.count ?? ''}`).join());
 
   const onTabKey = (event: KeyboardEvent<HTMLDivElement>) => {
     const index = tabs.findIndex((item) => item.id === shownTab);
@@ -377,27 +383,44 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
           )}
 
           {/* 幅が足りないとき（狭い右の列で、長い言葉のタブ）だけ、列の中で横に送る。縦には送らない（送れる入れ物は、Firefox が Tab で止まるため） */}
-          <div role="tablist" aria-label={copy.work.tabs.label} onKeyDown={onTabKey} className="mt-3 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-site-line">
-            {tabs.map(({ id: tabId, label, icon: Icon, count }) => (
-              <button
-                key={tabId}
-                id={`${tabsId}-tab-${tabId}`}
-                type="button"
-                role="tab"
-                aria-selected={shownTab === tabId}
-                aria-controls={`${tabsId}-panel-${tabId}`}
-                tabIndex={shownTab === tabId ? 0 : -1}
-                onClick={() => setTab(tabId)}
-                className={`inline-flex h-11 flex-auto shrink-0 items-center justify-center gap-2 border-b-2 px-2.5 text-body font-semibold whitespace-nowrap ${
-                  shownTab === tabId ? 'border-site-fg text-site-fg' : 'border-transparent text-site-fg-2 hover:text-site-fg'
-                }`}
-              >
-                {/* 印は、タブの列が広いときだけ（768〜1023px の1列と、1280px以上の右の列） */}
-                <Icon size={16} strokeWidth={1.75} aria-hidden="true" className="hidden md:max-lg:block xl:block" />
-                {label}
-                {count !== undefined && count > 0 && <span className="rounded-chip bg-site-key px-1.5 text-small font-normal text-site-fg-3">{count}</span>}
-              </button>
-            ))}
+          {/* 入りきらないときは、入るまで詰める（hooks/useTabsFit.ts。印を消す → 余白を詰める → 設定を印だけ → 文字を小さく） */}
+          <div
+            ref={tabsFit.ref}
+            role="tablist"
+            aria-label={copy.work.tabs.label}
+            onKeyDown={onTabKey}
+            data-tabs-fit={tabsFit.level}
+            className={`mt-3 flex overflow-x-auto overflow-y-hidden border-b border-site-line ${tabsFit.level >= 2 ? '' : 'gap-1'}`}
+          >
+            {tabs.map(({ id: tabId, label, icon: Icon, count }) => {
+              // 設定のタブは、いちばん詰めた段では印だけにする（名前は読み上げに残す）
+              const iconOnly = tabId === 'settings' && tabsFit.level >= 3;
+              return (
+                <button
+                  key={tabId}
+                  id={`${tabsId}-tab-${tabId}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={shownTab === tabId}
+                  aria-controls={`${tabsId}-panel-${tabId}`}
+                  tabIndex={shownTab === tabId ? 0 : -1}
+                  onClick={() => setTab(tabId)}
+                  className={`inline-flex h-11 flex-auto shrink-0 items-center justify-center border-b-2 font-semibold whitespace-nowrap ${tabsFit.level >= 2 ? 'gap-1.5 px-1.5' : 'gap-2 px-2.5'} ${
+                    tabsFit.level >= 4 ? 'text-meta' : 'text-body'
+                  } ${shownTab === tabId ? 'border-site-fg text-site-fg' : 'border-transparent text-site-fg-2 hover:text-site-fg'}`}
+                >
+                  {/* 印は、タブの列が広いときだけ（768〜1023px の1列と、1280px以上の右の列）。入りきらなければ消す */}
+                  <Icon
+                    size={16}
+                    strokeWidth={1.75}
+                    aria-hidden="true"
+                    className={iconOnly ? 'block' : tabsFit.level >= 1 ? 'hidden' : 'hidden md:max-lg:block xl:block'}
+                  />
+                  {iconOnly ? <span className="sr-only">{label}</span> : label}
+                  {count !== undefined && count > 0 && <span className="rounded-chip bg-site-key px-1.5 text-small font-normal text-site-fg-3">{count}</span>}
+                </button>
+              );
+            })}
           </div>
 
         <div className="mt-4 min-w-0">
@@ -444,23 +467,9 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
             </button>
           </div>
 
-          {/* 版：今は一覧だけ（版の違いは WS004） */}
+          {/* 版：一覧（2つを選ぶと、下に違いと2つの動く作品。持ち主には「この版に戻す」。WS004） */}
           <div {...panelProps('versions')} tabIndex={0}>
-            {page.versions.length === 0 ? (
-              <p className="text-body text-site-fg-2">{copy.work.versions.none}</p>
-            ) : (
-              <ol className="divide-y divide-site-line rounded-card border border-site-line">
-                {page.versions.map(({ version, at }) => (
-                  <li key={version} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-body">
-                    <span className="font-semibold text-site-fg">{copy.work.version(version)}</span>
-                    <time dateTime={new Date(at).toISOString()} className="text-small text-site-fg-2">
-                      {new Date(at).toISOString().slice(0, 10)}
-                    </time>
-                    {version === work.version && <span className={BADGE}>{copy.work.versions.current}</span>}
-                  </li>
-                ))}
-              </ol>
-            )}
+            <VersionList work={work} title={work.title || copy.post.untitled} versions={page.versions} state={versions} canRevert={isOwner} />
           </div>
 
           {/* 系譜：元の作品と、この作品のリミックス（公開のものだけ） */}
@@ -546,6 +555,16 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
         <div data-work-files-panel="" hidden={shownTab !== 'code'}>
           <WorkFiles workId={work.id} version={work.version} tree={page.tree} credit={page.credit} snippet={snippet} file={openFile} onCopied={countCopy} />
         </div>
+      )}
+      {/* 2つの版の違い（版のタブの続き。幅いっぱい）。版のタブを開いている間だけ作る（2つの版の枠も、そのときだけ動かす） */}
+      {shownTab === 'versions' && (
+        <VersionCompare
+          work={work}
+          title={work.title || copy.post.untitled}
+          versions={page.versions}
+          state={versions}
+          frameSize={work.type === 'component' || work.platform === 'mobile' ? 'mobile' : 'desktop'}
+        />
       )}
 
       <WorkList heading={copy.work.moreFrom(handle)} works={more} onSelect={onSelectWork} />

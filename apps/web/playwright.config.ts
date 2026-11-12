@@ -107,6 +107,9 @@ export default defineConfig({
     // 作品のページのファイルの木と本文（WS003）。Chromium は pages で流れる
     { name: 'work-files-webkit', testMatch: /work-files\.pages\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     { name: 'work-files-firefox', testMatch: /work-files\.pages\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
+    // 版のタブ（WS004）：一覧、違い、2つの版の枠、戻す。人と作品は HTTP だけで作る。Chromium は pages で流れる
+    { name: 'work-versions-webkit', testMatch: /work-versions\.pages\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
+    { name: 'work-versions-firefox', testMatch: /work-versions\.pages\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
     // ヘッダーのスイッチを押した瞬間に色が変わる（docs/tasks/T035.md「11/11 9:10 の CTO の答え」の1）。Chromium は pages で流れる
     { name: 'theme-press-webkit', testMatch: /theme-press\.pages\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
     // 「動きを減らす」の扱いと WebGL の知らせ（docs/tasks/FIX-motion.md「3」）

@@ -3,14 +3,15 @@
 // - 版のファイルを、置いてあるとおりの文字で返す。クレジット行を足さないので、行の番号は地図（outline.json）と同じ。
 //   人が持ち出す文字（「ファイルをコピー」、/p/<id>/raw/<file>、/p/<id>/code）には、クレジット行が入る（CLAUDE.md 原則4）。ここは画面に出すためだけ。
 // - 公開の作品：承認済みの作品の、承認済みのその版だけ。cookie を読まない。人によって変えない（cachePolicy.ts でキャッシュする）。
-// - 自分だけの作品：持ち主のセッションにだけ、今の版を返す。残さない。ほかの人（運営も）には、ない作品と同じ 404。
+// - 自分だけの作品：持ち主のセッションにだけ、版のタブに出る版（今の版と、前の承認済みの版と自分だけの版。revisions.ts の historyStatuses）を返す。
+//   版のタブの違いを出すため（WS004）。残さない。ほかの人（運営も）には、ない作品と同じ 404。審査中、差し戻し、取り下げ、下書きの版は、持ち主にも返さない。
 // - 回数の制限はかけない（ページの本文を出すたびに読むため）。id、版、ファイルの名前は、D1 と R2 を読む前に形で弾く。
 // - text/plain と nosniff。作品の JS を、このオリジンのスクリプトとして読ませない。
 
 import { workFiles } from '@ludion/outline';
 import type { Context } from 'hono';
 import type { Env } from './env';
-import { approvedPrefix, loadRevisionFiles, privateCurrentRevision } from './revisions';
+import { approvedPrefix, loadRevisionFiles, privateHistoryRevision } from './revisions';
 import { getSessionUser } from './session';
 
 type FileContext = Context<{ Bindings: Env }>;
@@ -39,8 +40,8 @@ export async function renderWorkFile(c: FileContext): Promise<Response> {
   let isPrivate = false;
   if (!prefix) {
     // 公開されていない版だけ、cookie を読む
-    const revision = await privateCurrentRevision(db, id, await getSessionUser(c));
-    if (!revision || revision.version !== version) return notFound();
+    const revision = await privateHistoryRevision(db, id, version, await getSessionUser(c));
+    if (!revision) return notFound();
     prefix = revision.r2_prefix;
     isPrivate = true;
   }

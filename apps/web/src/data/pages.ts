@@ -66,8 +66,12 @@ export type WorkAbout = {
   tech: AboutTech[];
 };
 
-/** 版の一覧の1行（新しい順）。at は置いた時刻 */
-export type WorkVersion = { version: string; at: number };
+/**
+ * 版の一覧の1行（新しい順）。at は置いた時刻。
+ * rid は自分だけの作品のページ（持ち主にだけ描く）でだけ入る版の id。下書きの枠（/draft-frame/<rid>/…）でその版を動かすため（WS004）。
+ * 公開の作品のページには入れない（人によって変えないため）
+ */
+export type WorkVersion = { version: string; at: number; rid?: string };
 
 /** 系譜：この作品のリミックス（公開のものだけ）。count は全部の数 */
 export type WorkLineage = { remixes: { id: string; title: string; handle: string }[]; count: number };
