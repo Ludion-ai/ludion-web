@@ -9,6 +9,7 @@ import type { Creator, CreatorKind, MadeWith, Platform, WorkType } from '@ludion
 import { launch } from './browser.ts';
 import { ITEM_LABELS, checkWork, formatCheck, type CheckResult } from './check.ts';
 import { MAX_THUMB_BYTES, imageSize, makeAvatar, makeMonogramAvatar, makeOg, makeThumb } from './images.ts';
+import { outlineCommand, outlineLabel, readOutlineInput } from './outline.ts';
 import { startPreview } from './preview.ts';
 import { isWallpaperWork, launchForStills, makeStills, stillTime, type StillsBrowser } from './stills.ts';
 import { CREATOR_KINDS, HANDLE_PATTERN, ID_PATTERN, MADE_WITH } from '@ludion/rules';
@@ -41,6 +42,7 @@ const USAGE = `使い方（リポジトリの根で）：
   npx ld upload <id> [<id> …] --private [--env dev|prod]   （自分だけの作品として /api/v1 に置く）
   npx ld login [--env prod|dev]   （--private の鍵。ブラウザで「許可する」を1回押す。既定は prod）
   npx ld list [--fixtures]
+  npx ld outline <id か作品のフォルダか HTML 文書> [--functions] [--json] [--check]   （中身の地図。--check は行の確かめ）
   npx ld creator add <handle> --name <名前> [--x <URL>] [--site <URL>] --avatar <画像> [--fixtures]
   npx ld creator add <handle> --name <名前> --label [--x <URL>] [--avatar <画像>]   （運営のレーベル）`;
 
@@ -487,6 +489,33 @@ async function cmdCreator(args: string[]): Promise<number> {
   return 0;
 }
 
+// ---------------------------------------------------------------- outline
+
+/** ld outline：中身の地図（WS002）。id は works/ と fixtures/works/ から探し、なければフォルダか HTML 文書の場所として読む */
+function cmdOutline(args: string[]): number {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: { json: { type: 'boolean', default: false }, functions: { type: 'boolean', default: false }, check: { type: 'boolean', default: false } },
+  });
+  if (positionals.length === 0) fail('npx ld outline <id か作品のフォルダか HTML 文書>');
+  let failed = 0;
+  for (const target of positionals) {
+    const location = findWork(target);
+    const path = location ? location.dir : resolve(process.cwd(), target);
+    const input = readOutlineInput(path);
+    if (!input) fail(`作品が見つからない：${target}（works/ の id、part.html か index.html のあるフォルダ、または .html の文書）`);
+    const { text, problems } = outlineCommand(location ? location.id : outlineLabel(path), input, values);
+    console.log(text);
+    if (values.check) {
+      console.log(problems.length === 0 ? '行の確かめ：すべての分け目と技術の行が、そのファイルのその行を指す' : `行の確かめ：${problems.length} 件の違い\n${problems.map((p) => `  ${p}`).join('\n')}`);
+      if (problems.length > 0) failed++;
+    }
+    if (positionals.length > 1 && !values.json) console.log('');
+  }
+  return failed > 0 ? 1 : 0;
+}
+
 // ---------------------------------------------------------------- main
 
 export async function main(argv: string[]): Promise<number> {
@@ -509,6 +538,8 @@ export async function main(argv: string[]): Promise<number> {
         return await cmdLogin(args);
       case 'list':
         return await cmdList(args);
+      case 'outline':
+        return cmdOutline(args);
       case 'creator':
         return await cmdCreator(args);
       default:

@@ -1,9 +1,10 @@
 // AI の鍵と、AI の口 /api/v1（docs/tasks/T037.md）。手元の偽の GitHub と本物の workerd で通す。
 // 1つのテストごとに別の人でログインし、別の作品を作るので、互いの行に触らない。
 
+import { buildOutline } from '@ludion/outline';
 import { FRAME_RESPONSE_CSP } from '@ludion/render';
 import { expect, test } from '@playwright/test';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,6 +18,8 @@ const FAKE_GITHUB = `http://localhost:${process.env.LD_TEST_GITHUB_PORT}`;
 /** 開発のデータの、承認済みの作品（リミックスの元に使う）。 */
 const PUBLIC_WORK = 'seed-trail-guide';
 const FROM_IFRAME = { 'Sec-Fetch-Dest': 'iframe' };
+/** 画像を付ける試しに使う本物の PNG（1200×630） */
+const THUMB = readFileSync(join(WEB, '../../fixtures/works/fx-button/og.png'));
 const CONFIRM = { own: true, mit: true, terms: true };
 
 const quote = (text: string) => `'${text.replace(/'/g, "''")}'`;
@@ -32,6 +35,11 @@ function d1<T = Record<string, unknown>>(sql: string): T[] {
 }
 
 /** 手元の D1 か R2 のファイルを全部つないだもの（生の値が残っていないかを探す）。 */
+function r2(key: string): Buffer | null {
+  const result = spawnSync(process.execPath, [WRANGLER, 'r2', 'object', 'get', `ludion-parts/${key}`, '--local', '--persist-to', PERSIST, '--pipe'], { cwd: WEB, stdio: ['ignore', 'pipe', 'ignore'] });
+  return result.status === 0 && result.stdout.length > 0 ? result.stdout : null;
+}
+
 function dump(kind: 'd1' | 'r2'): string {
   const dir = join(PERSIST, 'v3', kind);
   const files = readdirSync(dir, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile());
@@ -562,6 +570,21 @@ test.describe('文書の作品（DOC001）', () => {
     const second = (await (await api(secret, `/api/v1/works/${id}`)).json()) as { code: string };
     expect(second.code.match(/UI by @/g)).toHaveLength(1);
     expect(second.code).toContain('>Count up<');
+
+    // 中身の地図（WS002）：AI の口で置いた文書の版にも outline.json。置いた文書から作る
+    const placed = d1<{ r2_prefix: string }>(`SELECT r2_prefix FROM revisions WHERE work_id = ${quote(id)} ORDER BY created_at DESC, rowid DESC LIMIT 1`)[0];
+    const outline = JSON.parse(r2(`${placed.r2_prefix}/outline.json`)!.toString());
+    expect(outline).toEqual(buildOutline({ html: '', css: '', js: null, document: r2(`${placed.r2_prefix}/index.html`)!.toString() }));
+    expect(outline).toMatchObject({ format: 'document', files: [{ name: 'index.html', language: 'html' }] });
+    expect(outline.tech.map((tech: { id: string }) => tech.id)).toEqual(['dom-css', 'pointer', 'localstorage']);
+    // 画像を付けた版（今の版のファイルを写す）にも、同じ地図
+    const form = new FormData();
+    form.append('thumb', new Blob([new Uint8Array(THUMB)], { type: 'image/png' }), 'x.png');
+    const withThumb = await owner.visitor.fetch(`/api/post/works/${id}/thumb`, { method: 'POST', body: form, headers: { Origin: ownOrigin() } });
+    expect(withThumb.status, await withThumb.clone().text()).toBe(200);
+    const copied = d1<{ r2_prefix: string }>(`SELECT r2_prefix FROM revisions WHERE work_id = ${quote(id)} ORDER BY created_at DESC, rowid DESC LIMIT 1`)[0];
+    expect(copied.r2_prefix).not.toBe(placed.r2_prefix);
+    expect(JSON.parse(r2(`${copied.r2_prefix}/outline.json`)!.toString())).toEqual(outline);
   });
 
   test('外を読むもの、2つのスクリプト、document：落とさない（枠の CSP が止める）。大きさと読めない文字は落とす。部品の作品に文書の版を置くと、その版は画面', async () => {

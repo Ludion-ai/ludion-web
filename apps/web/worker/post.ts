@@ -26,6 +26,7 @@ import { isRemixSource } from '../src/lib/isRemix';
 import { CATALOG_TAG, workTag } from './cachePolicy';
 import type { Env } from './env';
 import { isSameOrigin } from './origin';
+import { OUTLINE_CONTENT_TYPE, OUTLINE_FILE, outlineFromBytes, outlineJson } from './outline';
 import { purgeWithRetry } from './purge';
 import { takePostQuota, takeReviewQuota } from './quota';
 import { PRIVATE_WORKS_LIMIT, REVISION_ID, canPost, countPrivateWorks, draftFrameUrls, draftThumbUrl, loadRevisionFiles, ownedRevision, ownedWork, revisionFile, type RevisionRow } from './revisions';
@@ -256,7 +257,7 @@ function nextVersion(versions: string[]): string {
 }
 
 async function deletePrefix(bucket: R2Bucket, prefix: string): Promise<void> {
-  await bucket.delete(['meta.json', 'part.html', 'part.css', 'part.js', DOCUMENT_FILE, 'thumb.webp', 'og.png'].map((name) => revisionFile(prefix, name)));
+  await bucket.delete(['meta.json', 'part.html', 'part.css', 'part.js', DOCUMENT_FILE, 'thumb.webp', 'og.png', OUTLINE_FILE].map((name) => revisionFile(prefix, name)));
 }
 
 /** 下書きを保存する人。cookie のセッションの人か、AI の鍵の持ち主（worker/apiV1.ts）。 */
@@ -427,6 +428,9 @@ export async function writeDraft(
         ] as [string, Uint8Array, string][])
       : []),
   ];
+  // 中身の地図（WS002）。作れなくても置くことは止めない
+  const outline = outlineJson(document !== null ? { html: '', css: '', js: null, document } : { html: fields.html, css: fields.css, js: fields.js });
+  if (outline !== null) files.push([OUTLINE_FILE, outline, OUTLINE_CONTENT_TYPE]);
   await Promise.all(files.map(([name, body, contentType]) => env.PARTS.put(revisionFile(prefix, name), body, { httpMetadata: { contentType } })));
 
   const tags = JSON.stringify(meta.tags);
@@ -846,6 +850,9 @@ post.post('/works/:id/thumb', async (c) => {
     ['thumb.webp', made.thumb, CONTENT_TYPES['thumb.webp']],
     ['og.png', made.og, CONTENT_TYPES['og.png']],
   ];
+  // 中身は今の版と同じなので、地図も同じ形で作る（WS002）
+  const outline = outlineFromBytes(isDocument ? { html: null, css: null, js: null, document } : { html, css, js, document: null });
+  if (outline !== null) files.push([OUTLINE_FILE, outline, OUTLINE_CONTENT_TYPE]);
   await Promise.all(files.map(([name, body, contentType]) => c.env.PARTS.put(revisionFile(prefix, name), body, { httpMetadata: { contentType } })));
 
   // 1つのトランザクション。今の版がまだ今の版で、直している版がないときだけ、新しい版を足し（changes() > 0）、作品の今の版にする
