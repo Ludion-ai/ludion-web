@@ -23,6 +23,7 @@ const BACK_GAP = 15_000;
  * 本人の答え（GET /api/me）の後に読むので、最初の描画を待たせない。ページを移っても読み直さない（Shell の中に置く）。
  * 開いたとき、作品が 0 の人とログインしていない人は読みに行かない（ホームの API は GET /api/me の1本だけ。SPEC.md 10）。
  * ログインしている人は、画面に戻ったときに読み直す（ほかの所で置いた作品を拾う。開いたときに 0 だった人も）。定期的には読まない。
+ * 前に読んでから15秒たっていない戻りは、その場では読まず、15秒の所で1回だけ読む（タイマーは1つ。その時に見えていなければ読まず、次に戻ったときに読む）。
  */
 export function OwnWorksProvider({ children }: { children: ReactNode }) {
   const { user, ready, worksCount } = useAccount();
@@ -32,6 +33,13 @@ export function OwnWorksProvider({ children }: { children: ReactNode }) {
   const inFlight = useRef(0);
   /** 前に読んだ時刻。開いたときに「読まない」と決めた時刻も入れる（開いてすぐの focus で読まないように） */
   const readAt = useRef(0);
+  /** 15秒の決まりで読まなかった戻りを、15秒の所で読むタイマー（1つだけ） */
+  const later = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelLater = useCallback(() => {
+    if (later.current === null) return;
+    clearTimeout(later.current);
+    later.current = null;
+  }, []);
 
   /**
    * back：画面に戻ったときの読み直し。今の行を残したまま、答えに合わせる。
@@ -41,6 +49,8 @@ export function OwnWorksProvider({ children }: { children: ReactNode }) {
     const turn = ++loading.current;
     inFlight.current += 1;
     readAt.current = Date.now();
+    // 今から読むので、読まなかった戻りの分も、この答えに入る
+    cancelLater();
     setState((current) => (current.status === 'ready' ? current : { status: 'loading' }));
     try {
       const works = await fetchOwnWorks();
@@ -62,7 +72,7 @@ export function OwnWorksProvider({ children }: { children: ReactNode }) {
     } finally {
       inFlight.current -= 1;
     }
-  }, []);
+  }, [cancelLater]);
 
   useEffect(() => {
     if (!ready) return;
@@ -82,10 +92,21 @@ export function OwnWorksProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!ready || !user) return;
     const back = () => {
-      if (document.visibilityState !== 'visible' || inFlight.current > 0) return;
+      if (document.visibilityState !== 'visible') return;
       const since = Date.now() - readAt.current;
       // 端末の時計が戻っていたら（負の値）、読む
-      if (since >= 0 && since < BACK_GAP) return;
+      if (since >= 0 && since < BACK_GAP) {
+        // 15秒たっていないので、その場では読まない。15秒の所で1回だけ読む（もうタイマーがあれば足さない）
+        if (later.current === null) later.current = setTimeout(atGap, BACK_GAP - since);
+        return;
+      }
+      if (inFlight.current > 0) return;
+      void load(true);
+    };
+    // 15秒の所。見えていなければ読まない（次に戻ったときに、15秒たっているので読む）
+    const atGap = () => {
+      later.current = null;
+      if (document.visibilityState !== 'visible' || inFlight.current > 0) return;
       void load(true);
     };
     const shown = (event: PageTransitionEvent) => {
@@ -98,14 +119,16 @@ export function OwnWorksProvider({ children }: { children: ReactNode }) {
       document.removeEventListener('visibilitychange', back);
       window.removeEventListener('focus', back);
       window.removeEventListener('pageshow', shown);
+      cancelLater();
     };
-  }, [ready, user, load]);
+  }, [ready, user, load, cancelLater]);
 
   const replace = useCallback((works: OwnWork[]) => {
     loading.current += 1;
     readAt.current = Date.now();
+    cancelLater();
     setState({ status: 'ready', works });
-  }, []);
+  }, [cancelLater]);
 
   const value = useMemo<OwnWorks>(() => ({ state, reload: () => void load(false), replace }), [state, load, replace]);
   return <OwnWorksContext value={value}>{children}</OwnWorksContext>;

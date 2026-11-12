@@ -7,8 +7,34 @@ import { Visitor, ownOrigin } from './visitor';
 
 const CONFIRM = { own: true, mit: true, terms: true };
 const WORKS = 'GET /api/post/works';
-/** ページを開いた時刻。Date.now() をこの値に止め、進めるときだけ変える（タイマーは動いたまま）。15秒の境を、試験の速さに頼らずに確かめるため */
+/**
+ * ページを開いた時刻。時計（Date.now() とタイマー）をこの値で止めてから開き、進めるときだけ進める（stopClock、at）。
+ * 15秒の境と、15秒の所で読むタイマーを、試験の速さに頼らずに確かめるため
+ */
 const OPENED = Date.UTC(2026, 10, 12, 3, 0, 0);
+
+/** 時計を止める。ページを開く前に呼ぶ。開いた後は、at で進めたときだけ、時刻が進み、タイマーが動く */
+async function stopClock(page: Page) {
+  await page.clock.install({ time: OPENED - 1_000 });
+  await page.clock.pauseAt(OPENED);
+}
+/** 開いた時刻から ms たった所まで、時計を進める（その間に来るタイマーは動く） */
+const at = (page: Page, ms: number) => page.clock.pauseAt(OPENED + ms);
+/**
+ * 時計を 100ms ずつ進めながら、read が expected を返すまで待つ。「自分の作品」の中身とスマホのシートは lazy の部品で、
+ * 初めて出すとき、React は代わりの物を出してからタイマーで中身に替えるので、時計を止めたままだと出ないことがある。
+ * 進めるのは合わせて1秒ほどで、試験が見る15秒の境には届かない（境は開いた時刻から数え、at で決まった時刻に進める）
+ */
+async function stepUntil<T>(page: Page, read: () => Promise<T>, expected: T) {
+  await expect
+    .poll(async () => {
+      await page.clock.runFor(100);
+      return read();
+    })
+    .toBe(expected);
+}
+/** 行が count 個になるまで、時計を進めながら待つ */
+const shown = (page: Page, rows: Locator, count: number) => stepUntil(page, () => rows.count(), count);
 const unique = (label: string) => `${label}${randomBytes(4).toString('hex')}`;
 
 /** AI がふつうに書く1つの HTML 文書。 */
@@ -50,6 +76,16 @@ async function openAs(page: Page, visitor: Visitor, path: string) {
   await page.context().addCookies([{ name: 'ld_session', value: visitor.cookies.get('ld_session')!, url: ownOrigin() }]);
   await page.goto(path);
   await expect(page).toHaveURL(path);
+}
+
+/**
+ * 作品のある人として開き、開いたときの読み（GET /api/post/works）の答えが来るまで待つ。読みは止めた時計の OPENED に始まるので、
+ * 前に読んだ時刻は OPENED になる。この後で shown が時計を進めても、15秒の境は開いた時刻から数えたまま
+ */
+async function openWithWorks(page: Page, visitor: Visitor) {
+  const answered = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/post/works');
+  await openAs(page, visitor, '/');
+  await (await answered).finished();
 }
 
 /** ページが出した API の要求を、出た順に集める。 */
@@ -94,33 +130,33 @@ const idsOf = (rows: Locator) => rows.evaluateAll((items) => items.map((item) =>
 test.describe('PC の左のナビ：画面に戻ったときに読み直す（FIX-nav-refresh）', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('作品のある人：タブに戻ると、ほかで置いた作品が一番上に出る。読み直しの間も今の行は消えない。15秒以内は読まない。1回の戻りで要求は1本', async ({ page }) => {
+  test('作品のある人：タブに戻ると、ほかで置いた作品が一番上に出る。読み直しの間も今の行は消えない。15秒以内は、その場では読まない。1回の戻りで要求は1本', async ({ page }) => {
     const owner = await person('navback');
     const a = await put(owner.secret, 'Back A');
     const b = await put(owner.secret, 'Back B');
     const api = record(page);
-    await page.clock.setFixedTime(OPENED);
-    await openAs(page, owner.visitor, '/');
+    await stopClock(page);
+    await openWithWorks(page, owner.visitor);
     const rows = aside(page).locator('[data-own-nav-work]');
-    await expect(rows).toHaveCount(2);
+    await shown(page, rows, 2);
     expect(await idsOf(rows)).toEqual([b, a]);
     await settled(page, api);
     expect(reads(api), '開いたときの1回').toBe(1);
 
     // ほかの所で置く。開いているページには、まだ出ない
     const c = await put(owner.secret, 'Back C');
-    // 開いてから15秒以内（1ミリ秒前）に戻っても、読まない
+    // 開いてから15秒以内（1ミリ秒前）に戻っても、その場では読まない
     await leave(page);
-    await page.clock.setFixedTime(OPENED + 14_999);
+    await at(page, 14_999);
     await comeBack(page);
     await focusWindow(page);
     await settled(page, api);
-    expect(reads(api), '15秒以内は読まない').toBe(1);
+    expect(reads(api), '15秒以内は、その場では読まない').toBe(1);
     await expect(rows).toHaveCount(2);
 
-    // 15秒たった。離れる合図（hidden）では読まない
+    // 15秒たった。その前に離れたので、15秒の所でも読まない。離れる合図（hidden）でも読まない
     await leave(page);
-    await page.clock.setFixedTime(OPENED + 15_000);
+    await at(page, 15_000);
     await focusWindow(page);
     await settled(page, api);
     expect(reads(api), '見えていない間は読まない').toBe(1);
@@ -171,10 +207,10 @@ test.describe('PC の左のナビ：画面に戻ったときに読み直す（FI
     const a = await put(owner.secret, 'Focus A');
     const b = await put(owner.secret, 'Focus B');
     const api = record(page);
-    await page.clock.setFixedTime(OPENED);
-    await openAs(page, owner.visitor, '/');
+    await stopClock(page);
+    await openWithWorks(page, owner.visitor);
     const rows = aside(page).locator('[data-own-nav-work]');
-    await expect(rows).toHaveCount(2);
+    await shown(page, rows, 2);
     expect(await idsOf(rows)).toEqual([b, a]);
 
     const link = (id: string) => aside(page).locator(`[data-own-nav-work="${id}"]`).getByRole('link');
@@ -189,7 +225,7 @@ test.describe('PC の左のナビ：画面に戻ったときに読み直す（FI
     expect(reads(api)).toBe(1);
     expect(await idsOf(rows)).toEqual([b, a]);
     await expect(link(a)).toHaveAccessibleName(/版 1 自分だけ$/);
-    await page.clock.setFixedTime(OPENED + 15_000);
+    await at(page, 15_000);
     await focusWindow(page);
     await expect(rows).toHaveCount(3);
     expect(await idsOf(rows)).toEqual([c, a, b]);
@@ -202,7 +238,7 @@ test.describe('PC の左のナビ：画面に戻ったときに読み直す（FI
   test('作品が 0 の人：開いたときは読まない。戻ると読み、初めての作品が出て、ナビが開いた形に変わる（0 → 1）', async ({ page }) => {
     const owner = await person('navzero');
     const api = record(page);
-    await page.clock.setFixedTime(OPENED);
+    await stopClock(page);
     await openAs(page, owner.visitor, '/');
     await expect(aside(page).getByRole('button', { name: '左のナビを広げる' })).toBeVisible();
     await expect(aside(page)).toHaveAttribute('data-nav-form', 'closed');
@@ -219,30 +255,119 @@ test.describe('PC の左のナビ：画面に戻ったときに読み直す（FI
     expect(reads(api)).toBe(0);
     await expect(aside(page).locator('[data-own-nav-work]')).toHaveCount(0);
     await expect(aside(page)).toHaveAttribute('data-nav-form', 'closed');
-    await page.clock.setFixedTime(OPENED + 15_000);
+    await at(page, 15_000);
     await comeBack(page);
-    const rows = aside(page).locator('[data-own-nav-work]');
-    await expect(rows).toHaveCount(1);
-    expect(await idsOf(rows)).toEqual([first]);
+    // 読んだ答えで、ナビが開いた形に変わる
     await expect(aside(page)).toHaveAttribute('data-nav-form', 'open');
+    // 開いた形で初めて出す「自分の作品」の中身（lazy）は、時計を進めながら待つ（読み直しのタイマーは、読んだときに消えている。下で要求が増えていないことを見る）
+    const rows = aside(page).locator('[data-own-nav-work]');
+    await shown(page, rows, 1);
+    expect(await idsOf(rows)).toEqual([first]);
     await settled(page, api);
     expect(reads(api)).toBe(1);
   });
 
+  test('見る → 端末に戻る → 作品が置かれる → 15秒以内にまた見る：15秒の所で1回だけ読み、作品が出る。タイマーは1つで、その後は読まない', async ({ page }) => {
+    const owner = await person('navlater');
+    const a = await put(owner.secret, 'Later A');
+    const api = record(page);
+    await stopClock(page);
+    await openWithWorks(page, owner.visitor);
+    const rows = aside(page).locator('[data-own-nav-work]');
+    await shown(page, rows, 1);
+    await settled(page, api);
+    expect(reads(api), '開いたときの1回').toBe(1);
+    const from = api.length;
+
+    // 端末に戻る（タブを離れる）。そこで作品が置かれる
+    await at(page, 3_000);
+    await leave(page);
+    const b = await put(owner.secret, 'Later B');
+    // 15秒以内にまた見る。その場では読まない
+    await at(page, 8_000);
+    await comeBack(page);
+    await focusWindow(page);
+    // 何度戻っても、タイマーは1つ
+    await at(page, 10_000);
+    await leave(page);
+    await comeBack(page);
+    await focusWindow(page);
+    await settled(page, api);
+    expect(reads(api), '15秒以内は、その場では読まない').toBe(1);
+    await expect(rows).toHaveCount(1);
+
+    // 15秒の1ミリ秒前は、まだ読まない
+    await at(page, 14_999);
+    await settled(page, api);
+    expect(reads(api)).toBe(1);
+    // 15秒の所で読み、作品が一番上に出る
+    await at(page, 15_000);
+    await expect.poll(() => reads(api)).toBe(2);
+    await expect(rows).toHaveCount(2);
+    expect(await idsOf(rows)).toEqual([b, a]);
+
+    // その後は、戻らなければ読まない（定期的には読まない）
+    await at(page, 60_000);
+    await settled(page, api);
+    expect(reads(api), 'タイマーは1回だけ').toBe(2);
+    // 戻りの分の要求は、GET /api/post/works の1本だけ
+    expect(api.slice(from).filter((line) => !line.includes('?mark='))).toEqual([WORKS]);
+  });
+
+  test('15秒以内に戻った後、15秒の所で見えていなければ読まず、次に戻ったときに読む', async ({ page }) => {
+    const owner = await person('navlaterhidden');
+    const a = await put(owner.secret, 'Hidden A');
+    const api = record(page);
+    await stopClock(page);
+    await openWithWorks(page, owner.visitor);
+    const rows = aside(page).locator('[data-own-nav-work]');
+    await shown(page, rows, 1);
+    await settled(page, api);
+    expect(reads(api)).toBe(1);
+
+    await leave(page);
+    const b = await put(owner.secret, 'Hidden B');
+    // 15秒以内に戻り、また離れる
+    await at(page, 5_000);
+    await comeBack(page);
+    await at(page, 6_000);
+    await leave(page);
+    // 15秒の所では、見えていないので読まない。その後も読まない
+    await at(page, 15_000);
+    await at(page, 40_000);
+    await settled(page, api);
+    expect(reads(api), '見えていない間は読まない').toBe(1);
+    await expect(rows).toHaveCount(1);
+
+    // 次に戻ったとき（15秒たっている）に読む
+    await comeBack(page);
+    await expect.poll(() => reads(api)).toBe(2);
+    await expect(rows).toHaveCount(2);
+    expect(await idsOf(rows)).toEqual([b, a]);
+  });
+
   test('ログインしていない人：戻っても読まない', async ({ page }) => {
     const api = record(page);
-    await page.clock.setFixedTime(OPENED);
+    await stopClock(page);
     await page.goto('/');
     await expect(page.getByRole('link', { name: 'ログイン', exact: true })).toBeVisible();
     await settled(page, api);
     await leave(page);
-    await page.clock.setFixedTime(OPENED + 15_000);
+    await at(page, 15_000);
     await page.evaluate(() => {
       Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
       document.dispatchEvent(new Event('visibilitychange'));
       window.dispatchEvent(new Event('focus'));
       window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
     });
+    await settled(page, api);
+    expect(reads(api)).toBe(0);
+    // 15秒以内の戻りの後、15秒の所でも読まない（タイマーを置かない）
+    await leave(page);
+    await at(page, 20_000);
+    await comeBack(page);
+    await focusWindow(page);
+    await at(page, 40_000);
     await settled(page, api);
     expect(reads(api)).toBe(0);
   });
@@ -254,12 +379,13 @@ test.describe('スマホのシート：画面に戻ったときに読み直す�
   test('開いているシートにも、戻ると増えた行が一番上に入る。フォーカスは同じ作品の行に残る', async ({ page }) => {
     const owner = await person('navsheetback');
     const a = await put(owner.secret, 'Sheet A');
-    await page.clock.setFixedTime(OPENED);
-    await openAs(page, owner.visitor, '/');
+    await stopClock(page);
+    await openWithWorks(page, owner.visitor);
     await page.locator('nav.fixed').getByRole('button', { name: '作品' }).click();
     const sheet = page.getByRole('dialog', { name: '自分の作品' });
+    await stepUntil(page, () => sheet.isVisible(), true);
     const rows = sheet.locator('[data-own-nav-work]');
-    await expect(rows).toHaveCount(1);
+    await shown(page, rows, 1);
     const link = sheet.locator(`[data-own-nav-work="${a}"]`).getByRole('link');
     await link.focus();
     await expect(link).toBeFocused();
@@ -267,7 +393,7 @@ test.describe('スマホのシート：画面に戻ったときに読み直す�
     await leave(page);
     const b = await put(owner.secret, 'Sheet B');
     await expect(rows).toHaveCount(1);
-    await page.clock.setFixedTime(OPENED + 15_000);
+    await at(page, 15_000);
     await comeBack(page);
     await expect(rows).toHaveCount(2);
     expect(await idsOf(rows)).toEqual([b, a]);
