@@ -105,7 +105,19 @@ const BADGE_SCRIPT =
   `let touch=false;b.addEventListener('pointerdown',(e)=>{touch=e.pointerType==='touch'});b.addEventListener('keydown',()=>{touch=false});` +
   `b.addEventListener('click',(e)=>{const t=touch;touch=false;if(!b.hasAttribute('data-ld-mark')||!t)return;e.preventDefault();b.removeAttribute('data-ld-mark');arm()})})();`;
 
-function embedDocument(body: string, title: string, background: string): string {
+/** 地の色。作品の地の色を、枠が読み込まれる前から塗る */
+const solidBackground = (color: string) => `html,body{background:${color}}`;
+
+/**
+ * 文書の作品（DOC001）の地。part.css がないので作者の地の色が読めない。枠が読み込まれるまでは塗らず（透明）、外のページの地を見せる。
+ * 黒い箱が先に見えないように。読み込めた後（見張りが枠に data-ld-loaded を付けた後。frameGuard.ts）は、今までどおり黒。
+ * 作品のページのプレビューの入れ物と同じ形（src/index.css の [data-frame-bg]）。
+ */
+const DOCUMENT_BACKGROUND =
+  'html,body{background:transparent}' +
+  'html:has(iframe[data-ld-frame][data-ld-loaded]),html:has(iframe[data-ld-frame][data-ld-loaded]) body{background:#000000}';
+
+function embedDocument(body: string, title: string, backgroundCss: string): string {
   return [
     '<!doctype html>',
     '<html lang="ja">',
@@ -114,7 +126,7 @@ function embedDocument(body: string, title: string, background: string): string 
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<meta name="robots" content="${NOINDEX}">`,
     `<title>${escapeHtml(title)}</title>`,
-    `<style>html,body{background:${background}}${STYLE}</style>`,
+    `<style>${backgroundCss}${STYLE}</style>`,
     // 枠より先に動かす（作品のページと同じ。frameGuard.ts）
     `<script>${frameGuard}${PAUSE_SCRIPT}</script>`,
     '</head>',
@@ -128,7 +140,7 @@ const HEADERS = { 'Content-Type': 'text/html; charset=utf-8', 'X-Robots-Tag': NO
 
 /** ない作品と、公開していない作品は 404。外のサイトの枠の中に出るので、404 も枠に入れる。文字だけ（GA4 を読まない）。 */
 function notFound(): Response {
-  return new Response(embedDocument('<p>Not found · 見つかりません</p>', 'Ludion', '#ffffff'), { status: 404, headers: HEADERS });
+  return new Response(embedDocument('<p>Not found · 見つかりません</p>', 'Ludion', solidBackground('#ffffff')), { status: 404, headers: HEADERS });
 }
 
 export async function renderEmbedPage(c: EmbedContext): Promise<Response> {
@@ -136,8 +148,8 @@ export async function renderEmbedPage(c: EmbedContext): Promise<Response> {
   const files = found && (await loadRevisionFiles(c.env.PARTS, found.prefix));
   if (!found || !files) return notFound();
   const { work } = found;
-  // 枠が読み込まれるまでの地は、作者の背景の色（作品のページの枠と同じ）
-  const background = authorBackground(files.css) ?? '#000000';
+  // 枠が読み込まれるまでの地は、作者の背景の色（作品のページの枠と同じ）。文書の作品は、読み込まれるまで透明
+  const background = typeof files.document === 'string' ? DOCUMENT_BACKGROUND : solidBackground(authorBackground(files.css) ?? '#000000');
   const badge =
     `<a class="ld-badge" data-ld-badge="" href="${escapeHtml(workPath(work.id))}" target="_blank" rel="noopener" ` +
     `aria-label="${escapeHtml(work.title)} · Ludion">${MARK}<span>Ludion · Remix</span></a>`;
