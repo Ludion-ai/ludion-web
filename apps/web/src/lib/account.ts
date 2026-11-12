@@ -10,7 +10,8 @@ export type AccountUser = {
 };
 
 /** GET /api/me の形（docs/tasks/T009.md「2」）。 */
-export type MeResponse = { user: AccountUser; liked: string[]; bookmarked: string[]; can_post: boolean } | { user: null };
+/** works_count は自分の作品の数（どの状態も。左のナビ、WS001） */
+export type MeResponse = { user: AccountUser; liked: string[]; bookmarked: string[]; can_post: boolean; works_count: number } | { user: null };
 
 export type ToggleKind = 'like' | 'bookmark';
 

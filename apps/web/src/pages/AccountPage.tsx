@@ -60,9 +60,9 @@ function useFormatDay() {
   return (time: number) => new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(time);
 }
 
-function Section({ heading, children }: { heading: string; children: ReactNode }) {
+function Section({ id, heading, children }: { id?: string; heading: string; children: ReactNode }) {
   return (
-    <section className="mt-8 border-t border-site-line pt-6">
+    <section id={id} className="mt-8 scroll-mt-4 border-t border-site-line pt-6">
       <h2 className="text-subhead font-semibold">{heading}</h2>
       {children}
     </section>
@@ -369,6 +369,11 @@ export function AccountPage() {
   useEffect(() => {
     document.title = text.pageTitle;
   }, [text.pageTitle]);
+  // 中身は読み込みの後に出るので、#ai-connect（左のナビの「AI のつなぎ方」。WS001）へは出た後に移る
+  const ready = state.status === 'ready';
+  useEffect(() => {
+    if (ready && window.location.hash === '#ai-connect') document.getElementById('ai-connect')?.scrollIntoView();
+  }, [ready]);
 
   return (
     <div className="max-w-[640px] pb-8 text-body text-site-fg md:pt-[27px]">
@@ -402,7 +407,8 @@ export function AccountPage() {
             <Methods data={state.data} reload={reload} />
           </Section>
 
-          <Section heading={text.aiConnect.heading}>
+          {/* 左のナビの「AI のつなぎ方」がここへ来る（WS001） */}
+          <Section id="ai-connect" heading={text.aiConnect.heading}>
             <AccountAiConnect data={state.data} reload={reload} />
           </Section>
 

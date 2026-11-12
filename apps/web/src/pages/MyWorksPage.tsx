@@ -10,25 +10,15 @@ import { useResetTitle } from '../hooks/useResetTitle';
 import { localizedPath } from '../i18n';
 import { goToLogin } from '../lib/account';
 import { fetchOwnWorks, makeWorkPrivate, publishWork, type OwnWork } from '../lib/post';
+// 状態の分け方と絞り込みは、左のナビ（WS001）と同じもの
+import { matchesFilter, stateOf, WORK_FILTERS, type WorkFilter } from '../lib/workState';
+import { useOwnWorks } from '../hooks/useOwnWorks';
 
 const WHITE_BUTTON = 'inline-flex h-11 items-center justify-center rounded-control border border-site-line-2 bg-site-bg px-4 text-body font-semibold text-site-fg hover:bg-site-hover disabled:opacity-60';
 const PRIMARY_BUTTON = 'inline-flex h-11 items-center justify-center rounded-control bg-site-primary px-4 text-body font-semibold text-site-bg disabled:opacity-60';
 
 type ListState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; works: OwnWork[] };
 
-/** 状態の札（docs/tasks/T036.md「3」）。直している版があればその状態、なければ作品の状態。 */
-export type WorkState = 'private' | 'submitted' | 'public' | 'rejected' | 'draft' | 'revoked';
-
-export function stateOf(work: Pick<OwnWork, 'status' | 'public' | 'private'>): WorkState {
-  if (work.status === 'submitted' || work.status === 'rejected' || work.status === 'draft') return work.status;
-  if (work.public) return 'public';
-  if (work.private) return 'private';
-  return 'revoked';
-}
-
-type Filter = 'all' | 'private' | 'public';
-const FILTERS: Filter[] = ['all', 'private', 'public'];
-const matches = (work: OwnWork, filter: Filter) => filter === 'all' || (filter === 'private' ? work.private : work.public);
 
 type Pending = 'publish' | 'private' | null;
 
@@ -206,26 +196,31 @@ export function MyWorksPage() {
   const copy = useCopy();
   const text = copy.account.works;
   const [state, setState] = useState<ListState>({ status: 'loading' });
-  const [filter, setFilter] = useState<Filter>('all');
+  const [filter, setFilter] = useState<WorkFilter>('all');
   const { canPost } = useAccount();
+  // 公開した、自分だけにした、画像を付けた後は、左のナビの並びも同じ答えにする（WS001「3」）
+  const { replace } = useOwnWorks();
   useResetTitle();
 
   const reload = useCallback(async () => {
     try {
       const works = await fetchOwnWorks();
       if (works === 'unauthorized') goToLogin();
-      else setState({ status: 'ready', works });
+      else {
+        setState({ status: 'ready', works });
+        replace(works);
+      }
     } catch {
       setState({ status: 'error' });
     }
-  }, []);
+  }, [replace]);
 
   useEffect(() => {
     document.title = text.pageTitle;
     void reload();
   }, [reload, text.pageTitle]);
 
-  const shown = state.status === 'ready' ? state.works.filter((work) => matches(work, filter)) : [];
+  const shown = state.status === 'ready' ? state.works.filter((work) => matchesFilter(work, filter)) : [];
 
   return (
     <div className="max-w-[640px] pb-8 text-body text-site-fg md:pt-[27px]">
@@ -246,7 +241,7 @@ export function MyWorksPage() {
       {state.status === 'ready' && state.works.length > 0 && (
         <>
           <div role="group" aria-label={text.filters.label} className="mt-4 flex flex-wrap gap-2">
-            {FILTERS.map((value) => (
+            {WORK_FILTERS.map((value) => (
               <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)} className={chipClass(filter === value)}>
                 {text.filters[value]}
               </button>

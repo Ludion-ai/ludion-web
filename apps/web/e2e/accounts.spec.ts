@@ -1081,6 +1081,8 @@ test.describe('GET /api/me', () => {
       liked: [WORK],
       bookmarked: [OTHER_WORK],
       can_post: true,
+      // 自分の作品の数（左のナビ、WS001）
+      works_count: 0,
     });
   });
 
@@ -1092,8 +1094,8 @@ test.describe('GET /api/me', () => {
     await alice.post(`/api/works/${WORK}/bookmark`);
     await bob.post(`/api/works/${OTHER_WORK}/like`);
 
-    const expectedAlice = { user: { handle: aliceLogin.replace(/-/g, '_'), display_name: `Name of ${aliceLogin}`, avatar_url: `${FAKE_GITHUB}/avatars/${aliceLogin}.svg` }, liked: [], bookmarked: [WORK], can_post: true };
-    const expectedBob = { user: { handle: bobLogin.replace(/-/g, '_'), display_name: `Name of ${bobLogin}`, avatar_url: `${FAKE_GITHUB}/avatars/${bobLogin}.svg` }, liked: [OTHER_WORK], bookmarked: [], can_post: true };
+    const expectedAlice = { user: { handle: aliceLogin.replace(/-/g, '_'), display_name: `Name of ${aliceLogin}`, avatar_url: `${FAKE_GITHUB}/avatars/${aliceLogin}.svg` }, liked: [], bookmarked: [WORK], can_post: true, works_count: 0 };
+    const expectedBob = { user: { handle: bobLogin.replace(/-/g, '_'), display_name: `Name of ${bobLogin}`, avatar_url: `${FAKE_GITHUB}/avatars/${bobLogin}.svg` }, liked: [OTHER_WORK], bookmarked: [], can_post: true, works_count: 0 };
 
     // 交互に
     for (let i = 0; i < 10; i += 1) {

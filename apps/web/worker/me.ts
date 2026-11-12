@@ -52,9 +52,11 @@ me.get('/me', async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.json({ user: null });
   const db = c.env.DB;
-  const [liked, bookmarked] = await db.batch<{ work_id: string }>([
+  const [liked, bookmarked, own] = await db.batch<{ work_id: string } & { n: number }>([
     db.prepare('SELECT work_id FROM likes WHERE user_id = ?').bind(user.id),
     db.prepare('SELECT work_id FROM bookmarks WHERE user_id = ?').bind(user.id),
+    // 自分の作品の数（どの状態も。左のナビ、WS001）。0 の人は、一覧を読みに行かない
+    db.prepare('SELECT COUNT(*) AS n FROM works w JOIN creators c ON c.id = w.creator_id WHERE c.user_id = ?').bind(user.id),
   ]);
   // 審査待ちの数は運営にだけ返す。ホームの API はこの1本なので、別の要求にしない
   const pending = user.isOperator ? await db.prepare(`SELECT COUNT(*) AS n FROM revisions WHERE status = 'submitted'`).first<{ n: number }>() : null;
@@ -63,6 +65,7 @@ me.get('/me', async (c) => {
     liked: liked.results.map((row) => row.work_id),
     bookmarked: bookmarked.results.map((row) => row.work_id),
     can_post: canPost(c.env, user),
+    works_count: Number(own.results[0]?.n ?? 0),
   });
 });
 
