@@ -282,7 +282,7 @@ function paintTerminal(t) {
   const viewH = TDH - TITLE_H - TPAD * 1.2;
   const bottomAt = (tt) => {
     let b = 0;
-    for (const l of LAYOUT.lines) if (l.at <= tt) b = Math.max(b, l.y + l.st.lineH);
+    for (const l of LAYOUT.lines) if (l.at <= tt + 1e-6) b = Math.max(b, l.y + l.st.lineH);
     return b;
   };
   let smooth = 0;
@@ -323,10 +323,10 @@ function paintTerminal(t) {
       }
       continue;
     }
-    if (l.at > t) continue;
-    const age = t - l.at;
+    if (l.at > t + 1e-6) continue; // 162/60 は 2.7 よりわずかに小さい。出る時刻のコマで出す
+    const age = Math.max(0, t - l.at);
     // 出る時刻のコマで、もう見えている（音とのずれを1コマ以内にする）
-    const a = q5((age + 1 / 60) / 0.06);
+    const a = q5((age + 1 / 60) / 0.035);
     c.font = l.st.font;
     if (l.kind === 'hook') {
       // プラグインが返した行。印が左から伸びる

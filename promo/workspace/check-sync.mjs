@@ -26,7 +26,8 @@ const H = 270;
 function pictureFrame(t) {
   const from = Math.round(t * FPS) - 6;
   const count = 14;
-  const raw = ff(['-ss', String((from - 0.5) / FPS), '-i', file, '-frames:v', String(count), '-vf', `scale=${W}:${H}:flags=area,format=gray`, '-f', 'rawvideo', '-']);
+  // コマの番号で選ぶ（時刻で頭出しすると、1コマずれることがあった）
+  const raw = ff(['-i', file, '-vf', `select='between(n,${from},${from + count - 1})',scale=${W}:${H}:flags=area,format=gray`, '-vsync', '0', '-f', 'rawvideo', '-']);
   const size = W * H;
   const diffs = [];
   for (let f = 1; f < count; f++) {
