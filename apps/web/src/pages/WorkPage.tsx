@@ -1,5 +1,5 @@
-import { Bookmark, Copy, Eye, GitFork, Heart, Monitor, Share2 } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type MouseEvent } from 'react';
+import { Bookmark, Clock, Code2, Copy, Eye, GitFork, Globe, Heart, History, Lock, Monitor, Share2, SlidersHorizontal, Upload } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { useParams } from 'react-router';
 import { FramePreview } from '../components/FramePreview';
 import { Masonry } from '../components/Masonry';
@@ -7,6 +7,7 @@ import { NoscriptGrid } from '../components/NoscriptGrid';
 import { RemixSheet } from '../components/RemixSheet';
 import { ThumbCapture } from '../components/ThumbCapture';
 import { WallpaperSheet } from '../components/WallpaperSheet';
+import { WorkAbout } from '../components/WorkAbout';
 import { ReportIssue } from '../components/ReportIssue';
 import { XLink } from '../components/XLink';
 import { useCopy, useLocale } from '../hooks/useCopy';
@@ -14,11 +15,13 @@ import { localizedPath } from '../i18n';
 import type { PageData } from '../data/pages';
 import type { Work } from '../data/works';
 import { useAccount } from '../hooks/useAccount';
+import { useOwnWorks } from '../hooks/useOwnWorks';
 import { usePageData } from '../hooks/usePageData';
 import { useResetTitle } from '../hooks/useResetTitle';
 import { trackEvent } from '../lib/analytics';
 import { COPIED_MS, postCount } from '../lib/count';
 import { isWallpaper } from '../lib/homeQuery';
+import { stateOf, type WorkState } from '../lib/workState';
 import { NotFound } from './NotFound';
 
 /** 共有する URL はいつも本番のもの（workers.dev や手元で開いていても）。 */
@@ -32,6 +35,15 @@ const PREVIEW_START_CALL = { __html: 'window.__ldStartPreview&&window.__ldStartP
 
 const whiteButton =
   'inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-control border border-site-line-2 bg-site-bg text-body font-semibold text-site-fg hover:bg-site-hover';
+
+/** 頭の右の「新しい版を置く」（持ち主だけ。1024px以上）。高さ36px */
+const HEAD_BUTTON = 'inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-control border px-3.5 text-small font-semibold';
+
+/** 頭の札（状態、版、種類） */
+const BADGE = 'inline-flex h-6 shrink-0 items-center gap-1 rounded-chip border border-site-line-2 px-2 text-small text-site-fg-3';
+
+/** タブ（WS003「2」）。設定は持ち主だけ */
+type TabId = 'code' | 'versions' | 'lineage' | 'settings';
 
 export function WorkPage() {
   const page = usePageData();
@@ -49,6 +61,10 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
   const isPrivate = page.private !== null;
   const { handle } = creator;
   const { isBookmarked, isLiked, likeDelta, toggleBookmark, toggleLike } = useAccount();
+  const ownWorks = useOwnWorks();
+  // 初めはいつも「コード」。URL からは選ばない（Worker の HTML と同じ形で載せる）
+  const [tab, setTab] = useState<TabId>('code');
+  const tabsId = useId();
   const saved = isBookmarked(work.id);
   const liked = isLiked(work.id);
 
@@ -151,92 +167,174 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
   };
 
   // 幅で置き場所が変わるので、2つ描いて CSS で片方だけ見せる（読み込みの後にずれないように）。
-  // 壁紙の作品だけ、「リミックス」の横に「壁紙にする」を置く（WALL001「2」）
-  const remixButton = (className: string) =>
-    wallpaper ? (
-      <div className={`flex gap-3 ${className}`}>
-        <button type="button" aria-haspopup="dialog" onClick={openRemix} className={whiteButton}>
+  // 壁紙の作品だけ、「リミックス」の横に「壁紙にする」を置く（WALL001「2」）。
+  // 2つを横に並べて幅を分ける
+  const remixButton = (buttonClass: string, wrapClass: string) => {
+    const buttons = (
+      <>
+        <button type="button" aria-haspopup="dialog" onClick={openRemix} className={buttonClass}>
           <GitFork size={18} strokeWidth={1.75} aria-hidden="true" />
           {copy.work.remix.open}
         </button>
-        <button type="button" aria-haspopup="dialog" onClick={(event) => setWallpaperAnchor(event.currentTarget)} className={whiteButton}>
-          <Monitor size={18} strokeWidth={1.75} aria-hidden="true" />
-          {copy.work.wallpaper.open}
-        </button>
-      </div>
-    ) : (
-      <button type="button" aria-haspopup="dialog" onClick={openRemix} className={`${whiteButton} w-full ${className}`}>
-        <GitFork size={18} strokeWidth={1.75} aria-hidden="true" />
-        {copy.work.remix.open}
-      </button>
+        {wallpaper && (
+          <button type="button" aria-haspopup="dialog" onClick={(event) => setWallpaperAnchor(event.currentTarget)} className={buttonClass}>
+            <Monitor size={18} strokeWidth={1.75} aria-hidden="true" />
+            {copy.work.wallpaper.open}
+          </button>
+        )}
+      </>
     );
+    return <div className={`flex gap-3 ${wrapClass}`}>{buttons}</div>;
+  };
 
   const views = copy.count(work.views);
   const copyCount = copy.count(copies);
   const likes = copy.count(work.likes + likeDelta(work.id));
   const shareMessage = shareState === 'copied' ? copy.work.linkCopied : shareState === 'failed' ? copy.work.copyFailed : '';
 
+  // 持ち主か。HTML は人によって変えないので、公開の作品では、読み込みの後に自分の作品の一覧（左のナビと同じ答え）から決める。
+  // 自分だけの作品のページは持ち主にだけ描くので、Worker の HTML から持ち主の形
+  const own = ownWorks.state.status === 'ready' ? ownWorks.state.works.find((item) => item.id === work.id) : undefined;
+  const isOwner = isPrivate || own !== undefined;
+  const state: WorkState = own ? stateOf(own) : isPrivate ? 'private' : 'public';
+  const StateIcon = state === 'public' ? Globe : state === 'private' ? Lock : Clock;
+  const newVersionPath = localizedPath(locale, `/new?work=${encodeURIComponent(work.id)}`);
+
+  const tabs: { id: TabId; label: string; icon: typeof Code2; count?: number }[] = [
+    { id: 'code', label: copy.work.tabs.code, icon: Code2 },
+    { id: 'versions', label: copy.work.tabs.versions, icon: History, count: page.versions.length },
+    { id: 'lineage', label: copy.work.tabs.lineage, icon: GitFork, count: page.lineage.count },
+    ...(isOwner ? [{ id: 'settings' as const, label: copy.work.tabs.settings, icon: SlidersHorizontal }] : []),
+  ];
+  const shownTab = tabs.some((item) => item.id === tab) ? tab : 'code';
+
+  const onTabKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    const index = tabs.findIndex((item) => item.id === shownTab);
+    const next =
+      event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index - 1 + tabs.length) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
+    if (next === -1) return;
+    event.preventDefault();
+    setTab(tabs[next].id);
+    document.getElementById(`${tabsId}-tab-${tabs[next].id}`)?.focus();
+  };
+
+  const likeButton = (className: string) => (
+    <button type="button" aria-pressed={liked} aria-label={copy.work.like(likes)} onClick={() => toggleLike(work.id)} className={className}>
+      <Heart size={18} strokeWidth={1.75} fill={liked ? 'currentColor' : 'none'} aria-hidden="true" />
+      {likes}
+    </button>
+  );
+  const saveButton = (className: string) => (
+    <button type="button" aria-pressed={saved} onClick={() => toggleBookmark(work.id)} className={className}>
+      <Bookmark size={18} strokeWidth={1.75} fill={saved ? 'currentColor' : 'none'} aria-hidden="true" />
+      {saved ? copy.work.saved : copy.work.save}
+    </button>
+  );
+  const shareButton = (className: string) => (
+    <button type="button" onClick={onShare} className={className}>
+      <Share2 size={18} strokeWidth={1.75} aria-hidden="true" />
+      {shareMessage || copy.work.share}
+    </button>
+  );
+  /** 状態と版の札 */
+  const stateBadges = (className: string) => (
+    <>
+      <span data-work-state={state} className={`${BADGE} ${className}`}>
+        <StateIcon size={12} strokeWidth={2} aria-hidden="true" />
+        {copy.account.works.state[state]}
+      </span>
+      <span className={`${BADGE} ${className}`}>{copy.work.version(work.version)}</span>
+    </>
+  );
+  const panelProps = (id: TabId) => ({
+    id: `${tabsId}-panel-${id}`,
+    role: 'tabpanel' as const,
+    'aria-labelledby': `${tabsId}-tab-${id}`,
+    'data-work-panel': id,
+    hidden: shownTab !== id,
+  });
+
   return (
     <>
-      <div className="grid grid-cols-1 gap-8 md:mt-[27px] lg:grid-cols-[minmax(0,65fr)_minmax(0,35fr)]">
-        <div className="min-w-0">
-          <FramePreview key={work.id} work={work} background={background} frames={page.private?.frames ?? null} />
-          {/* 枠を、HTML が届き終わるのを待たずに読み始める（PERF002「1」）。Worker の HTML でだけ動く（React が後から作った script は動かない） */}
-          <script dangerouslySetInnerHTML={PREVIEW_START_CALL} />
-          {/* 1023px以下：「コードをコピー」は最初の画面の外なので、プレビューのすぐ下に置く。浮かせない（作品の枠に重なるため。docs/tasks/FIX-remix-button.md） */}
-          {!isPrivate && remixButton('mt-3 lg:hidden')}
-        </div>
-
-        <div className="min-w-0">
-          {isPrivate && (
-            <div data-private-notice="" role="note" className="mb-4 rounded-control bg-site-field px-3 py-2.5">
-              <p className="font-semibold">{copy.work.privateNotice}</p>
-              <a href={localizedPath(locale, '/account/works')} className="mt-0.5 inline-block text-small underline">
-                {copy.work.privateToWorks}
-              </a>
-              {/* 画像を付ける（DOC002「3」）。画像を足した新しい版が今の版になるので、付けたら読み込み直す */}
-              <div className="mt-2">
-                <button
-                  type="button"
-                  aria-label={copy.account.works.addThumbLabel(work.title || copy.post.untitled)}
-                  onClick={() => setCapturing(true)}
-                  className="inline-flex h-11 items-center justify-center rounded-control border border-site-line-2 bg-site-bg px-4 text-body font-semibold text-site-fg hover:bg-site-hover"
-                >
-                  {work.thumb_w > 0 ? copy.account.works.changeThumb : copy.account.works.addThumb}
-                </button>
-              </div>
-              {capturing && page.private && (
-                <ThumbCapture
-                  workId={work.id}
-                  title={work.title || copy.post.untitled}
-                  frameUrl={page.private.frames.desktop}
-                  onClose={() => setCapturing(false)}
-                  onDone={() => window.location.reload()}
-                />
-              )}
-            </div>
-          )}
-          <h1 className="text-title font-bold text-site-fg">{work.title}</h1>
-          <p className="mt-1 text-body text-site-fg-2">{copy.work.meta(work.category, work.subtype)}</p>
-          {source && <SourceBand source={source} />}
-
-          <div className="mt-5 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+      {/* 頭：@作者 / 題、状態、版、種類。右に今のボタン。数は下に小さく1行（WS003「1」） */}
+      <header data-work-head="" className="md:mt-[27px]">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 lg:min-h-9">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
             <img
               src={creator.avatar_url ?? undefined}
               alt=""
               width={32}
               height={32}
               decoding="async"
-              className="size-8 shrink-0 rounded-chip bg-site-field"
+              className="size-8 shrink-0 rounded-chip bg-site-field max-md:hidden"
             />
-            <a href={localizedPath(locale, `/c/${handle}`)} className="rounded-key text-body font-semibold text-site-fg hover:underline">
+            <a href={localizedPath(locale, `/c/${handle}`)} className="rounded-key text-subhead text-site-fg-3 hover:underline max-md:text-body">
+              {copy.work.by(handle)}
+            </a>
+            <span aria-hidden="true" className="text-subhead text-site-fg-2 max-md:hidden">
+              /
+            </span>
+            {/* 767px以下：1行目に @作者 と札、題は次の行（枠を最初の画面に収めるため、頭を低くする）。
+                札は幅ごとに描き分ける（CSS の order で動かさない。HTML の順と見た目の順を同じにする） */}
+            {stateBadges('md:hidden')}
+            <h1 className="min-w-0 text-title font-bold text-site-fg wrap-anywhere max-md:basis-full">{work.title}</h1>
+            {stateBadges('max-md:hidden')}
+            {/* 種類の札は、767px以下では数の行に出す（頭を2行に収めて、枠を最初の画面に入れるため） */}
+            <span className={`${BADGE} max-md:hidden`}>{copy.work.meta(work.category, work.subtype)}</span>
+          </div>
+          {/* 持ち主の「新しい版を置く」（1024px以上）。公開の作品では読み込みの後に出るので、出てもほかが動かない、頭の行の右の端に置く */}
+          {isOwner && (
+            <a href={newVersionPath} data-work-new-version="" className={`${HEAD_BUTTON} border-site-primary bg-site-primary text-site-bg max-lg:hidden`}>
+              <Upload size={16} strokeWidth={2} aria-hidden="true" />
+              {copy.work.newVersion}
+            </a>
+          )}
+        </div>
+      </header>
+
+      {/*
+        本体。HTML の順と見た目の順は、どの幅でも同じ：頭 → 動く作品 → ボタン → 数の行 → タブ → タブの中身（キーの Tab と読み上げの順が、見た目の順になる）。
+        1024px以上は2列で、左に動く作品、右にボタンから下。1023px以下は1列（WORKSPACE「8」）。CSS の order で見た目だけを動かさない。
+        動く作品はタブの外にあり、どのタブでも出したまま（タブを替えても枠を作り直さない）。タブの中身は、選んでいない物を隠すだけ（コードの箱は、いつも HTML にある）
+      */}
+      <div className="mt-3 grid grid-cols-1 gap-x-8 lg:grid-cols-[minmax(0,65fr)_minmax(0,35fr)]">
+        <div data-work-stage="" className="min-w-0">
+          <FramePreview key={work.id} work={work} background={background} frames={page.private?.frames ?? null} />
+          {/* 枠を、HTML が届き終わるのを待たずに読み始める（PERF002「1」）。Worker の HTML でだけ動く（React が後から作った script は動かない） */}
+          <script dangerouslySetInnerHTML={PREVIEW_START_CALL} />
+        </div>
+
+        <div data-work-side="" className="min-w-0">
+          {/* ボタン。1023px以下では枠のすぐ下。浮かせない（作品の枠に重なるため。docs/tasks/FIX-remix-button.md）。「リミックス」を1行目に（スマホでも最初の画面に入れるため） */}
+          {!isPrivate && (
+            <div data-work-actions="" className="max-lg:mt-3">
+              {remixButton(whiteButton, '')}
+              <div className="mt-3 flex gap-3">
+                {likeButton(whiteButton)}
+                {saveButton(whiteButton)}
+                {shareButton(whiteButton)}
+              </div>
+            </div>
+          )}
+          {/* 持ち主の「新しい版を置く」（1023px以下）。公開の作品では、後から出すと下がずれるので、ここには出さない（設定のタブにある） */}
+          {isPrivate && (
+            <a href={newVersionPath} className="mt-3 flex h-11 items-center justify-center gap-2 rounded-control bg-site-primary text-body font-semibold text-site-bg lg:hidden">
+              <Upload size={18} strokeWidth={2} aria-hidden="true" />
+              {copy.work.newVersion}
+            </a>
+          )}
+          <p role="status" className="sr-only">
+            {shareMessage}
+          </p>
+
+          {/* 数は小さく1行 */}
+          <div data-work-counts="" className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-small text-site-fg-3 ${isPrivate ? 'max-lg:mt-4' : 'mt-4'}`}>
+            <a href={localizedPath(locale, `/c/${handle}`)} className="rounded-key font-semibold text-site-fg hover:underline">
               {creator.name}
             </a>
             {creator.kind === 'label' && <span className="text-meta text-site-fg-2">{copy.work.label}</span>}
             {creator.x_url && <XLink href={creator.x_url} />}
-          </div>
-
-          <p className="mt-4 flex items-center gap-[18px] text-small text-site-fg-3">
+            <span className={`${BADGE} md:hidden`}>{copy.work.meta(work.category, work.subtype)}</span>
             <span className="flex items-center gap-1">
               <Eye size={16} strokeWidth={1.75} aria-hidden="true" />
               <span aria-hidden="true">{views}</span>
@@ -249,73 +347,186 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
               </span>
               <span className="sr-only">{copy.work.copies(copyCount)}</span>
             </span>
-          </p>
-
-          {!isPrivate && (
-            <>
-              <div className="mt-4 flex gap-3">
-                <button
-                  type="button"
-                  aria-pressed={liked}
-                  aria-label={copy.work.like(likes)}
-                  onClick={() => toggleLike(work.id)}
-                  className={whiteButton}
-                >
-                  <Heart size={18} strokeWidth={1.75} fill={liked ? 'currentColor' : 'none'} aria-hidden="true" />
-                  {likes}
-                </button>
-                <button type="button" aria-pressed={saved} onClick={() => toggleBookmark(work.id)} className={whiteButton}>
-                  <Bookmark size={18} strokeWidth={1.75} fill={saved ? 'currentColor' : 'none'} aria-hidden="true" />
-                  {saved ? copy.work.saved : copy.work.save}
-                </button>
-              </div>
-
-              <button type="button" onClick={onShare} className={`${whiteButton} mt-3 w-full`}>
-                <Share2 size={18} strokeWidth={1.75} aria-hidden="true" />
-                {shareMessage || copy.work.share}
-              </button>
-              <p role="status" className="sr-only">
-                {shareMessage}
-              </p>
-
-              {remixButton('mt-3 max-lg:hidden')}
-            </>
+            {!isPrivate && (
+              <span className="flex items-center gap-1">
+                <Heart size={16} strokeWidth={1.75} aria-hidden="true" />
+                <span aria-hidden="true">{likes}</span>
+                <span className="sr-only">{copy.work.likes(likes)}</span>
+              </span>
+            )}
+          </div>
+          {source && <SourceBand source={source} />}
+          {isPrivate && (
+            <p data-private-notice="" role="note" className="mt-3 rounded-control bg-site-field px-3 py-2.5 text-small">
+              <span className="font-semibold">{copy.work.privateNotice}</span>{' '}
+              <a href={localizedPath(locale, '/account/works')} className="underline">
+                {copy.work.privateToWorks}
+              </a>
+            </p>
           )}
 
-          <button
-            type="button"
-            onClick={onCopy}
-            className="mt-3 inline-flex h-11 w-full items-center justify-center rounded-control bg-site-primary text-body font-semibold text-site-bg"
-          >
-            {copyState === 'copied' ? copy.work.copied : copyState === 'failed' ? copy.work.copyFailed : copy.work.copyCode}
-          </button>
-          <p role="status" className="sr-only">
-            {copyState === 'copied' ? copy.work.copied : copyState === 'failed' ? copy.work.copyFailed : ''}
-          </p>
-          <p className="mt-2 text-meta text-site-fg-2">{copy.work.license}</p>
-          {!isPrivate && <ReportIssue workId={work.id} />}
+          {/* 幅が足りないとき（狭い右の列で、長い言葉のタブ）だけ、列の中で横に送る。縦には送らない（送れる入れ物は、Firefox が Tab で止まるため） */}
+          <div role="tablist" aria-label={copy.work.tabs.label} onKeyDown={onTabKey} className="mt-3 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-site-line">
+            {tabs.map(({ id: tabId, label, icon: Icon, count }) => (
+              <button
+                key={tabId}
+                id={`${tabsId}-tab-${tabId}`}
+                type="button"
+                role="tab"
+                aria-selected={shownTab === tabId}
+                aria-controls={`${tabsId}-panel-${tabId}`}
+                tabIndex={shownTab === tabId ? 0 : -1}
+                onClick={() => setTab(tabId)}
+                className={`inline-flex h-11 flex-auto shrink-0 items-center justify-center gap-2 border-b-2 px-2.5 text-body font-semibold whitespace-nowrap ${
+                  shownTab === tabId ? 'border-site-fg text-site-fg' : 'border-transparent text-site-fg-2 hover:text-site-fg'
+                }`}
+              >
+                {/* 印は、タブの列が広いときだけ（768〜1023px の1列と、1280px以上の右の列） */}
+                <Icon size={16} strokeWidth={1.75} aria-hidden="true" className="hidden md:max-lg:block xl:block" />
+                {label}
+                {count !== undefined && count > 0 && <span className="rounded-chip bg-site-key px-1.5 text-small font-normal text-site-fg-3">{count}</span>}
+              </button>
+            ))}
+          </div>
 
-          <pre
-            id={codeId}
-            ref={codeRef}
-            tabIndex={0}
-            aria-label={copy.work.codeLabel(work.title)}
-            className={`mt-4 max-h-[320px] overflow-auto rounded-control border border-site-line bg-site-field p-3 font-mono text-small wrap-anywhere whitespace-pre-wrap text-site-fg ${
-              codeOpen ? '' : COLLAPSED_CODE
-            }`}
-          >
-            {/* この文字が「コピーされるコード」になる（ページの JSON には入れない。lib/codeText.ts の CODE_ATTRIBUTE） */}
-            <code data-ld-code="">{snippet}</code>
-          </pre>
-          <button
-            type="button"
-            aria-expanded={codeOpen}
-            aria-controls={codeId}
-            onClick={toggleCode}
-            className={`${whiteButton} mt-2 w-full md:hidden`}
-          >
-            {codeOpen ? copy.work.hideCode : copy.work.showCode}
-          </button>
+        <div className="mt-4 min-w-0">
+          <div {...panelProps('code')}>
+            {/* 「コードをコピー」は、コードのタブのいちばん上（いちばん使われる操作で、コピー数もここから出る。最初の画面に入れる） */}
+            <button
+              type="button"
+              onClick={onCopy}
+              className="inline-flex h-11 w-full items-center justify-center rounded-control bg-site-primary text-body font-semibold text-site-bg"
+            >
+              {copyState === 'copied' ? copy.work.copied : copyState === 'failed' ? copy.work.copyFailed : copy.work.copyCode}
+            </button>
+            <p role="status" className="sr-only">
+              {copyState === 'copied' ? copy.work.copied : copyState === 'failed' ? copy.work.copyFailed : ''}
+            </p>
+            <p className="mt-2 text-meta text-site-fg-2">{copy.work.license}</p>
+            {page.about && (
+              <div className="mt-4">
+                <WorkAbout about={page.about} />
+              </div>
+            )}
+            {!isPrivate && <ReportIssue workId={work.id} />}
+
+            <pre
+              id={codeId}
+              ref={codeRef}
+              tabIndex={0}
+              aria-label={copy.work.codeLabel(work.title)}
+              className={`mt-4 max-h-[320px] overflow-auto rounded-control border border-site-line bg-site-field p-3 font-mono text-small wrap-anywhere whitespace-pre-wrap text-site-fg ${
+                codeOpen ? '' : COLLAPSED_CODE
+              }`}
+            >
+              {/* この文字が「コピーされるコード」になる（ページの JSON には入れない。lib/codeText.ts の CODE_ATTRIBUTE） */}
+              <code data-ld-code="">{snippet}</code>
+            </pre>
+            <button
+              type="button"
+              aria-expanded={codeOpen}
+              aria-controls={codeId}
+              onClick={toggleCode}
+              className={`${whiteButton} mt-2 w-full md:hidden`}
+            >
+              {codeOpen ? copy.work.hideCode : copy.work.showCode}
+            </button>
+          </div>
+
+          {/* 版：今は一覧だけ（版の違いは WS004） */}
+          <div {...panelProps('versions')} tabIndex={0}>
+            {page.versions.length === 0 ? (
+              <p className="text-body text-site-fg-2">{copy.work.versions.none}</p>
+            ) : (
+              <ol className="divide-y divide-site-line rounded-card border border-site-line">
+                {page.versions.map(({ version, at }) => (
+                  <li key={version} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-body">
+                    <span className="font-semibold text-site-fg">{copy.work.version(version)}</span>
+                    <time dateTime={new Date(at).toISOString()} className="text-small text-site-fg-2">
+                      {new Date(at).toISOString().slice(0, 10)}
+                    </time>
+                    {version === work.version && <span className={BADGE}>{copy.work.versions.current}</span>}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+
+          {/* 系譜：元の作品と、この作品のリミックス（公開のものだけ） */}
+          <div {...panelProps('lineage')} tabIndex={0}>
+            {source && (
+              <section className="mb-5">
+                <h2 className="text-small font-semibold text-site-fg-2">{copy.work.lineage.source}</h2>
+                <p className="mt-1.5 text-body wrap-anywhere">
+                  {'hidden' in source ? (
+                    <span className="text-site-fg-2">{copy.work.source.hidden}</span>
+                  ) : (
+                    <a href={localizedPath(locale, `/p/${encodeURIComponent(source.id)}`)} className="font-semibold text-site-fg underline">
+                      {copy.work.source.work(source.title, source.handle)}
+                    </a>
+                  )}
+                </p>
+              </section>
+            )}
+            <section>
+              <h2 className="text-small font-semibold text-site-fg-2">{copy.work.lineage.remixes}</h2>
+              {page.lineage.remixes.length === 0 ? (
+                <p className="mt-1.5 text-body text-site-fg-2">{copy.work.lineage.none}</p>
+              ) : (
+                <ul data-work-remixes="" className="mt-2 divide-y divide-site-line rounded-card border border-site-line">
+                  {page.lineage.remixes.map((remix) => (
+                    <li key={remix.id}>
+                      <a href={localizedPath(locale, `/p/${encodeURIComponent(remix.id)}`)} className="flex min-h-11 items-center px-4 py-2 text-body font-semibold text-site-fg wrap-anywhere hover:bg-site-hover">
+                        {copy.work.source.work(remix.title, remix.handle)}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {page.lineage.count > page.lineage.remixes.length && (
+                <p className="mt-2 text-small text-site-fg-2">{copy.work.lineage.more(String(page.lineage.count - page.lineage.remixes.length))}</p>
+              )}
+            </section>
+          </div>
+
+          {/* 設定（持ち主だけ）：今ある操作を、ここへ移した。公開の申請や取り下げは「自分の作品」 */}
+          {isOwner && (
+            <div {...panelProps('settings')}>
+              <p className="text-body text-site-fg-2">{copy.work.settings.note}</p>
+              <div className="mt-3 flex flex-wrap gap-3">
+                <a href={localizedPath(locale, '/account/works')} className={`${whiteButton} px-4`}>
+                  {copy.work.privateToWorks}
+                </a>
+                <a href={newVersionPath} className={`${whiteButton} px-4`}>
+                  {copy.work.newVersion}
+                </a>
+              </div>
+              {/* 画像を付ける（DOC002「3」）。画像を足した新しい版が今の版になるので、付けたら読み込み直す。自分だけの作品だけ */}
+              {page.private && (
+                <section className="mt-5">
+                  <h2 className="text-small font-semibold text-site-fg-2">{copy.work.settings.thumb}</h2>
+                  <button
+                    type="button"
+                    aria-label={copy.account.works.addThumbLabel(work.title || copy.post.untitled)}
+                    onClick={() => setCapturing(true)}
+                    className="mt-2 inline-flex h-11 items-center justify-center rounded-control border border-site-line-2 bg-site-bg px-4 text-body font-semibold text-site-fg hover:bg-site-hover"
+                  >
+                    {work.thumb_w > 0 ? copy.account.works.changeThumb : copy.account.works.addThumb}
+                  </button>
+                  {capturing && (
+                    <ThumbCapture
+                      workId={work.id}
+                      title={work.title || copy.post.untitled}
+                      frameUrl={page.private.frames.desktop}
+                      onClose={() => setCapturing(false)}
+                      onDone={() => window.location.reload()}
+                    />
+                  )}
+                </section>
+              )}
+            </div>
+          )}
+        </div>
         </div>
       </div>
 

@@ -31,6 +31,13 @@ const TECH: [id: string, group: TechGroup, label: string][] = [
   ['web-animations', 'motion', 'Web Animations'],
   ['reduced-motion', 'care', 'prefers-reduced-motion'],
   ['pause-hidden', 'care', 'visibilitychange / IntersectionObserver'],
+  // キー操作と読み上げ（WS003）。コードに書いてある物
+  ['aria-role', 'a11y', 'role'],
+  ['aria-state', 'a11y', 'ARIA state'],
+  ['aria-name', 'a11y', 'Accessible name'],
+  ['keys', 'a11y', 'Keys'],
+  ['focus-visible', 'a11y', ':focus-visible'],
+  ['aria-live', 'a11y', 'aria-live'],
   ['localstorage', 'storage', 'localStorage'],
   ['sessionstorage', 'storage', 'sessionStorage'],
   ['indexeddb', 'storage', 'IndexedDB'],
@@ -81,6 +88,15 @@ export class Collector {
       tech.hosts ??= [];
       if (!tech.hosts.includes(host) && tech.hosts.length < MAX_HITS) tech.hosts.push(host);
     }
+  }
+
+  /** 見つけた値を足す（役目の名前、状態の属性の名前、キーの名前）。hit の後に呼ぶ */
+  value(id: TechId, value: string): void {
+    const tech = this.tech.get(id);
+    const short = value.slice(0, 40);
+    if (!tech || short === '') return;
+    tech.values ??= [];
+    if (!tech.values.includes(short) && tech.values.length < MAX_HITS) tech.values.push(short);
   }
 
   has(id: TechId): boolean {

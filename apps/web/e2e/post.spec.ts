@@ -197,7 +197,7 @@ test.describe('下書き', () => {
     // 中身の地図（WS002）：版の置き場に outline.json。置いたファイルから作る
     const outline = JSON.parse(r2(`${row.r2_prefix}/outline.json`)!.toString());
     expect(outline).toEqual(buildOutline({ html: r2(`${row.r2_prefix}/part.html`)!.toString(), css: r2(`${row.r2_prefix}/part.css`)!.toString(), js: r2(`${row.r2_prefix}/part.js`)?.toString() ?? null }));
-    expect(outline).toMatchObject({ version: 1, format: 'parts' });
+    expect(outline).toMatchObject({ version: 2, format: 'parts' });
 
     // 新しい作者は、まだ公開の作り手のページに出ない
     expect((await new Visitor().fetch(`/c/${handle}`)).status).toBe(404);

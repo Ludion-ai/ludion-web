@@ -268,14 +268,20 @@ test.describe('置き場所', () => {
     expect((await openButton(page).boundingBox())!.y).toBe(box.y - 300);
   });
 
-  test('幅1440：「コードをコピー」のすぐ上にある', async ({ page }) => {
+  test('幅1440：右の列のいちばん上にある（いいね、保存、共有のすぐ上。WS003）', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openWork(page, 'fx-toggle');
     const box = (await openButton(page).boundingBox())!;
-    const copyCode = (await page.getByRole('button', { name: copy.work.copyCode, exact: true }).boundingBox())!;
+    const like = (await page.getByRole('button', { name: /^いいね/ }).boundingBox())!;
+    const share = (await page.getByRole('button', { name: copy.work.share, exact: true }).boundingBox())!;
+    const frame = (await page.locator('iframe').boundingBox())!;
     expect(box.height).toBe(44);
-    expect(copyCode.y).toBe(box.y + box.height + 12);
-    expect(box.width).toBe(copyCode.width);
+    expect(like.y).toBe(box.y + box.height + 12);
+    // 右の列の幅いっぱい（左の端は いいね、右の端は 共有 と同じ）。動く作品の枠の右、上の端は枠の線と同じ高さ
+    expect(box.x).toBe(like.x);
+    expect(box.x + box.width).toBeCloseTo(share.x + share.width, 0);
+    expect(box.x).toBeGreaterThan(frame.x + frame.width + 30);
+    expect(box.y).toBeCloseTo(frame.y - 1, 0);
     expect(box.y + box.height).toBeLessThanOrEqual(900);
   });
 

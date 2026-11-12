@@ -1,5 +1,6 @@
 // JS を読む：シェーダー、設定の塊、見出し、関数、技術。コメントと文字列の中は、決まった形の文字列のほかは数えない。
 
+import { MARKUP_ATTR, MARKUP_LABEL, MAX_MARKUP, ROLES, ariaTech, isArrowKey, keyName, reflectedAria, roleValues } from './a11y.ts';
 import type { Unit } from './collect.ts';
 import { findHeadings, headingRanges } from './headings.ts';
 import { lex, type Token } from './lex.ts';
@@ -378,12 +379,81 @@ export function analyzeJs(unit: Unit): number {
         if (event) col.hit(event, file, index, token.start, v);
       } else if (v === 'createElement' && isPunct(nextTok(k), '(') && isStringish(sig[k + 2]) && sig[k + 2].value.toLowerCase() === 'audio') {
         col.hit('audio-element', file, index, sig[k + 2].start, text.slice(sig[k + 2].start, sig[k + 2].end));
+      } else if (isPunct(prev(k), '.') && isPunct(nextTok(k), '=')) {
+        // el.ariaChecked = …、el.role = 'tab'（役目は、値が役目の名前のときだけ）
+        const name = reflectedAria(v);
+        const aria = name ? ariaTech(name) : null;
+        if (name && aria) {
+          col.hit(aria, file, index, token.start, v);
+          col.value(aria, name);
+        } else if (v === 'role' && isStringish(sig[k + 2]) && ROLES.has(sig[k + 2].value)) {
+          col.hit('aria-role', file, index, token.start, v);
+          col.value('aria-role', sig[k + 2].value);
+        }
+      } else if (isArrowKey(v) && isPunct(nextTok(k), ':') && (isPunct(prev(k), '{') || isPunct(prev(k), ','))) {
+        // { ArrowLeft: -1, ArrowRight: 1 }[event.key]
+        col.hit('keys', file, index, token.start, v);
+        col.value('keys', v);
       }
       continue;
     }
     if (token.type !== 'string' && token.type !== 'template') continue;
     const value = token.value;
     const raw = text.slice(token.start, token.end);
+    // 文字列の中のマークアップ（innerHTML に入れる文字など）の、役目、状態、名前、知らせ
+    if (raw.length <= MAX_MARKUP && raw.includes('<')) {
+      MARKUP_ATTR.lastIndex = 0;
+      for (let m = MARKUP_ATTR.exec(raw); m; m = MARKUP_ATTR.exec(raw)) {
+        const aria = ariaTech(m[1]);
+        if (!aria) continue;
+        col.hit(aria, file, index, token.start + m.index + 1, m[1]);
+        const attrValue = m[2] ?? m[3] ?? '';
+        if (aria === 'aria-role') for (const role of roleValues(attrValue)) col.value(aria, role);
+        else if (aria === 'aria-live') col.value(aria, /^[a-z]{1,20}$/.test(attrValue) ? attrValue : '');
+        else col.value(aria, m[1]);
+      }
+      MARKUP_LABEL.lastIndex = 0;
+      for (let m = MARKUP_LABEL.exec(raw); m; m = MARKUP_LABEL.exec(raw)) {
+        col.hit('aria-name', file, index, token.start + m.index, '<label');
+        col.value('aria-name', '<label>');
+      }
+    }
+    if (isStringish(token)) {
+      // setAttribute('aria-checked', …)、setAttribute('role', 'tab')
+      const aria = ariaTech(value);
+      if (aria && isPunct(prev(k), '(') && (isIdent(sig[k - 2], 'setAttribute') || isIdent(sig[k - 2], 'toggleAttribute'))) {
+        col.hit(aria, file, index, token.start, raw);
+        const given = isPunct(nextTok(k), ',') && isStringish(sig[k + 2]) ? sig[k + 2].value : '';
+        if (aria === 'aria-role') for (const role of roleValues(given)) col.value(aria, role);
+        else if (aria === 'aria-live') col.value(aria, /^[a-z]{1,20}$/.test(given) ? given : '');
+        else col.value(aria, value);
+        continue;
+      }
+      // keydown で見ているキー：event.key === 'ArrowLeft'、case 'Home':、['Enter', ' '].includes(event.key)
+      const key = value === ' ' ? 'Space' : keyName(value);
+      if (key) {
+        const p = prev(k);
+        const n = nextTok(k);
+        const isCompare = (t: Token | undefined) => t !== undefined && t.type === 'punct' && (t.value === '===' || t.value === '==' || t.value === '!==' || t.value === '!=');
+        const isKeyProp = (j: number) => (isIdent(sig[j], 'key') || isIdent(sig[j], 'code')) && isPunct(sig[j - 1], '.');
+        let found = false;
+        if (isIdent(p, 'case') && isPunct(n, ':')) found = true;
+        // ' ' は、相手が .key のときだけ
+        else if (isCompare(p)) found = value !== ' ' || isKeyProp(k - 2);
+        else if (isCompare(n)) found = value !== ' ' || isKeyProp(k + 4);
+        else if (isPunct(p, '[') || isPunct(p, ',')) {
+          let j = k;
+          const stop = Math.min(sig.length, k + 64);
+          while (j < stop && !isPunct(sig[j], ']') && (isStringish(sig[j]) || isPunct(sig[j], ','))) j++;
+          found = isPunct(sig[j], ']') && isPunct(sig[j + 1], '.') && (isIdent(sig[j + 2], 'includes') || isIdent(sig[j + 2], 'indexOf'));
+        }
+        if (found) {
+          col.hit('keys', file, index, token.start, raw);
+          col.value('keys', key);
+          continue;
+        }
+      }
+    }
     // ${ … } を含むテンプレートは、頭が <svg のものだけを見る（`<svg …>${path}</svg>`）
     if (!isStringish(token)) {
       if (value.trimStart().startsWith('<svg')) col.hit('svg', file, index, token.start, raw);

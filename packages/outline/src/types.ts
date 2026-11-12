@@ -1,7 +1,7 @@
 // 地図（outline.json）の形。WS002。画面（ファイルの木、この作品について、言語の帯）と AI の口が、この形を読む。
 // 形を変えたら OUTLINE_VERSION を上げる。置き場の地図の版が違えば、読むときに作り直す（apps/web/worker/outline.ts）。
 
-export const OUTLINE_VERSION = 1;
+export const OUTLINE_VERSION = 2;
 
 /** 地図が数える言語。シェーダーの文字列は glsl として数え、js から引く。 */
 export type Language = 'html' | 'css' | 'js' | 'glsl';
@@ -38,7 +38,7 @@ export interface Section {
   mime?: string;
 }
 
-export type TechGroup = 'draw' | 'sound' | 'input' | 'motion' | 'care' | 'storage' | 'external';
+export type TechGroup = 'draw' | 'sound' | 'input' | 'motion' | 'care' | 'a11y' | 'storage' | 'external';
 
 /** 見つけた所。match はその行に書いてある文字（行の確かめに使う）。 */
 export interface TechHit {
@@ -57,6 +57,8 @@ export interface Tech {
   hits: TechHit[];
   /** 外から読む物：住所のホスト名 */
   hosts?: string[];
+  /** キー操作と読み上げ：書いてあった値（役目の名前、状態の属性の名前、キーの名前）。頭の MAX_HITS 個まで */
+  values?: string[];
 }
 
 export interface LanguageBytes {

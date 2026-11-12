@@ -56,6 +56,14 @@ export function analyzeCss(unit: Unit, declarations = false): void {
       const prelude = text.slice(atOffset, Math.min(stop, atOffset + 400));
       if ((atName === 'keyframes' || atName === '-webkit-keyframes') && by === '{') col.hit('css-animation', file, index, atOffset, prelude.split('\n')[0]);
       if (atName === 'media' && /prefers-reduced-motion/i.test(prelude)) col.hit('reduced-motion', file, index, atOffset, prelude.split('\n')[0]);
+    } else if (by === '{' && !declarations) {
+      // セレクタ：フォーカスの枠（:focus-visible。WS003）
+      const selector = text.slice(stmtStart, Math.min(stop, stmtStart + 4000));
+      const at = selector.indexOf(':focus-visible');
+      if (at !== -1) {
+        col.hit('focus-visible', file, index, stmtStart + at, ':focus-visible');
+        col.value('focus-visible', ':focus-visible');
+      }
     } else if (by !== '{' || declarations) {
       const head = text.slice(stmtStart, Math.min(stop, stmtStart + 200));
       const m = /^(\s*)(-?[a-zA-Z][\w-]*)\s*:/.exec(head);

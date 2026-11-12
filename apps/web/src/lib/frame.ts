@@ -24,14 +24,25 @@ export function isPhone(): boolean {
 
 /** 入れ物の形。beforeApp も同じ文字列を使う（スマホで Desktop の枠を Mobile に替えるとき）。 */
 export const BOX_CLASS = {
-  // 部品：枠の幅のままの iframe の中央に置く（置くのは buildFrameHtml）
-  component: 'aspect-[4/3] min-h-[420px] w-full',
+  // 部品：枠の幅のままの iframe の中央に置く（置くのは buildFrameHtml）。
+  // 幅767px以下：枠の上に作品の頭があるので（WS003）、低い画面では枠を低くして、すぐ下の「リミックス」を最初の画面に入れる
+  // （下に残す124px＝ボタンとの間12px＋ボタン44px＋下のタブの分64px＋枠の線と余り）。320px より低くはしない。高い画面では今までどおり420px
+  component: 'aspect-[4/3] min-h-[420px] w-full max-md:min-h-[clamp(320px,calc(100svh-var(--frame-top,72px)-124px),420px)]',
   desktop: 'aspect-[1280/800]',
   // 幅が390に足りないときは、枠の高さも同じ割合で縮める。
-  // スマホ：高さは「見えている画面の高さ − ヘッダー64px − 上の余白8px − 下に残す72px（ボタンとの間12px、下のタブ48px、その上下）」。
-  // 縦÷横は 1.3 から 1.8 の間に収める
-  mobile: 'h-[min(844px,calc(100cqw*844/390))] phone:h-[clamp(130cqw,calc(100svh-144px),180cqw)]',
+  // スマホ：高さは「見えている画面の高さ − 枠の上の端までの高さ（--frame-top）− 下に残す72px（ボタンとの間12px、下のタブ48px、その上下）」。
+  // 枠の上には、ヘッダー64px、上の余白8px、作品の頭（@作者 / 題。WS003）がある。頭の高さは題の長さで変わるので、fitFrameTop が測って入れる。
+  // 測る前の値は 72px（ヘッダーと上の余白）。縦÷横は 1.3 から 1.8 の間に収める
+  mobile: 'h-[min(844px,calc(100cqw*844/390))] phone:h-[clamp(130cqw,calc(100svh-var(--frame-top,72px)-72px),180cqw)]',
 };
+
+/**
+ * 狭い画面の枠の高さのために、枠の入れ物の上の端が、ページの上から何 px かを入れる（BOX_CLASS の --frame-top）。
+ * 枠が最初の画面に収まり、すぐ下のボタンが見えるようにするため。広い画面では使わない（入れても何も変わらない）。beforeApp（lib/previewStart.ts）と React（FramePreview.tsx）が同じ計算を使う。
+ */
+export function fitFrameTop(box: HTMLElement): void {
+  box.style.setProperty('--frame-top', `${Math.round(box.getBoundingClientRect().top + window.scrollY)}px`);
+}
 
 export const FRAME_CLASS = {
   component: 'absolute inset-0 size-full',

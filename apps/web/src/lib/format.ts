@@ -13,3 +13,12 @@ export function formatCountEn(n: number): string {
   if (thousands < 1000) return `${thousands}k`;
   return `${Math.round(n / 100_000) / 10}M`;
 }
+
+/** ファイルの大きさの書き方（作品のページ「この作品について」）：859 B、7.6 KB、234 KB、1.2 MB（1 KB は 1000 B）。 */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1000) return `${bytes} B`;
+  const kb = bytes / 1000;
+  if (kb < 100) return `${Math.round(kb * 10) / 10} KB`;
+  if (kb < 1000) return `${Math.round(kb)} KB`;
+  return `${Math.round(kb / 100) / 10} MB`;
+}
