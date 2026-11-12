@@ -353,6 +353,116 @@ test.describe('AI につなぐ：許可の画面を本物のブラウザで押�
   }
 });
 
+// 許可の画面の戻り先と警告（OAUTH002）。画面の文と形だけを見る（許可は押さない）
+test.describe('AI につなぐ：許可の画面の戻り先と警告', () => {
+  const consentParams = (clientId: string, redirect: string) => authorizeParams(clientId, pkce().challenge, { redirect_uri: redirect });
+  /** 許可の画面の HTML（ログインした人として開く） */
+  const consentHtml = async (visitor: Visitor, name: string, redirect: string, language = 'ja') => {
+    const client = await register(name, redirect);
+    const response = await visitor.fetch(`/oauth/authorize?${consentParams(client.client_id, redirect)}`, { headers: { 'Accept-Language': language } });
+    expect(response.status).toBe(200);
+    return response.text();
+  };
+
+  test('戻り先は名前のすぐ下に、名前と同じ大きさと太さで出る。名乗った名前だという注意の1行（日本語と英語）', async () => {
+    const { visitor } = await person('consent');
+    const redirect = 'https://claude.ai/api/mcp/auth_callback';
+    const client = await register('Claude', redirect);
+    const browser = await chromium.launch();
+    try {
+      for (const [locale, returnTo, note] of [
+        ['ja-JP', '戻り先：claude.ai', 'この名前は、つなぐ側が自分で名乗ったものです。戻り先が、あなたが使っている AI のものか確かめてください。'],
+        ['en-US', 'Returns to: claude.ai', 'The app that’s connecting chose this name itself. Check that the return address belongs to the AI you use.'],
+      ] as const) {
+        const context = await browser.newContext({ baseURL: ownOrigin(), locale, viewport: { width: 390, height: 844 } });
+        await context.addCookies([...visitor.cookies].map(([cookie, value]) => ({ name: cookie, value, url: ownOrigin() })));
+        const page = await context.newPage();
+        expect((await page.goto(`/oauth/authorize?${consentParams(client.client_id, redirect)}`))!.status()).toBe(200);
+        await expect(page.locator('[data-return-to]')).toHaveText(returnTo);
+        await expect(page.locator('[data-self-named]')).toHaveText(note);
+        await expect(page.locator('[data-warning]')).toHaveCount(0);
+        const look = await page.evaluate(() => {
+          const heading = document.querySelector('[data-client-name]')!.closest('h1')!;
+          const back = document.querySelector<HTMLElement>('[data-return-to]')!;
+          const style = (element: Element) => ({ size: getComputedStyle(element).fontSize, weight: getComputedStyle(element).fontWeight });
+          return { heading: style(heading), back: style(back), next: heading.nextElementSibling === back };
+        });
+        expect(look.next).toBe(true);
+        expect(look.back).toEqual(look.heading);
+        expect(Number.parseFloat(look.back.size)).toBeGreaterThanOrEqual(20);
+        expect(Number(look.back.weight)).toBeGreaterThanOrEqual(600);
+        await context.close();
+      }
+    } finally {
+      await browser.close();
+    }
+  });
+
+  test('よく知られた名前で、戻り先がその会社の物でなければ警告。会社の戻り先、手元の http、アプリの種類、知らない名前では出ない', async () => {
+    const { visitor } = await person('consent');
+    const warning = 'この名前の AI の、ふだんの戻り先ではありません。心当たりがなければ、許可しないでください。';
+    const cases: [name: string, redirect: string, warned: boolean, label?: string][] = [
+      ['Claude', 'https://claude.example/api/mcp/auth_callback', true, '戻り先：claude.example'],
+      ['Claude', 'https://claude.ai/api/mcp/auth_callback', false, '戻り先：claude.ai'],
+      ['Claude', 'https://claude.com/api/mcp/auth_callback', false],
+      ['Anthropic Claude', 'https://evilclaude.ai/cb', true],
+      ['claude', 'https://claude.ai.evil.example/cb', true],
+      ['Ｃｌａｕｄｅ', 'https://evil.example/cb', true],
+      ['Clau​de', 'https://evil.example/cb', true],
+      ['ChatGPT', 'https://chatgpt.com/connector_platform_oauth_redirect', false],
+      ['ChatGPT', 'https://chatgpt.com/connector/oauth/abc123', false],
+      ['ＣｈａｔＧＰＴ', 'https://chatgpt.example.net/cb', true],
+      ['OpenAI helper', 'https://openai.com.evil.example/cb', true],
+      ['Claude Code', 'http://localhost:33418/callback', false, '戻り先：このパソコンの中のアプリ（localhost:33418）'],
+      ['Claude Code', 'http://127.0.0.1:5000/callback', false, '戻り先：このパソコンの中のアプリ（127.0.0.1:5000）'],
+      ['Claude Desktop', 'claude://oauth/callback', false, '戻り先：アプリ（claude://）'],
+      ['Cursor', 'cursor://anysphere.cursor-retrieval/oauth/callback', false, '戻り先：アプリ（cursor://）'],
+      ['My notes app', 'https://notes.example/cb', false],
+    ];
+    for (const [name, redirect, warned, label] of cases) {
+      const html = await consentHtml(visitor, name, redirect);
+      const why = `${name} → ${redirect}`;
+      expect(html.includes('data-warning'), why).toBe(warned);
+      expect(html.includes(warning), why).toBe(warned);
+      if (label) expect(html, why).toContain(`<p class="return" data-return-to>${label}</p>`);
+    }
+    const english = await consentHtml(visitor, 'Claude', 'https://claude.example/api/mcp/auth_callback', 'en');
+    expect(english).toContain('This isn’t the usual return address for an AI with this name. If you don’t recognize it, don’t allow it.');
+    expect(english).toContain('<p class="return" data-return-to>Returns to: claude.example</p>');
+    expect(await consentHtml(visitor, 'Claude Code', 'http://localhost:33418/callback', 'en')).toContain('Returns to: an app on this computer (localhost:33418)');
+  });
+
+  test('名前に HTML や長い文字があっても崩れない（名前は60文字まで）', async () => {
+    const { visitor } = await person('consent');
+    const redirect = `https://${'a'.repeat(60)}.example/cb`;
+    const client = await register(`<img src=x onerror="document.title='x'"><b>Claude</b>${'Ｗ'.repeat(80)}`, redirect);
+    expect([...client.client_name]).toHaveLength(60);
+    const browser = await chromium.launch();
+    try {
+      for (const width of [390, 1440]) {
+        const context = await browser.newContext({ baseURL: ownOrigin(), locale: 'ja-JP', viewport: { width, height: 844 } });
+        await context.addCookies([...visitor.cookies].map(([cookie, value]) => ({ name: cookie, value, url: ownOrigin() })));
+        const page = await context.newPage();
+        expect((await page.goto(`/oauth/authorize?${consentParams(client.client_id, redirect)}`))!.status()).toBe(200);
+        await expect(page.locator('[data-client-name]')).toHaveText(client.client_name);
+        await expect(page.locator('main img, main b')).toHaveCount(0);
+        await expect(page.locator('[data-warning]')).toHaveCount(1);
+        const box = await page.evaluate(() => ({
+          scroll: document.documentElement.scrollWidth,
+          client: document.documentElement.clientWidth,
+          right: Math.max(...['h1', '[data-return-to]', '[data-warning]'].map((selector) => document.querySelector(selector)!.getBoundingClientRect().right)),
+        }));
+        expect(box.scroll, `${width}`).toBeLessThanOrEqual(box.client);
+        expect(box.right, `${width}`).toBeLessThanOrEqual(box.client);
+        expect(await page.title()).not.toBe('x');
+        await context.close();
+      }
+    } finally {
+      await browser.close();
+    }
+  });
+});
+
 test.describe('MCP サーバー /mcp', () => {
   test('つなぐ →「波紋のボタンを作って」で save_work → 自分だけの作品が増える →「色を変えて」で同じ作品の版が増える', async () => {
     const owner = await person('mcpowner');
