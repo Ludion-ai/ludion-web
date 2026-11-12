@@ -11,6 +11,8 @@ import { comparePopular } from '../src/lib/popular';
 import wwwWorker from '../www-redirect/worker';
 import { OUTLINE_VERSION, buildOutline } from '@ludion/outline';
 import { loadOutline, outlineFromBytes, type OutlineBucket } from '../worker/outline';
+import { diffLines, diffRows, splitLines, type DiffRun } from '../src/lib/lineDiff';
+import { diffVersions } from '../src/lib/versionDiff';
 
 const seed: Work[] = JSON.parse(readFileSync(new URL('../../../seed/works.json', import.meta.url), 'utf8'));
 const popular = seed.toSorted(comparePopular);
@@ -349,5 +351,99 @@ test.describe('中身の地図（WS002）：初めて要るときに作って置
     expect(JSON.parse(outlineFromBytes({ html: bytes(work.html), css: bytes(work.css), js: bytes(work.js), document: null })!)).toEqual(buildOutline(work));
     const doc = '<!doctype html><title>t</title><canvas></canvas><script>requestAnimationFrame(() => {})</script>';
     expect(JSON.parse(outlineFromBytes({ html: null, css: null, js: null, document: bytes(doc) })!)).toEqual(buildOutline({ html: '', css: '', js: null, document: doc }));
+  });
+});
+
+test.describe('版の違い（WS004）', () => {
+  /** 塊の並びから、後の版を作り直す（前の版の同じ行と、増えた行で） */
+  const rebuild = (a: string[], b: string[], runs: DiffRun[]) => runs.flatMap((run) => (run.op === 0 ? a.slice(run.a, run.a + run.n) : run.op === 2 ? b.slice(run.b, run.b + run.n) : []));
+  /** 最長の共通の部分列の長さ（確かめ用の、素直な表の計算） */
+  const lcs = (a: string[], b: string[]) => {
+    const row = new Array<number>(b.length + 1).fill(0);
+    for (let i = 1; i <= a.length; i++) {
+      let diagonal = 0;
+      for (let j = 1; j <= b.length; j++) {
+        const above = row[j];
+        row[j] = a[i - 1] === b[j - 1] ? diagonal + 1 : Math.max(row[j], row[j - 1]);
+        diagonal = above;
+      }
+    }
+    return row[b.length];
+  };
+
+  test('いちばん少ない手数の違い：後の版を作り直せて、増えた行と減った行の数は最長の共通の部分列から決まる数と同じ', () => {
+    let seed = 7;
+    const random = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+    for (let round = 0; round < 400; round++) {
+      const pick = () => Array.from({ length: Math.floor(random() * 30) }, () => 'abcde'[Math.floor(random() * 5)]);
+      const a = pick();
+      const b = pick();
+      const diff = diffLines(a, b);
+      expect(diff.replaced).toBe(false);
+      expect(rebuild(a, b, diff.runs)).toEqual(b);
+      expect(diff.runs.filter((run) => run.op !== 2).flatMap((run) => (run.op === 0 ? a.slice(run.a, run.a + run.n) : a.slice(run.a, run.a + run.n)))).toEqual(a);
+      const common = lcs(a, b);
+      expect(diff.removed).toBe(a.length - common);
+      expect(diff.added).toBe(b.length - common);
+    }
+  });
+
+  test('行に分ける：最後の改行の後は数えない。空は 0 行', () => {
+    expect(splitLines('')).toEqual([]);
+    expect(splitLines('a\nb\n')).toEqual(['a', 'b']);
+    expect(splitLines('a\nb')).toEqual(['a', 'b']);
+    expect(splitLines('\n')).toEqual(['']);
+  });
+
+  test('手間の上限を超えたら、頭と尻の同じ行を残して、間を全部入れ替えたと見なす', () => {
+    const a = ['head', ...Array.from({ length: 300 }, (_, i) => `a${i}`), 'tail'];
+    const b = ['head', ...Array.from({ length: 200 }, (_, i) => `b${i}`), 'tail'];
+    const diff = diffLines(a, b, 1000);
+    expect(diff.replaced).toBe(true);
+    expect([diff.removed, diff.added]).toEqual([300, 200]);
+    expect(rebuild(a, b, diff.runs)).toEqual(b);
+    expect(diffLines(a, b).replaced).toBe(false);
+  });
+
+  test('全く違う 5,000 行どうしでも、上限の中で終わる', () => {
+    const a = Array.from({ length: 5000 }, (_, i) => `const a${i} = ${i};`);
+    const b = Array.from({ length: 5000 }, (_, i) => `let b${i} = ${i * 2};`);
+    const started = performance.now();
+    const diff = diffLines(a, b);
+    const took = performance.now() - started;
+    expect([diff.removed, diff.added]).toEqual([5000, 5000]);
+    expect(rebuild(a, b, diff.runs)).toEqual(b);
+    console.log(`全く違う 5,000 行どうし：${took.toFixed(0)} ms（replaced: ${diff.replaced}）`);
+  });
+
+  test('画面の行：変わった所の前後3行だけを出し、ほかの同じ行は1行にたたむ。開いたたたみは出す', () => {
+    const a = Array.from({ length: 20 }, (_, i) => `line ${i}`);
+    const b = a.map((line, i) => (i === 10 ? 'changed' : line));
+    const { runs } = diffLines(a, b);
+    const rows = diffRows(runs);
+    expect(rows.map((row) => row.kind)).toEqual(['fold', 'same', 'same', 'same', 'del', 'add', 'same', 'same', 'same', 'fold']);
+    expect(rows[0]).toEqual({ kind: 'fold', a: 0, b: 0, count: 7 });
+    expect(rows[9]).toEqual({ kind: 'fold', a: 14, b: 14, count: 6 });
+    expect(diffRows(runs, 3, new Set([0])).filter((row) => row.kind === 'fold')).toHaveLength(1);
+  });
+
+  test('2つの版：ファイルごとの数と、変わったまとまり（中身で比べる。上に行が足されてずれただけのものは出さない。入れ子はいちばん内側）', () => {
+    const before = { html: '<div data-ld-part="x"></div>\n', css: '[data-ld-part="x"] { color: red; }\n', js: 'export function mount(root) {\n  const a = 1;\n  return () => {};\n}\nfunction other() {\n  return 2;\n}\n', document: null };
+    const after = { ...before, js: '// head\nexport function mount(root) {\n  const a = 2;\n  return () => {};\n}\nfunction other() {\n  return 2;\n}\nfunction added() {}\n' };
+    const diff = diffVersions(before, after);
+    expect(diff.files.map(({ name, status, added, removed }) => ({ name, status, added, removed }))).toEqual([
+      { name: 'part.html', status: 'same', added: 0, removed: 0 },
+      { name: 'part.css', status: 'same', added: 0, removed: 0 },
+      { name: 'part.js', status: 'changed', added: 3, removed: 1 },
+    ]);
+    const names = diff.sections.map((section) => `${section.kind}:${section.name}:${section.change}`);
+    expect(names).toContain('function:mount:changed');
+    expect(names).toContain('function:added:added');
+    expect(names).not.toContain('function:other:changed');
+    // 文書の作品と、ファイルが増えた版
+    const doc = diffVersions({ html: null, css: null, js: null, document: '<!doctype html>\n<p>a</p>\n' }, { html: null, css: null, js: null, document: '<!doctype html>\n<p>b</p>\n' });
+    expect(doc.files.map(({ name, added, removed }) => ({ name, added, removed }))).toEqual([{ name: 'index.html', added: 1, removed: 1 }]);
+    const grown = diffVersions({ ...before, js: null }, before);
+    expect(grown.files.find((file) => file.name === 'part.js')).toMatchObject({ status: 'added', added: 7, removed: 0 });
   });
 });

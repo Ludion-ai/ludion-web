@@ -9,6 +9,7 @@ import { ThumbCapture } from '../components/ThumbCapture';
 import { WallpaperSheet } from '../components/WallpaperSheet';
 import { WorkAbout } from '../components/WorkAbout';
 import { WorkFiles } from '../components/WorkFiles';
+import { useVersions, VersionCompare, VersionList } from '../components/WorkVersions';
 import { ReportIssue } from '../components/ReportIssue';
 import { XLink } from '../components/XLink';
 import { useCopy, useLocale } from '../hooks/useCopy';
@@ -210,6 +211,8 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
   const state: WorkState = own ? stateOf(own) : isPrivate ? 'private' : 'public';
   const StateIcon = state === 'public' ? Globe : state === 'private' ? Lock : Clock;
   const newVersionPath = localizedPath(locale, `/new?work=${encodeURIComponent(work.id)}`);
+  // 版のタブ（WS004）：一覧は右の列、2つの版の違いは下の幅いっぱい。状態はここで1つ持つ
+  const versions = useVersions(work, page.versions);
 
   const tabs: { id: TabId; label: string; icon: typeof Code2; count?: number }[] = [
     { id: 'code', label: copy.work.tabs.code, icon: Code2 },
@@ -444,23 +447,9 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
             </button>
           </div>
 
-          {/* 版：今は一覧だけ（版の違いは WS004） */}
+          {/* 版：一覧（2つを選ぶと、下に違いと2つの動く作品。持ち主には「この版に戻す」。WS004） */}
           <div {...panelProps('versions')} tabIndex={0}>
-            {page.versions.length === 0 ? (
-              <p className="text-body text-site-fg-2">{copy.work.versions.none}</p>
-            ) : (
-              <ol className="divide-y divide-site-line rounded-card border border-site-line">
-                {page.versions.map(({ version, at }) => (
-                  <li key={version} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-body">
-                    <span className="font-semibold text-site-fg">{copy.work.version(version)}</span>
-                    <time dateTime={new Date(at).toISOString()} className="text-small text-site-fg-2">
-                      {new Date(at).toISOString().slice(0, 10)}
-                    </time>
-                    {version === work.version && <span className={BADGE}>{copy.work.versions.current}</span>}
-                  </li>
-                ))}
-              </ol>
-            )}
+            <VersionList work={work} title={work.title || copy.post.untitled} versions={page.versions} state={versions} canRevert={isOwner} />
           </div>
 
           {/* 系譜：元の作品と、この作品のリミックス（公開のものだけ） */}
@@ -546,6 +535,16 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
         <div data-work-files-panel="" hidden={shownTab !== 'code'}>
           <WorkFiles workId={work.id} version={work.version} tree={page.tree} credit={page.credit} snippet={snippet} file={openFile} onCopied={countCopy} />
         </div>
+      )}
+      {/* 2つの版の違い（版のタブの続き。幅いっぱい）。版のタブを開いている間だけ作る（2つの版の枠も、そのときだけ動かす） */}
+      {shownTab === 'versions' && (
+        <VersionCompare
+          work={work}
+          title={work.title || copy.post.untitled}
+          versions={page.versions}
+          state={versions}
+          frameSize={work.type === 'component' || work.platform === 'mobile' ? 'mobile' : 'desktop'}
+        />
       )}
 
       <WorkList heading={copy.work.moreFrom(handle)} works={more} onSelect={onSelectWork} />

@@ -62,6 +62,33 @@ export async function loadRevisionFiles(bucket: R2Bucket, prefix: string): Promi
   return { meta: parsed, html, css, js };
 }
 
+/**
+ * 版のタブに出してよい版の状態（WS004）。版の一覧（workAbout.ts の loadHistory）と、版の中身の読み口（workFile.ts）と、
+ * 「この版に戻す」（post.ts）が、この1つを使う。
+ * - 公開の作品：承認済みの版だけ（だれにでも同じ）。
+ * - 自分だけの作品：持ち主にだけ、承認済みの版と自分だけの版。
+ * 審査中、差し戻し、取り下げ、下書きの版は、どちらにも入れない。
+ */
+export const historyStatuses = (isPrivate: boolean): readonly RevisionRow['status'][] => (isPrivate ? ['approved', 'private'] : ['approved']);
+
+/** historyStatuses を SQL の IN の中身にする（値は上の固定の文字だけで、人の入れた文字は入らない） */
+export const historyStatusSql = (isPrivate: boolean): string => historyStatuses(isPrivate).map((status) => `'${status}'`).join(', ');
+
+/**
+ * 自分だけの作品の、版のタブに出してよい版（WS004）。持ち主にだけ返す。ほかの人（運営も）には null で、ない作品と同じに見せる。
+ * 公開の作品の版は approvedPrefix で読む（人によって変えない）。
+ */
+export async function privateHistoryRevision(db: D1Database, workId: string, version: string, user: Pick<SessionUser, 'id'> | null): Promise<Pick<RevisionRow, 'id' | 'version' | 'r2_prefix'> | null> {
+  if (!user) return null;
+  return db
+    .prepare(
+      `SELECT r.id, r.version, r.r2_prefix FROM works w JOIN creators c ON c.id = w.creator_id JOIN revisions r ON r.work_id = w.id
+       WHERE w.id = ? AND r.version = ? AND w.status = 'private' AND c.user_id = ? AND r.status IN (${historyStatusSql(true)})`,
+    )
+    .bind(workId, version, user.id)
+    .first<Pick<RevisionRow, 'id' | 'version' | 'r2_prefix'>>();
+}
+
 /** 公開してよい版の置き場。作品も版も承認済みのときだけ（前の版も、取り下げるまでは返す）。 */
 export async function approvedPrefix(db: D1Database, workId: string, version: string): Promise<string | null> {
   const row = await db
