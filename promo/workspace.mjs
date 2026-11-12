@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { synthesize, writeWav } from './workspace/audio.mjs';
+import { OUT_ROOT, useLocalTemp } from './workspace/out.mjs';
 import { waitForQuiet } from './workspace/quiet.mjs';
 import { buildTerminal } from './workspace/terminal.mjs';
 
@@ -33,7 +34,8 @@ const valueOf = (flag) => {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
 const STAGE = resolve(HERE, 'workspace');
-const OUT_DIR = resolve(HERE, 'out');
+const OUT_DIR = OUT_ROOT; // 既定は promo/out/。LD_PROMO_OUT で選べる
+const TMP_DIR = useLocalTemp(); // 舞台のブラウザの一時ファイルも、置き場の中に作らせる
 const ASSETS = resolve(HERE, 'launch', 'assets');
 const TIMELINE_PATH = resolve(STAGE, 'timeline.json');
 const timeline = JSON.parse(readFileSync(TIMELINE_PATH, 'utf8'));
@@ -77,6 +79,10 @@ function checkTimeline() {
   for (const page of terminal.pages) for (let i = 1; i < page.items.length; i++) if (page.items[i].at < page.items[i - 1].at) errors.push(`${page.id} の行の時刻の順が合わない: ${page.items[i].text}`);
   const B = timeline.browser;
   if (!(B.in[1] <= B.cursor.move[0] && B.cursor.move[1] <= B.press && B.press < B.out[0])) errors.push('「許可する」の画面の時刻の順が合わない');
+  // 音の付く出来事は、コマの頭に置く。最後の和音は、ロゴが出る時刻に置く
+  const onGrid = (t) => Math.abs(t * timeline.fps - Math.round(t * timeline.fps)) < 1e-6;
+  for (const [name, t] of [['browser.in', B.in[0]], ['browser.press', B.press], ['end.logoIn', timeline.end.logoIn[0]]]) if (!onGrid(t)) errors.push(`${name} の ${t} が、コマの頭にない`);
+  if (timeline.audio.finalChord.at !== timeline.end.logoIn[0]) errors.push('最後の和音の時刻が、ロゴの出る時刻と違う');
   const keys = timeline.camera.keys;
   for (let i = 1; i < keys.length; i++) if (keys[i].t <= keys[i - 1].t) errors.push(`カメラのキー ${i} の時刻が前より早い`);
   if (errors.length) throw new Error(`表の決まりに合わない:\n- ${errors.join('\n- ')}`);
@@ -91,7 +97,8 @@ for (const need of ['fonts/NotoSansJP[wght].ttf', 'fonts/NotoSansMono[wdth,wght]
 const MIME = { '.png': 'image/png', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.ttf': 'font/ttf', '.woff2': 'font/woff2' };
 const netLog = [];
 let onFrame = async () => {};
-const pageData = { terminal, shots: { base: '/shots/', allowButton: shots.allowButton, viewport: shots.viewport } };
+if (!Array.isArray(shots.textRects)) throw new Error('「許可する」の画面に、字の四角がない（古い撮り方）。connect.mjs --check --as ' + timeline.browser.shots + ' で撮り直す');
+const pageData = { terminal, shots: { base: '/shots/', allowButton: shots.allowButton, viewport: shots.viewport, textRects: shots.textRects } };
 const rpc = { waiting: null, queue: [], pending: new Map(), nextId: 1, ready: null };
 function pumpRpc() {
   if (!rpc.waiting || rpc.queue.length === 0) return;
@@ -216,8 +223,8 @@ async function openStage(width, height, samples) {
   // PC の守り：ほかの試験や書き出しが動いている間は描かない（0 になるまで待つ）
   await waitForQuiet(Number(valueOf('--wait-max') || 8));
   const { port } = server.address();
-  // 一時の置き場は promo/out/ の中（この PC では、一時ファイルを作業の置き場の外に作らない）
-  const profile = mkdtempSync(join(OUT_DIR, 'workspace-profile-'));
+  // 一時の置き場は、置き場の tmp/ の中（PC によっては、一時ファイルを作業の置き場の外に作れない）
+  const profile = mkdtempSync(join(TMP_DIR, 'workspace-profile-'));
   rpc.queue.length = 0;
   rpc.waiting = null;
   const ready = new Promise((done) => {
@@ -226,7 +233,7 @@ async function openStage(width, height, samples) {
   // Windows のサンドボックスはこの起動のしかたでは権限で落ちるので外す。この舞台で動くのは promo/workspace/ のコードだけで、作品の JS は動かさない
   const child = spawn(
     headlessShellPath(),
-    ['--headless', '--no-sandbox', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--use-angle=d3d11', '--ignore-gpu-blocklist', '--enable-gpu', '--disable-gpu-watchdog', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--disable-background-networking', '--disable-component-update', '--disable-default-apps', '--disable-sync', '--disable-domain-reliability', '--no-pings', '--metrics-recording-only', '--safebrowsing-disable-auto-update', `--proxy-server=http://127.0.0.1:${port}`, '--window-size=800,450', `http://127.0.0.1:${port}/stage.html?w=${width}&h=${height}&samples=${samples}`],
+    ['--headless', '--no-sandbox', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--disable-lcd-text', '--use-angle=d3d11', '--ignore-gpu-blocklist', '--enable-gpu', '--disable-gpu-watchdog', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--disable-background-networking', '--disable-component-update', '--disable-default-apps', '--disable-sync', '--disable-domain-reliability', '--no-pings', '--metrics-recording-only', '--safebrowsing-disable-auto-update', `--proxy-server=http://127.0.0.1:${port}`, '--window-size=800,450', `http://127.0.0.1:${port}/stage.html?w=${width}&h=${height}&samples=${samples}`],
     { stdio: 'ignore' },
   );
   const close = async () => {
@@ -250,6 +257,13 @@ async function openStage(width, height, samples) {
     throw error;
   }
 }
+/** 描く前に：見出し（消えかけの間も）が、読める字に重ならないことを、全部のコマで確かめる。重なれば、描かずに止まる（試し描きのときは、知らせるだけ）。 */
+async function checkOverlap(onlyTell) {
+  const overlap = await stageCall('overlaps', 10);
+  console.log(`見出しと字の重なり: 見出しの出ているコマ ${overlap.framesChecked}、重なり ${overlap.violations}、いちばん近いすきま ${overlap.min.gap}px（${overlap.min.t}秒、${overlap.min.what}「${overlap.min.text}」）`);
+  if (overlap.violations && !onlyTell) throw new Error(`見出しが字に重なる（すきま ${overlap.margin}px 未満）:\n${overlap.first.map((v) => `  ${v.t}秒「${v.caption}」と ${v.what}「${v.text}」（すきま ${v.gap}px、見出しの濃さ ${v.alpha}）`).join('\n')}`);
+  return overlap;
+}
 function rawToPng(buffer, width, height, file) {
   const r = spawnSync(ffmpegPath, ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${width}x${height}`, '-i', '-', '-vf', 'vflip,format=rgb24', '-frames:v', '1', file], { input: buffer, maxBuffer: 1 << 30 });
   if (r.status !== 0) throw new Error(String(r.stderr));
@@ -259,6 +273,7 @@ async function renderStills(times, width, height, samples, dir, namer) {
   const { close, info, port } = await openStage(width, height, samples);
   const results = [];
   try {
+    const overlap = await checkOverlap(dir.includes('workspace-look'));
     for (let i = 0; i < times.length; i++) {
       const t = times[i];
       const file = resolve(dir, namer(i, t));
@@ -277,7 +292,10 @@ async function renderStills(times, width, height, samples, dir, namer) {
       console.log(`静止画: ${t}秒 → ${namer(i, t)}`);
     }
     const measure = await stageCall('measure');
-    return { results, measure, info };
+    const events = await stageCall('events');
+    const texts = {};
+    for (const t of timeline.measureAt ?? []) texts[t] = await stageCall('texts', t);
+    return { results, measure, overlap, events, texts, info };
   } finally {
     await close();
   }
@@ -286,6 +304,7 @@ const encodeArgs = (width, height, draft, out) => ['-y', '-loglevel', 'error', '
 async function renderVideo(width, height, samples) {
   const { close, info, port } = await openStage(width, height, samples);
   try {
+    const overlap = await checkOverlap(false);
     const totalFrames = Math.round(timeline.duration * timeline.fps);
     const ffmpeg = spawn(ffmpegPath, encodeArgs(width, height, DRAFT, ['-movflags', '+faststart', SILENT]), { stdio: ['pipe', 'inherit', 'inherit'] });
     const ffmpegDone = new Promise((done, fail) => {
@@ -306,10 +325,13 @@ async function renderVideo(width, height, samples) {
     ffmpeg.stdin.end();
     await ffmpegDone;
     const measure = await stageCall('measure');
+    const events = await stageCall('events');
+    const texts = {};
+    for (const t of timeline.measureAt ?? []) texts[t] = await stageCall('texts', t);
     const seconds = (Date.now() - started) / 1000;
     const perFrame = Object.fromEntries(Object.entries(sum).map(([k, v]) => [k, Number((v / totalFrames).toFixed(1))]));
     console.log(`かかった時間: ${seconds.toFixed(0)}秒（1コマ ${((seconds / totalFrames) * 1000).toFixed(0)}ms。内訳 ${JSON.stringify(perFrame)}）`);
-    return { measure, info, seconds: Number(seconds.toFixed(1)), totalFrames, msPerFrame: Number(((seconds / totalFrames) * 1000).toFixed(1)), perFrame };
+    return { measure, overlap, events, info, seconds: Number(seconds.toFixed(1)), totalFrames, msPerFrame: Number(((seconds / totalFrames) * 1000).toFixed(1)), perFrame };
   } finally {
     await close();
   }
@@ -329,11 +351,11 @@ function mux() {
   if (applied.normalization_type !== 'linear') throw new Error(`loudnorm が ${applied.normalization_type} になった。音の大小が潰れるので止める`);
   return { wavHash, first: m, applied, limited: synth.limited, events: synth.events };
 }
-/** 1秒ごとのコマを並べた1枚（通しの mp4 から）。 */
+/** 1秒ごとのコマを並べた1枚（通しの mp4 から）。0.5秒、1.5秒、… のコマを、コマの番号で選ぶ。 */
 function makeSecondsSheet(video, out) {
   const cols = 6;
   const rows = Math.ceil(timeline.duration / cols);
-  run(ffmpegPath, ['-y', '-hide_banner', '-loglevel', 'error', '-i', video, '-vf', `fps=1:start_time=0.5:round=down,scale=640:360:flags=area,tile=${cols}x${rows}:padding=8:margin=8:color=white`, '-frames:v', '1', out]);
+  run(ffmpegPath, ['-y', '-hide_banner', '-loglevel', 'error', '-i', video, '-vf', `select='not(mod(n-${timeline.fps / 2}\,${timeline.fps}))',scale=640:360:flags=area,tile=${cols}x${rows}:padding=8:margin=8:color=white`, '-vsync', '0', '-frames:v', '1', out]);
 }
 function netSummary() {
   const counts = {};

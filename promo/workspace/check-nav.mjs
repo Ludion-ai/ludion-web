@@ -6,6 +6,7 @@
 import { resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { startDev } from './dev-server.mjs';
+import { useLocalTemp } from './out.mjs';
 import { PERSON, ensurePerson, putRecord } from './person.mjs';
 import { waitForQuiet } from './quiet.mjs';
 
@@ -24,9 +25,10 @@ if (!persist) throw new Error('使い方: node promo/workspace/check-nav.mjs --p
 const say = (step, value) => console.log(JSON.stringify({ step, ...value }));
 
 await waitForQuiet(Number(valueOf('--wait-max') || 8));
+useLocalTemp(); // ブラウザの一時ファイルも、置き場の中に作らせる
 ensurePerson(resolve(persist));
 const dev = await startDev({ persist, base: BASE });
-const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost'] });
+const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost', '--disable-lcd-text'] });
 try {
   const context = await browser.newContext({ locale: 'ja-JP', viewport: { width: 1440, height: 900 } });
   await context.addCookies([{ name: 'ld_session', value: PERSON.session, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);

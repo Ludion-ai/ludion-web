@@ -6,7 +6,8 @@
 // つなぐ先は、手元の開発のサーバー（LD_DEV_URL、既定 http://localhost:5473）だけ。本番（ludion.ai）には要求を送らない。
 // 「許可する」を押す人は、動画に出す人（person.mjs が手元の D1 に入れる）。ブラウザは Playwright の1つだけで、名前解決を手元だけに絞る。
 // この PC の本物のブラウザは開かない：道具が開くはずの住所を open-url-drop.cjs が受け取り、このスクリプトが自分のブラウザで開く。
-// 撮った画面（promo/out/v006-record/<名前>-shots/）はコミットしない。--check で撮り直せる。
+// 撮った画面（promo/out/v006-record/<名前>-shots/）はコミットしない。--check --as <名前> で、AI を使わずに撮り直せる（動画が使うのは timeline.json の browser.shots）。
+// 撮るブラウザは、字のふちに色を付けない（--disable-lcd-text）。大きく寄ると、色のにじみが見えるため。
 
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -14,6 +15,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { startDev } from './dev-server.mjs';
+import { OUT_ROOT, useLocalTemp } from './out.mjs';
 import { PERSON, ensurePerson } from './person.mjs';
 import { waitForQuiet } from './quiet.mjs';
 
@@ -28,7 +30,8 @@ const ROOT = resolve(HERE, '..', '..');
 const PLUGIN = resolve(ROOT, 'plugins', 'ludion');
 const CLI = resolve(PLUGIN, 'skills', 'ludion', 'ludion.mjs');
 const PRELOAD = resolve(HERE, 'open-url-drop.cjs');
-const OUT = resolve(HERE, '..', 'out', 'v006-record');
+const OUT = resolve(OUT_ROOT, 'v006-record');
+useLocalTemp(); // ブラウザの一時ファイルも、置き場の中に作らせる
 const RECORDS = resolve(HERE, 'records');
 const BASE = (process.env.LD_DEV_URL || 'http://localhost:5473').replace(/\/+$/, '');
 const RUNS = JSON.parse(readFileSync(resolve(HERE, 'records.json'), 'utf8'));
@@ -89,6 +92,23 @@ async function allowInBrowser(name, drop, waitMs = 120000) {
     await page.evaluate(() => document.fonts.ready);
     const box = await allow.boundingBox();
     const texts = await page.evaluate(() => [...document.querySelectorAll('h1, h2, p, li, button, a')].map((el) => (el.textContent ?? '').replace(/\s+/g, ' ').trim()).filter(Boolean));
+    // 画面の字の四角（1行ごと）。動画の見出しが字に重ならないことを確かめるのと、描いた絵から字の高さを測るのに使う
+    const textRects = await page.evaluate(() => {
+      const out = [];
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!node.textContent.trim()) continue;
+        const style = getComputedStyle(node.parentElement);
+        if (style.visibility === 'hidden' || style.display === 'none') continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const round = (v) => Math.round(v * 100) / 100;
+        for (const r of range.getClientRects()) {
+          if (r.width > 1 && r.height > 1) out.push({ x: round(r.x), y: round(r.y), width: round(r.width), height: round(r.height), fontPx: parseFloat(style.fontSize), tag: node.parentElement.tagName.toLowerCase(), text: node.textContent.replace(/\s+/g, ' ').trim().slice(0, 40) });
+        }
+      }
+      return out;
+    });
     await page.screenshot({ path: join(shots, 'consent.png') });
     await allow.hover();
     await page.screenshot({ path: join(shots, 'consent-hover.png') });
@@ -97,7 +117,7 @@ async function allowInBrowser(name, drop, waitMs = 120000) {
     await page.waitForLoadState('load');
     await page.screenshot({ path: join(shots, 'done.png') });
     const doneText = await page.evaluate(() => document.body.innerText.replace(/\s+/g, ' ').trim());
-    const manifest = { viewport: SHOT, files: ['consent.png', 'consent-hover.png', 'done.png'], allowButton: box, consentPath, consentTexts: texts, doneText, secondsToAllow: Number(((Date.now() - startedAt) / 1000).toFixed(1)), blockedRequests: blocked };
+    const manifest = { viewport: SHOT, files: ['consent.png', 'consent-hover.png', 'done.png'], allowButton: box, consentPath, consentTexts: texts, textRects, doneText, secondsToAllow: Number(((Date.now() - startedAt) / 1000).toFixed(1)), blockedRequests: blocked };
     writeFileSync(join(shots, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
     return manifest;
   } finally {

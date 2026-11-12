@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { OUT_ROOT } from './out.mjs';
 
 const argv = process.argv.slice(2);
 const valueOf = (flag) => {
@@ -30,7 +31,7 @@ const ROOT = resolve(HERE, '..', '..');
 const WEB = resolve(ROOT, 'apps', 'web');
 const WRANGLER = resolve(ROOT, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
 const HOOK = resolve(ROOT, 'plugins', 'ludion', 'hooks', 'auto-save.mjs');
-const OUT = resolve(HERE, '..', 'out', 'v006-person');
+const OUT = resolve(OUT_ROOT, 'v006-person');
 const WHO = JSON.parse(readFileSync(resolve(HERE, 'person.json'), 'utf8'));
 const BASE = (process.env.LD_DEV_URL || 'http://localhost:5473').replace(/\/+$/, '');
 

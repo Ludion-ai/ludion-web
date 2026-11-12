@@ -225,27 +225,27 @@ export function synthesize(tl, term) {
       if (item.kind === 'cmd' || item.kind === 'user') {
         typeTimes(tl, item).forEach((t, i) => {
           addTick(t, lv.type * (0.8 + (i % 3) * 0.12), 2250 + (i % 4) * 130, 880, tickSeed++, 0.44 + (i % 5) * 0.02);
-          events.push({ kind: 'type', t });
+          events.push({ kind: 'type', id: i === 0 ? `type:${item.id}` : null, t });
         });
         addTick(item.enter, lv.enter, 1180, 460, tickSeed++, 0.48);
-        events.push({ kind: 'enter', t: item.enter });
+        events.push({ kind: 'enter', id: `enter:${item.id}`, t: item.enter });
       } else if (item.kind === 'hook') {
         // 置いた瞬間の短い和音（プラグインの行が出る時刻）
         A.saveChord.forEach((midi, i) => addBell(item.at + i * 0.022, midi, lv.save * (i === 0 ? 1 : 0.72), 0.36 + i * 0.09, 1.9));
-        events.push({ kind: 'save', t: item.at });
+        events.push({ kind: 'save', id: `line:${item.id}`, t: item.at });
       } else if (item.kind === 'say' && item.id) {
         addPluck(item.at, A.saveChord[1] - 12, lv.say, 0.5);
-        events.push({ kind: 'say', t: item.at });
+        events.push({ kind: 'say', id: `line:${item.id}`, t: item.at });
       }
     }
     if (page.flow) addAir(page.flow[1], page.flow[1] - page.flow[0], lv.flow * 2.4, 700, 3000, tl.seed + 510);
   }
   // ---- 「許可する」の画面：開く、押す、つながる
   const B = tl.browser;
-  addPluck(B.in[0] + 0.05, A.saveChord[0] - 5, lv.pop, 0.56);
-  events.push({ kind: 'browser', t: B.in[0] });
+  addPluck(B.in[0], A.saveChord[0] - 5, lv.pop, 0.56);
+  events.push({ kind: 'browser', id: 'browser', t: B.in[0] });
   addTick(B.press, lv.click, 1320, 560, tl.seed + 402, 0.54);
-  events.push({ kind: 'click', t: B.press });
+  events.push({ kind: 'click', id: 'click', t: B.press });
   const connected = term.pages[0].items.find((i) => i.id === 'say1');
   [A.saveChord[0], A.saveChord[2]].forEach((midi, i) => addBell(connected.at + i * 0.03, midi, lv.connect * (i ? 0.7 : 1), 0.42 + i * 0.14, 1.6));
   events.push({ kind: 'connect', t: connected.at });
@@ -330,7 +330,7 @@ export function synthesize(tl, term) {
       L[start + i] += (fL[i] + wl * 0.8) * end;
       R2[start + i] += (fR[i] + wr * 0.8) * end;
     }
-    events.push({ kind: 'final', t: finalAt });
+    events.push({ kind: 'final', id: 'logo', t: finalAt });
   }
 
   // ---- 重ねすぎたピークだけを、先読みで下げる

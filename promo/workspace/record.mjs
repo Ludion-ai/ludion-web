@@ -15,6 +15,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PRIVATE_OWNER } from '../../apps/web/scripts/private-fixture.mjs';
 import { startDev } from './dev-server.mjs';
+import { OUT_ROOT } from './out.mjs';
 import { PERSON } from './person.mjs';
 
 const argv = process.argv.slice(2);
@@ -28,7 +29,7 @@ const ROOT = resolve(HERE, '..', '..');
 const PLUGIN = resolve(ROOT, 'plugins', 'ludion');
 const HOOK = resolve(PLUGIN, 'hooks', 'auto-save.mjs');
 const CLI = resolve(PLUGIN, 'skills', 'ludion', 'ludion.mjs');
-const OUT = resolve(HERE, '..', 'out', 'v006-record');
+const OUT = resolve(OUT_ROOT, 'v006-record');
 const RECORDS = resolve(HERE, 'records');
 const BASE = (process.env.LD_DEV_URL || 'http://localhost:5473').replace(/\/+$/, '');
 const RUNS = JSON.parse(readFileSync(resolve(HERE, 'records.json'), 'utf8'));

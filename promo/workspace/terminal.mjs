@@ -162,5 +162,20 @@ function buildMake(TL, recordsDir) {
 }
 
 export function buildTerminal(TL, recordsDir, root) {
-  return { pages: [buildConnect(TL, recordsDir, root), buildMake(TL, recordsDir)] };
+  const pages = [buildConnect(TL, recordsDir, root), buildMake(TL, recordsDir)];
+  // 出来事の時刻は、コマの頭にそろえる（絵と音を同じコマに置く。表の数字は、いちばん近いコマに丸める）
+  const snap = (t) => Math.round(t * TL.fps) / TL.fps;
+  for (const page of pages) {
+    for (const item of page.items) {
+      item.at = snap(item.at);
+      if (item.typeTo != null) item.typeTo = snap(item.typeTo);
+      if (item.enter != null) item.enter = snap(item.enter);
+    }
+    for (const key of page.clock) key.at = snap(key.at);
+    page.badge = page.badge.map(snap);
+    if (page.flow) page.flow = page.flow.map(snap);
+    if (page.in) page.in = page.in.map(snap);
+    if (page.out) page.out = page.out.map(snap);
+  }
+  return { pages };
 }

@@ -326,7 +326,7 @@ function paintTerminal(t) {
       const mid = l.y + l.st.lineH / 2;
       if (isBox(l.kind)) {
         // 打つ欄。前の行を送ってから出る。打ち終えて送ると、欄の色が少し落ち着く
-        const show = l.first ? 1 : q5(seg(t, l.at - 0.12, l.at - 0.02));
+        const show = l.first ? 1 : q5(seg(t, l.at - 0.12, l.at - 0.05)); // 打ち始めの2コマ前には、出きっている（打ち始めの絵を測るとき、欄の出方と混ざらないように）
         if (show <= 0.003) continue;
         const sent = q5(seg(t, l.enter, l.enter + 0.18));
         c.globalAlpha = pa * show;
@@ -344,7 +344,7 @@ function paintTerminal(t) {
         const shown = l.chars.slice(0, typedCount(l, t)).join('');
         c.fillStyle = css(l.st.color);
         c.fillText(shown, BOX_X, mid + 1);
-        if (t < l.enter + 0.05) {
+        if (t < l.enter - 1e-6) { // 送った時刻のコマで、印が消える
           // 打つ位置の印
           const x = BOX_X + c.measureText(shown).width + 3;
           c.fillStyle = css([40, 40, 48], 0.85);
@@ -454,7 +454,11 @@ async function shotTexture(file) {
 const consentTex = await shotTexture('consent.png');
 const brBoard = makeBoard(consentTex);
 brBoard.mat.uniforms.uBias.value = -0.4;
-const brAlpha = (t) => q5(seg(t, BR.in[0], BR.in[1])) * (1 - q5(seg(t, BR.out[0], BR.out[1])));
+// 開く時刻のコマで、もう見えている（音とのずれを1コマ以内にする）
+const brIn = (t) => (t < BR.in[0] - 1e-6 ? 0 : easeOut(seg(t + 1 / TL.fps, BR.in[0], BR.in[1])));
+const brAlpha = (t) => brIn(t) * (1 - q5(seg(t, BR.out[0], BR.out[1])));
+// 開くときは少し小さい所から、閉じるときは少し小さくなりながら
+const brPop = (t) => mix(0.94, 1, brIn(t)) * mix(1, 0.96, q5(seg(t, BR.out[0], BR.out[1])));
 /** 画面の中の位置（CSS の画素）→ 世界 */
 const pagePt = (px, py, dz = 0) => [BR.at[0] - BR.size[0] / 2 + px, BR.at[1] + BR.size[1] / 2 - py, BR.at[2] + dz];
 
@@ -490,20 +494,26 @@ cursorMesh.renderOrder = 100000;
 scene.add(cursorMesh);
 const CURSOR_HOT = [15 / 54, 9 / 54];
 const glide = (x) => 1 - Math.pow(1 - Math.pow(clamp(x), 1.6), 3); // 人の手のように、ゆっくり動き出して、なめらかに止まる
-function updateCursor(t, alpha) {
+/** カーソルの、世界の位置（矢印の先）と大きさ。押した時刻のコマで、もう縮み始めている。 */
+function cursorState(t) {
   const C = BR.cursor;
-  const a = alpha * q5(seg(t, C.move[0] - 0.15, C.move[0] + 0.1));
+  const b = SHOTS.allowButton;
+  const to = [b.x + b.width * C.at[0], b.y + b.height * C.at[1]]; // 字の上には置かない（ボタンの中の、字の右下）
+  const u = glide(seg(t, C.move[0], C.move[1]));
+  const since = t - BR.press + 1e-6;
+  const a = since + 1 / TL.fps;
+  const squeeze = since < 0 ? 0 : a < 0.06 ? a / 0.06 : a < 0.24 ? 1 - (a - 0.06) / 0.18 : 0;
+  const size = C.size * (1 - 0.16 * squeeze);
+  const tip = pagePt(mix(C.from[0], to[0], u), mix(C.from[1], to[1], u), 6);
+  return { tip, size, center: [tip[0] + size * (0.5 - CURSOR_HOT[0]), tip[1] - size * (0.5 - CURSOR_HOT[1]), tip[2]], shown: q5(seg(t, C.move[0] - 0.15, C.move[0] + 0.1)) };
+}
+function updateCursor(t, alpha) {
+  const c = cursorState(t);
+  const a = alpha * c.shown;
   cursorMesh.visible = a > 0.003;
   if (!cursorMesh.visible) return;
-  const b = SHOTS.allowButton;
-  const to = [b.x + b.width * 0.5, b.y + b.height * 0.56];
-  const u = glide(seg(t, C.move[0], C.move[1]));
-  const since = t - BR.press;
-  const squeeze = since < 0 ? 0 : since < 0.07 ? since / 0.07 : since < 0.22 ? 1 - (since - 0.07) / 0.15 : 0;
-  const s = C.size * (1 - 0.14 * squeeze);
-  const p = pagePt(mix(C.from[0], to[0], u), mix(C.from[1], to[1], u), 6);
-  cursorMesh.scale.set(s, s, 1);
-  cursorMesh.position.set(p[0] + s * (0.5 - CURSOR_HOT[0]), p[1] - s * (0.5 - CURSOR_HOT[1]), p[2]);
+  cursorMesh.scale.set(c.size, c.size, 1);
+  cursorMesh.position.set(c.center[0], c.center[1], c.center[2]);
   cursorMat.uniforms.uAlpha.value = a;
 }
 
@@ -512,9 +522,8 @@ function updateBoards(t) {
   const a = boardsAlpha(t);
   termBoard.set(T1.at[0], T1.at[1], T1.at[2], T1.size[0], T1.size[1], { radius: T1.radius, alpha: a, yaw: T1.yaw });
   for (const e of emptyBoards) e.board.set(e.spec.at[0], e.spec.at[1], e.spec.at[2], e.spec.size[0], e.spec.size[1], { radius: e.spec.radius, alpha: a, yaw: e.spec.yaw });
-  // 開くときは少し小さい所から、閉じるときは少し小さくなりながら
   const ba = brAlpha(t);
-  const pop = mix(0.94, 1, easeOut(seg(t, BR.in[0], BR.in[1]))) * mix(1, 0.96, q5(seg(t, BR.out[0], BR.out[1])));
+  const pop = brPop(t);
   brBoard.set(BR.at[0], BR.at[1], BR.at[2], BR.size[0] * pop, BR.size[1] * pop, { radius: BR.radius, alpha: ba });
   updateCursor(t, ba);
 }
@@ -678,6 +687,7 @@ function makeCaption(c) {
     ctx.fillStyle = '#111114';
     ctx.fillText(c.ja, W / 2, baseJa);
     m.inkJa = mJa.actualBoundingBoxAscent + mJa.actualBoundingBoxDescent;
+    m.ascJa = mJa.actualBoundingBoxAscent;
     ctx.font = `500 ${es}px LDNoto`;
     ctx.letterSpacing = `${0.002 * es}px`;
     const mEn = ctx.measureText(c.en);
@@ -685,24 +695,10 @@ function makeCaption(c) {
     ctx.fillText(c.en, W / 2, baseJa + Math.round(fs * 0.74));
     m.inkEn = mEn.actualBoundingBoxAscent + mEn.actualBoundingBoxDescent;
     m.wEn = mEn.width;
+    m.baseEn = baseJa + Math.round(fs * 0.74);
+    m.descEn = mEn.actualBoundingBoxDescent;
   });
-  // 字の多い絵（寄ったターミナル）の上でも読めるよう、見出しの後ろに白い やわらかい板を敷く。ターミナルを離れたら、板は消す（plate.out）
-  let plateSprite = null;
-  if (c.plate) {
-    const pw = Math.max(m.wJa, m.wEn) + fs * 2.6;
-    plateSprite = overlaySprite(
-      drawCanvas(W, canvasH, (ctx) => {
-        ctx.shadowColor = 'rgb(255 255 255 / 0.95)';
-        ctx.shadowBlur = fs * 0.6;
-        ctx.fillStyle = 'rgb(255 255 255 / 0.93)';
-        ctx.beginPath();
-        ctx.roundRect(W / 2 - pw / 2, baseJa - fs * 1.3, pw, fs * 2.55, fs * 0.7);
-        ctx.fill();
-        ctx.fill();
-      }),
-    );
-  }
-  return { ...c, ...m, plateSprite, sprite: overlaySprite(canvas), baseJa, canvasH };
+  return { ...c, ...m, sprite: overlaySprite(canvas), baseJa, canvasH };
 }
 const captions = TL.captions.map(makeCaption);
 
@@ -812,13 +808,13 @@ function updateOverlay(t) {
     const a = captionAlpha(c, t);
     const rise = (1 - q5(seg(t, c.in, c.in + 0.95))) * 12;
     const y = 1080 * CAPTION.jaY - (c.baseJa / H) * 1080 + rise;
-    c.plateSprite?.set(0, y, 1920, (c.canvasH / H) * 1080, a * (1 - q5(seg(t, c.plate.out[0], c.plate.out[1]))));
     c.sprite.set(0, y, 1920, (c.canvasH / H) * 1080, a);
   }
   paintBadge(t);
   {
     // ロゴは、少し大きい所から、ゆっくり落ち着く（最後まで、わずかに動いている）
-    const a = q5(seg(t, END.logoIn[0], END.logoIn[1]));
+    // 出る時刻のコマで、もう見えている（最後の和音と合わせる）
+    const a = t < END.logoIn[0] - 1e-6 ? 0 : 1 - Math.pow(1 - seg(t + 1 / TL.fps, END.logoIn[0], END.logoIn[1]), 3);
     const s = mix(1.05, 1, easeOut(seg(t, END.logoIn[0], END.settleBy)));
     const w = lockup.w * s;
     const h = lockup.h * s;
@@ -881,7 +877,197 @@ function renderFrameAt(t0) {
   return pixels;
 }
 
+// ---- 画面の上の位置を知る（見出しが読める字に重ならないことを確かめる。出来事の絵を、動くカメラの中で追う）。四角は 1920×1080 の画素
+const projV = new THREE.Vector3();
+function aimCamera(t) {
+  setCamera(t, 0, 0);
+  camera.updateMatrixWorld(true);
+}
+/** 世界の四角（向かい合う2つの角）を、今のカメラで、画面の四角にする。 */
+function screenRect(x0, y0, x1, y1, z) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) {
+    projV.set(x, y, z).project(camera);
+    const sx = (projV.x + 1) * 960;
+    const sy = (1 - projV.y) * 540;
+    minX = Math.min(minX, sx);
+    minY = Math.min(minY, sy);
+    maxX = Math.max(maxX, sx);
+    maxY = Math.max(maxY, sy);
+  }
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+const onScreen = (r) => r.x < 1920 && r.y < 1080 && r.x + r.w > 0 && r.y + r.h > 0;
+const clip = (r) => {
+  const x = Math.max(0, r.x);
+  const y = Math.max(0, r.y);
+  const w = Math.min(1920, r.x + r.w) - x;
+  const h = Math.min(1080, r.y + r.h) - y;
+  return w > 1 && h > 1 ? { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) } : null;
+};
+// ターミナルの行の四角（設計の画素）
+const K_T = T1.size[0] / TDW;
+const CONTENT_Y = TITLE_H + TPAD * 0.8;
+for (const page of LAID) {
+  for (const l of page.lines) {
+    termCtx.font = l.st.font;
+    l.w = termCtx.measureText(l.text).width;
+    l.w1 = termCtx.measureText(l.chars[0] ?? '').width;
+  }
+}
+function lineBox(l, part = 'text') {
+  const mid = CONTENT_Y + l.y + l.st.lineH / 2;
+  const half = TM.fontPx * 0.66;
+  const x0 = TPAD + (isBox(l.kind) ? BOX_X : 0);
+  if (part === 'first') return [x0 - 2, mid - half, l.w1 + 4, half * 2];
+  if (part === 'caret') return [x0 + l.w - 3, mid - half, 14, half * 2];
+  return [x0, mid - half, l.w, half * 2];
+}
+const termRect = ([dx, dy, dw, dh]) => screenRect(T1.at[0] - T1.size[0] / 2 + dx * K_T, T1.at[1] + T1.size[1] / 2 - dy * K_T, T1.at[0] - T1.size[0] / 2 + (dx + dw) * K_T, T1.at[1] + T1.size[1] / 2 - (dy + dh) * K_T, T1.at[2]);
+const lineVisible = (page, l, t) => pageAlpha(page, t) > 0.003 && (isBox(l.kind) ? typedCount(l, t) > 0 : l.at <= t + 1e-6);
+/** 「許可する」の画面の中の四角（CSS の画素）を、画面の四角にする。開くときの大きさの変わり方も入れる。 */
+function pageRect(r, t) {
+  const pop = brPop(t);
+  const px = (x) => BR.size[0] / 2 + (x - BR.size[0] / 2) * pop;
+  const py = (y) => BR.size[1] / 2 + (y - BR.size[1] / 2) * pop;
+  const a = pagePt(px(r.x), py(r.y));
+  const b = pagePt(px(r.x + r.width), py(r.y + r.height));
+  return screenRect(a[0], a[1], b[0], b[1], BR.at[2]);
+}
+// 空の板の字（まだ撮っていない場面の題と注）
+termCtx.font = noteFont(22, 600);
+const TITLE_W = termCtx.measureText(TM.title).width;
+for (const e of emptyBoards) {
+  const dw = e.spec.kind === 'terminal-empty' ? TDW : 1440;
+  const dh = Math.round((dw * e.spec.size[1]) / e.spec.size[0]);
+  termCtx.font = noteFont(34, 600);
+  const lw = termCtx.measureText(e.spec.label).width;
+  termCtx.font = noteFont(24, 500);
+  const nw = termCtx.measureText(e.spec.note).width;
+  e.texts = [
+    { text: e.spec.label, box: [dw / 2 - lw / 2, dh / 2 - 22 - 21, lw, 42] },
+    { text: e.spec.note, box: [dw / 2 - nw / 2, dh / 2 + 28 - 15, nw, 30] },
+    ...(e.spec.kind === 'terminal-empty' ? [{ text: TM.title, box: [dw / 2 - TITLE_W / 2, TITLE_H / 2 - 14, TITLE_W, 28] }] : []),
+  ];
+  e.k = e.spec.size[0] / dw;
+}
+/** 時刻 t に、画面で読める字の四角（今のカメラで）。「許可する」の画面の後ろに隠れたターミナルの行は入れない。 */
+function readableTexts(t) {
+  const out = [];
+  const ba = brAlpha(t);
+  const board = ba > 0.003 ? pageRect({ x: 0, y: 0, width: BR.size[0], height: BR.size[1] }, t) : null;
+  const hidden = (r) => ba >= 0.97 && r.x >= board.x && r.y >= board.y && r.x + r.w <= board.x + board.w && r.y + r.h <= board.y + board.h;
+  const push = (what, text, r, more = {}) => {
+    if (onScreen(r)) out.push({ what, text: text.slice(0, 30), x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h), ...more });
+  };
+  if (boardsAlpha(t) > 0.003) {
+    for (const page of LAID) {
+      for (const l of page.lines) {
+        if (l.kind === 'gap' || !lineVisible(page, l, t)) continue;
+        const r = termRect(lineBox(l));
+        if (!hidden(r)) push(`terminal:${l.id ?? l.kind}`, l.text, r);
+      }
+    }
+    const title = termRect([TDW / 2 - TITLE_W / 2, TITLE_H / 2 - 14, TITLE_W, 28]);
+    if (!hidden(title)) push('terminal:title', TM.title, title);
+    for (const e of emptyBoards) {
+      for (const x of e.texts) {
+        const [dx, dy, dw, dh] = x.box;
+        const s = e.spec;
+        push(`board:${s.id}`, x.text, screenRect(s.at[0] - s.size[0] / 2 + dx * e.k, s.at[1] + s.size[1] / 2 - dy * e.k, s.at[0] - s.size[0] / 2 + (dx + dw) * e.k, s.at[1] + s.size[1] / 2 - (dy + dh) * e.k, s.at[2]));
+      }
+    }
+  }
+  if (ba > 0.003) for (const r of SHOTS.textRects) push('browser', r.text, pageRect(r, t), { fontPx: r.fontPx, tag: r.tag });
+  return out;
+}
+/** 見出しの字の四角（日本語の上端から、英語の下端まで）。 */
+function captionRect(c, t) {
+  const rise = (1 - q5(seg(t, c.in, c.in + 0.95))) * 12;
+  const top = 1080 * CAPTION.jaY - (c.baseJa / H) * 1080 + rise;
+  const w = Math.max(c.wJa, c.wEn) / K;
+  const y0 = top + (c.baseJa - c.ascJa) / K;
+  const y1 = top + (c.baseEn + c.descEn) / K;
+  return { x: 960 - w / 2, y: y0, w, h: y1 - y0 };
+}
+/** 四角と四角のすきま（画素）。負なら重なっている。 */
+const gapOf = (a, b) => Math.max(Math.max(b.x - (a.x + a.w), a.x - (b.x + b.w)), Math.max(b.y - (a.y + a.h), a.y - (b.y + b.h)));
+/** 全部のコマで、見出し（消えかけの間も）が、読める字からすきま margin 以上、離れていることを確かめる。 */
+function checkOverlaps(margin) {
+  const frames = Math.round(TL.duration * TL.fps);
+  const bad = [];
+  let checked = 0;
+  let min = { gap: Infinity };
+  for (let f = 0; f < frames; f++) {
+    const t = f / TL.fps;
+    const shown = captions.filter((c) => captionAlpha(c, t) > 0.003);
+    if (!shown.length) continue;
+    aimCamera(t);
+    const texts = readableTexts(t);
+    for (const c of shown) {
+      checked += 1;
+      const r = captionRect(c, t);
+      for (const x of texts) {
+        const gap = gapOf(r, x);
+        if (gap < min.gap) min = { gap: Math.round(gap), t: Number(t.toFixed(3)), caption: c.ja, what: x.what, text: x.text };
+        if (gap < margin) bad.push({ t: Number(t.toFixed(3)), frame: f, caption: c.ja, alpha: Number(captionAlpha(c, t).toFixed(2)), what: x.what, text: x.text, gap: Math.round(gap) });
+      }
+    }
+  }
+  return { framesChecked: checked, margin, violations: bad.length, first: bad.slice(0, 10), last: bad.slice(-3), min };
+}
+/** 音の付く出来事と、その絵が出る四角（時刻ごと）。ずれを測る道具（check-sync.mjs）が、この四角でコマを切り出す。 */
+function eventList() {
+  const ev = [];
+  for (const page of LAID) {
+    for (const l of page.lines) {
+      if (!l.id) continue;
+      if (isBox(l.kind)) {
+        ev.push({ id: `type:${l.id}`, t: l.at, rect: () => termRect(lineBox(l, 'first')) });
+        ev.push({ id: `enter:${l.id}`, t: l.enter, rect: () => termRect(lineBox(l, 'caret')) });
+      } else if (l.kind !== 'code') ev.push({ id: `line:${l.id}`, t: l.at, rect: () => termRect(lineBox(l)) });
+    }
+  }
+  ev.push({ id: 'browser', t: BR.in[0], rect: (t) => pageRect({ x: 0, y: 0, width: BR.size[0], height: BR.size[1] }, Math.max(t, BR.in[0])) });
+  ev.push({
+    id: 'click',
+    t: BR.press,
+    rect: (t) => {
+      const c = cursorState(Math.min(t, BR.press - 1 / TL.fps)); // 押す前の大きさの四角で切る（縮むのを、変わった所として見る）
+      return screenRect(c.center[0] - c.size / 2, c.center[1] + c.size / 2, c.center[0] + c.size / 2, c.center[1] - c.size / 2, c.center[2]);
+    },
+  });
+  ev.push({ id: 'logo', t: END.logoIn[0], rect: () => ({ x: 960 - lockup.w / 2, y: 1080 * END.logoY - lockup.h / 2, w: lockup.w, h: lockup.h }) });
+  return ev;
+}
+
 window.__stage = {
+  /** 見出しが、読める字に重ならないか（全部のコマ）。 */
+  overlaps(margin = 10) {
+    return checkOverlaps(margin);
+  },
+  /** 出来事ごとの、前後のコマでの四角（コマのまん中の時刻のカメラで）。 */
+  events() {
+    return eventList().map((e) => {
+      const frame = Math.round(e.t * TL.fps);
+      const rects = {};
+      for (let f = frame - 6; f <= frame + 7; f++) {
+        if (f < 0) continue;
+        const tt = (f + 0.25) / TL.fps;
+        aimCamera(tt);
+        rects[f] = clip(e.rect(tt));
+      }
+      return { id: e.id, t: e.t, frame, rects };
+    });
+  },
+  /** 時刻 t に読める字の四角（描いた絵から、字の高さを測るのに使う）。 */
+  texts(t) {
+    aimCamera(t);
+    return readableTexts(t);
+  },
   async frame(frame, url) {
     const px = renderFrameAt(frame / TL.fps);
     const sent = performance.now();
