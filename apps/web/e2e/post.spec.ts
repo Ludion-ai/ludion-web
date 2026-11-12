@@ -143,13 +143,19 @@ async function published(owner: Visitor, reviewer: Visitor, label = 'public', pa
 
 const publicStatus = async (id: string, version: string) => {
   const anonymous = new Visitor();
+  // 本文は読み切る（読まない大きな本文は、Node の fetch を落とすことがある）
+  const status = async (path: string, init?: RequestInit) => {
+    const response = await anonymous.fetch(path, init);
+    await response.arrayBuffer();
+    return response.status;
+  };
   return {
-    page: (await anonymous.fetch(`/p/${id}`)).status,
+    page: await status(`/p/${id}`),
     // コードを文字で返す口も、承認済みの版だけ（docs/tasks/T031.md「1」）
-    code: (await anonymous.fetch(`/p/${id}/code`)).status,
-    frame: (await anonymous.fetch(`/frame/${id}/${version}/desktop.html`, { headers: FROM_IFRAME })).status,
-    thumb: (await anonymous.fetch(`/w/${id}/${version}/thumb.webp`)).status,
-    og: (await anonymous.fetch(`/w/${id}/${version}/og.png`)).status,
+    code: await status(`/p/${id}/code`),
+    frame: await status(`/frame/${id}/${version}/desktop.html`, { headers: FROM_IFRAME }),
+    thumb: await status(`/w/${id}/${version}/thumb.webp`),
+    og: await status(`/w/${id}/${version}/og.png`),
     listed: ((await (await anonymous.fetch('/api/works')).json()) as { works: { id: string }[] }).works.some((work) => work.id === id),
   };
 };
