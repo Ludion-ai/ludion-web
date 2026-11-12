@@ -15,11 +15,11 @@
   ],
   "stills": [0.3, 1.2, 2.4, 3.1, 3.72, 3.88, 4.3, 5, 5.45, 6.6, 6.9, 8.2, 9.3, 10.6, 12.9, 13.95, 15, 18.9, 19.7, 20.5, 21.6, 23, 26.5, 27.6, 29.4, 33.25, 35.2],
   "captions": [
-    { "scene": 0, "ja": "つなぐのは最初の1回。", "en": "Connect once.", "in": -0.2, "out": 3.62 },
-    { "scene": 1, "ja": "自動で保存される。", "en": "Saved automatically.", "in": 8.6, "out": 12.76 },
-    { "scene": 2, "ja": "自分の作品がいつも手元に。", "en": "Always within reach.", "in": 12.9, "out": 17.4 },
-    { "scene": 3, "ja": "中身が全部わかる。", "en": "See everything inside.", "in": 19.0, "out": 23.4 },
-    { "scene": 4, "ja": "次の作品の材料になる。", "en": "Your next piece starts here.", "in": 26.1, "out": 31.1 }
+    { "scene": 0, "ja": "つなぐのは最初の1回", "en": "Connect once", "in": -0.2, "out": 3.62 },
+    { "scene": 1, "ja": "自動で保存される", "en": "Saved automatically", "in": 8.6, "out": 12.76 },
+    { "scene": 2, "ja": "自分の作品がいつも手元に", "en": "Always within reach", "in": 12.9, "out": 17.4 },
+    { "scene": 3, "ja": "中身が全部わかる", "en": "See everything inside", "in": 19.0, "out": 23.4 },
+    { "scene": 4, "ja": "次の作品の材料になる", "en": "Your next piece starts here", "in": 26.1, "out": 31.1 }
   ],
   "end": {
     "wordmark": "Ludion",
