@@ -1568,7 +1568,8 @@ test.describe('投稿を開くまでは運営だけ（docs/PHASE0.md の条件�
     const statement = { bind: () => statement, first: async () => row, all: async () => ({ results: [] }), run: async () => ({ meta: { changes: 0 } }) };
     return {
       POSTING_OPEN: open,
-      DB: { prepare: () => statement, batch: async () => [{ results: [] }, { results: [] }] },
+      // 1つの batch の文の数だけ空の答えを返す（GET /api/me は、いいね、しおり、自分の作品の数の3つ。WS001）
+      DB: { prepare: () => statement, batch: async (statements: unknown[]) => statements.map(() => ({ results: [] })) },
       ASSETS: { fetch: async () => new Response('<html lang="ja"><title>x</title><div id="root"></div></html>') },
     };
   };

@@ -9,6 +9,10 @@ type Account = {
   user: AccountUser | null;
   /** 作品を置く入口を出すか（worker/revisions.ts の canPost）。読み込みの前とログインしていないときは false */
   canPost: boolean;
+  /** GET /api/me の答えが来たか（ログインしていない、の答えも含む）。読み込みの前と、失敗したときは false */
+  ready: boolean;
+  /** 自分の作品の数（左のナビ、WS001）。読み込みの前とログインしていないときは 0 */
+  worksCount: number;
   isLiked: (id: string) => boolean;
   isBookmarked: (id: string) => boolean;
   /** HTML に入っているいいねの数に足す分（開いた後に押した分だけ） */
@@ -34,6 +38,8 @@ const flipped = (ids: Ids, id: string): Ids => {
 export function AccountProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AccountUser | null>(null);
   const [canPost, setCanPost] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [worksCount, setWorksCount] = useState(0);
   const [marks, setMarks] = useState<Record<ToggleKind, Ids>>({ like: NOTHING, bookmark: NOTHING });
   const [likedAtLoad, setLikedAtLoad] = useState<Ids>(NOTHING);
   const me = useRef<Promise<MeResponse> | null>(null);
@@ -42,11 +48,15 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 
   const loadMe = useCallback(() => {
     me.current ??= fetchMe()
-      .catch((): MeResponse => ({ user: null }))
-      .then((body) => {
+      .then((body) => ({ body, answered: true }))
+      .catch(() => ({ body: { user: null } as MeResponse, answered: false }))
+      .then(({ body, answered }) => {
+        // 本人と「答えが来た」を同じ描画で入れる。分けると、ログインしていない形が一度だけ挟まり、左のナビが閉じかける
+        if (answered) setReady(true);
         if (body.user) {
           setUser(body.user);
           setCanPost(body.can_post);
+          setWorksCount(body.works_count ?? 0);
           setMarks({ like: new Set(body.liked), bookmark: new Set(body.bookmarked) });
           setLikedAtLoad(new Set(body.liked));
         }
@@ -94,6 +104,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     () => ({
       user,
       canPost,
+      ready,
+      worksCount,
       isLiked: (id) => marks.like.has(id),
       isBookmarked: (id) => marks.bookmark.has(id),
       likeDelta: (id) => Number(marks.like.has(id)) - Number(likedAtLoad.has(id)),
@@ -103,7 +115,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         void toggle('bookmark', id);
       },
     }),
-    [user, canPost, marks, likedAtLoad, toggle],
+    [user, canPost, ready, worksCount, marks, likedAtLoad, toggle],
   );
 
   return <AccountContext value={value}>{children}</AccountContext>;

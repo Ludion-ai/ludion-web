@@ -379,8 +379,8 @@ test.describe('一覧', () => {
     await page.request.post(`/api/works/${WORK}/bookmark`, { headers: origin });
     await page.request.post(`/api/works/${OTHER_WORK}/like`, { headers: origin });
 
-    // 空の自分の作品
-    await page.getByRole('link', { name: '自分の作品' }).click();
+    // 空の自分の作品（左のナビにも同じ名前のリンクがある。WS001）
+    await page.locator('main').getByRole('link', { name: '自分の作品' }).click();
     await expect(page).toHaveURL('/account/works');
     await expect(page.getByText('まだ作品がありません')).toBeVisible();
     await expect(page).toHaveTitle('自分の作品 · Ludion');
