@@ -44,6 +44,7 @@ import { loadOutline } from './outline';
 import { checkWorkId, placePrivate, readBody, writeDraft, type PostMeta } from './post';
 import { nextDay, nextHour, takeApiQuota } from './quota';
 import { canPost, countPrivateWorks, loadRevisionFiles, ownedRevision, ownedWork, PRIVATE_WORKS_LIMIT, type RevisionRow } from './revisions';
+import { purgeShareOf, shareColumns, shareInfo } from './share';
 import { creditTexts, fullCode, loadFiles, loadMap, readPart, readableWork, type ReadableWork } from './workRead';
 
 /**
@@ -318,6 +319,8 @@ async function answer(c: ApiContext, result: Awaited<ReturnType<typeof writeDraf
       const placed = await placePrivate(db, c.get('user').id, revision);
       if (!placed.ok && placed.body.error === 'private_limit') return fail(c, 409, 'private_limit', 'private_limit', { limit: PRIVATE_WORKS_LIMIT });
       if (!placed.ok) return fail(c, 409, 'conflict');
+      // リンクで見せている作品は、/s/ の HTML の札も消す（SHARE001）
+      await purgeShareOf(c, revision.work_id);
     }
     const work = await ownedWork(db, result.body.work_id);
     return c.json(
@@ -527,6 +530,16 @@ async function readTarget(c: ApiContext): Promise<ReadableWork | Response> {
   return target;
 }
 
+/**
+ * リンクで見せる（SHARE001）：持ち主には今の状態と住所を読ませる。変える道は、この口にはない（人がサイトで押す）。
+ * 持ち主でなければ入れない（ほかの人の作品の合言葉を出さない）。
+ */
+async function shareOfOwn(c: ApiContext, target: ReadableWork) {
+  if (!target.own) return {};
+  const row = await shareColumns(c.env.DB, target.id);
+  return row ? { share: shareInfo(c.req.url, row) } : {};
+}
+
 const workInfo = (c: ApiContext, target: ReadableWork) => ({
   id: target.id,
   title: target.title,
@@ -552,6 +565,7 @@ apiV1.get('/works/:id/outline', async (c) => {
   const files = include ? await loadFiles(c.env, target) : null;
   return c.json({
     ...workInfo(c, target),
+    ...(await shareOfOwn(c, target)),
     bytes,
     max_read_bytes: MAX_PART_READ_BYTES,
     outline,

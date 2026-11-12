@@ -5,7 +5,7 @@
 // T036：自分だけの作品の枠（持ち主にだけ返す /draft-frame/<版の id>/desktop.html）でも、同じ試験を流す（FORMS の private）。
 // WALL001：全画面の住所（/p/<id>/wall の /frame/<id>/<version>/wall.html）でも、同じ試験を流す（FORMS の wall）。
 import { expect, test, type BrowserContext, type Frame, type Locator, type Page } from '@playwright/test';
-import { PRIVATE_OWNER, privateFixtureId, privateRevisionId } from '../scripts/private-fixture.mjs';
+import { PRIVATE_OWNER, privateFixtureId, privateRevisionId, sharedFixtureToken } from '../scripts/private-fixture.mjs';
 import { framedAt } from './helpers';
 
 const SYNTHETIC_INPUT = 'ld-synthetic-input';
@@ -20,6 +20,7 @@ const ownOrigin = () => new URL(test.info().project.use.baseURL!).origin;
  * - inline：ヘッダーのスイッチの枠（T035「3」）。作品を固定して、作品の枠のない /about で開く
  * - private：自分だけの作品のページの枠（T036）。見本の持ち主でログインして開く（scripts/private-fixture.mjs が入れた見本）
  * - wall：全画面の住所（WALL001）。サイトの頭も React もなく、枠だけがある
+ * - shared：リンクで見せるページ（SHARE001）。ログインなしで /s/<合言葉> から開く。枠は /share-frame/<合言葉>/…
  */
 const FORMS = [
   { name: 'desktop', file: 'desktop.html', frame: 'iframe[data-ld-frame]', pagePath: (id: string) => `/p/${id}`, framePath: (id: string) => `/frame/${id}/1/desktop.html` },
@@ -32,6 +33,14 @@ const FORMS = [
     framePath: (id: string) => `/draft-frame/${privateRevisionId(id)}/desktop.html`,
   },
   { name: 'wall', file: 'wall.html', frame: 'iframe[data-ld-frame]', pagePath: (id: string) => `/p/${id}/wall`, framePath: (id: string) => `/frame/${id}/1/wall.html` },
+  // リンクで見せるページ（SHARE001「7」）。自分だけの作品の見本を、ログインなしで /s/<合言葉> から開く。枠は合言葉の枠
+  {
+    name: 'shared',
+    file: 'desktop.html',
+    frame: 'iframe[data-ld-frame]',
+    pagePath: (id: string) => `/s/${sharedFixtureToken(id)}`,
+    framePath: (id: string) => `/share-frame/${sharedFixtureToken(id)}/desktop.html`,
+  },
 ] as const;
 type Form = (typeof FORMS)[number];
 const DESKTOP = FORMS[0];
@@ -346,5 +355,26 @@ test.describe('自分だけの作品の枠（T036）', () => {
     expect(frame.status()).toBe(200);
     expect(frame.headers()['content-security-policy']).toBe(desktop.headers()['content-security-policy']);
     expect(frame.headers()['cache-control']).toBe('private, no-store');
+  });
+});
+
+test.describe('リンクで見せる作品の枠（SHARE001「7」）', () => {
+  const SHARED = FORMS[4];
+  test('ログインなしで /s/ のページと枠が開く。枠の守りは公開の枠と同じ。/p/<id> はほかの人に 404 のまま', async ({ page, request }) => {
+    const id = 'mal-nav';
+    expect((await request.get(`/p/${privateFixtureId(id)}`)).status()).toBe(404);
+    await openWork(page, id, SHARED);
+    await expect(page.locator(SHARED.frame)).toHaveAttribute('sandbox', 'allow-scripts allow-forms');
+    await expect(page.locator(SHARED.frame)).toHaveAttribute('src', framedAt(SHARED.framePath(id)));
+    const frame = await request.get(SHARED.framePath(id), { headers: { 'Sec-Fetch-Dest': 'iframe' } });
+    const desktop = await request.get(`/frame/${id}/1/desktop.html`, { headers: { 'Sec-Fetch-Dest': 'iframe' } });
+    expect(frame.status()).toBe(200);
+    expect(frame.headers()['content-security-policy']).toBe(desktop.headers()['content-security-policy']);
+    expect(frame.headers()['cache-control']).toBe('private, no-store');
+    expect(frame.headers()['referrer-policy']).toBe('no-referrer');
+    // 枠の外から開くと、作品を返さず /s/ のページへ戻す
+    const direct = await request.get(SHARED.framePath(id), { maxRedirects: 0 });
+    expect(direct.status()).toBe(302);
+    expect(direct.headers().location).toBe(SHARED.pagePath(id));
   });
 });

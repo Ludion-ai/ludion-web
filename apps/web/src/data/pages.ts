@@ -102,6 +102,11 @@ export type PageData =
        * 枠は下書きの枠（持ち主だけに返す）。公開の作品では null
        */
       private: { frames: { desktop: string; mobile: string } } | null;
+      /**
+       * リンクで見せるページ（/s/<合言葉>。SHARE001）。だれにでも同じ HTML。枠は合言葉の枠。
+       * 数、いいね、保存、リミックス、版と系譜は出さない。作品のページ（/p/<id>）では null
+       */
+      shared: { token: string; frames: { desktop: string; mobile: string } } | null;
       /** 壁紙の静止画（WALL002）。ld upload が置いた公開の壁紙の作品にだけある（大きい順）。ほかは空 */
       stills: WallStill[];
       /** 「この作品について」（WS003）。地図が作れなければ null（節を出さない） */

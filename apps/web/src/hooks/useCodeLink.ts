@@ -14,7 +14,8 @@ export interface CodeLinkState {
  * 行の住所（/p/<id>/code/<file>#L…）へ移る（WS003）。木、目次、行の番号、「この作品について」の印が、同じ移り方をする。
  * 本文を開いている間の移動は、履歴を増やさない（戻るは1回で、開く前の画面に戻る）。同じルートの中なので、ページは読み込み直さない。
  */
-export function useCodeLink(workId: string) {
+/** base：作品の道（言語のない /p/<id>、リンクで見せるページは /s/<合言葉>。SHARE001） */
+export function useCodeLink(base: string) {
   const navigate = useNavigate();
   const location = useLocation();
   const openFile = fileOfSplat(useParams()['*']);
@@ -23,15 +24,15 @@ export function useCodeLink(workId: string) {
   const go = useCallback(
     (file: string, range: LineRange | null, options: { stay?: boolean } = {}) => {
       const state: CodeLinkState = { fromPage, ...(options.stay ? { stay: true } : {}) };
-      navigate(codePath(workId, file, range), { replace: openFile !== null, state });
+      navigate(codePath(base, file, range), { replace: openFile !== null, state });
     },
-    [navigate, workId, openFile, fromPage],
+    [navigate, base, openFile, fromPage],
   );
   /** 本文を閉じる。この画面の中で開いたなら履歴を1つ戻し、住所で直接開いたなら作品のページへ替える */
   const close = useCallback(() => {
     if (openFile !== null && fromPage) navigate(-1);
-    else navigate(`/p/${encodeURIComponent(workId)}`, { replace: true });
-  }, [navigate, workId, openFile, fromPage]);
+    else navigate(base, { replace: true });
+  }, [navigate, base, openFile, fromPage]);
 
   return { openFile, go, close, stay: (location.state as CodeLinkState | null)?.stay === true };
 }

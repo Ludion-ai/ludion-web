@@ -18,3 +18,6 @@ export const privateFixtureId = (id) => `${id}-own`;
 export const privateRevisionId = (id) => createHash('sha256').update(privateFixtureId(id)).digest('hex').slice(0, 32);
 
 export const sessionHash = (token) => createHash('sha256').update(token).digest('hex');
+
+/** リンクで見せる見本の合言葉（SHARE001）。22 文字の base64url。毎回同じ値にして、テストが /s/ と枠の URL を確かめられるようにする */
+export const sharedFixtureToken = (id) => createHash('sha256').update(`share-${privateFixtureId(id)}`).digest('base64url').slice(0, 22);

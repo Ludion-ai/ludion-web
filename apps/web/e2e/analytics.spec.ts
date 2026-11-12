@@ -116,3 +116,17 @@ test.describe('analytics.ts をビルドの印ごとに作って、動かす', (
     });
   }
 });
+
+// リンクで見せるページ（SHARE001「5」）：/s/ では GA4 を読まない（main.tsx）。2枚目の守りで、送る URL からも合言葉を除く
+test('送る URL から、リンクで見せるページの合言葉を除く（/s/ だけを残す）', async () => {
+  const { isSharePath, withoutSearchTerm } = await import('../src/lib/analytics');
+  const token = 'AbCdEfGhIjKlMnOpQrStUv';
+  expect(isSharePath(`/s/${token}`)).toBe(true);
+  expect(isSharePath(`/en/s/${token}/code/part.css`)).toBe(true);
+  expect(isSharePath('/p/ui-abc123')).toBe(false);
+  expect(isSharePath('/search')).toBe(false);
+  expect(withoutSearchTerm(`https://ludion.ai/s/${token}`)).toBe('https://ludion.ai/s/');
+  expect(withoutSearchTerm(`https://ludion.ai/s/${token}/code/part.css#L4`)).toBe('https://ludion.ai/s/');
+  expect(withoutSearchTerm(`https://ludion.ai/en/s/${token}?utm_source=x`)).toBe('https://ludion.ai/en/s/?utm_source=x');
+  expect(withoutSearchTerm('https://ludion.ai/p/ui-abc123?q=toggle')).toBe('https://ludion.ai/p/ui-abc123');
+});

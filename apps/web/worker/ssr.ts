@@ -77,11 +77,14 @@ export interface PageHead {
   path?: string;
   /** JSON-LD（構造化データ） */
   jsonLd?: unknown;
+  /** meta の robots（リンクで見せるページは noindex, nofollow。SHARE001）。なければ付けない */
+  robots?: string;
 }
 
-function headTags({ title, description, image, path, jsonLd }: PageHead, locale: 'ja' | 'en'): string {
+function headTags({ title, description, image, path, jsonLd, robots }: PageHead, locale: 'ja' | 'en'): string {
   const text = escapeHtml(title);
   const tags = [`<title>${text}</title>`, `<meta property="og:title" content="${text}">`];
+  if (robots) tags.push(`<meta name="robots" content="${escapeHtml(robots)}">`);
   if (description) {
     const about = escapeHtml(description);
     tags.push(`<meta name="description" content="${about}">`, `<meta property="og:description" content="${about}">`);

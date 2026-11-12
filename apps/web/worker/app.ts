@@ -20,7 +20,7 @@ import { oauth, wellKnown } from './oauth';
 import { passkey } from './passkey';
 import { post } from './post';
 import { review } from './review';
-import { redirectSaved, renderAboutPage, renderAccountPage, renderNewWorkPage, renderReviewPage, renderCreatorPage, renderLoginPage, renderNotFound, renderPrivacyPage, renderSignupPage, renderTermsPage, renderWorkCode, renderWorkPage } from './pages';
+import { redirectSaved, renderAboutPage, renderAccountPage, renderNewWorkPage, renderReviewPage, renderCreatorPage, renderLoginPage, renderNotFound, renderPrivacyPage, renderSignupPage, renderTermsPage, renderSharedFile, renderSharedPage, renderWorkCode, renderWorkPage } from './pages';
 import { rateLimit } from './rateLimit';
 import { publicHandleCheck, signup } from './signup';
 import { renderSitemap } from './sitemap';
@@ -57,6 +57,11 @@ app.get('/p/:id/raw/:file', rateLimit('LIMIT_COUNT'));
 // AI につなぐ（MCP001）。許可の画面は人が開くので、ログインと同じ束縛で数える。
 // 登録、トークン、/mcp は AI のサーバーから来る（多くの人が同じ IP を通る）ので IP では数えない（oauth.ts、mcp.ts の頭）
 app.use('/oauth/authorize', rateLimit('LIMIT_AUTH'));
+// リンクで見せる（SHARE001「7」）。合言葉を当てる連打（404）で Worker の回数を使い切られないよう、IP の束縛で数える。
+// 200 のページはキャッシュに当たれば Worker に来ないので数えない。枠と本文も合言葉で D1 を読むので、同じ束縛で数える
+app.use('/s/*', rateLimit('LIMIT_COUNT'));
+app.use('/en/s/*', rateLimit('LIMIT_COUNT'));
+app.use('/share-frame/*', rateLimit('LIMIT_COUNT'));
 
 app.route('/.well-known', wellKnown);
 app.route('/oauth', oauth);
@@ -94,6 +99,10 @@ app.get('/p/:id/code/:file', renderWorkPage);
 app.get('/p/:id/file/:version/:file', renderWorkFile);
 // 全画面の住所（WALL001）。壁紙のアプリが開く。言語の文字がないので、英語の道は作らない
 app.get('/p/:id/wall', renderWallPage);
+// リンクで見せる作品（SHARE001）。合言葉を知っている人だけ。一覧、検索、sitemap には出さない
+app.get('/s/:token', renderSharedPage);
+app.get('/s/:token/code/:file', renderSharedPage);
+app.get('/s/:token/file/:version/:file', renderSharedFile);
 // Windows アプリのダウンロード（APP001）。今の配り先へ送る
 app.get('/download/windows', (c) => c.redirect(WINDOWS_DOWNLOAD_URL, 302));
 app.get('/c/:handle', renderCreatorPage);
@@ -117,6 +126,8 @@ app.get('/en', renderHome);
 app.get('/en/', (c) => c.redirect(`/en${new URL(c.req.url).search}`, 301));
 app.get('/en/p/:id', renderWorkPage);
 app.get('/en/p/:id/code/:file', renderWorkPage);
+app.get('/en/s/:token', renderSharedPage);
+app.get('/en/s/:token/code/:file', renderSharedPage);
 app.get('/en/c/:handle', renderCreatorPage);
 app.get('/en/login', renderLoginPage);
 app.get('/en/signup', renderSignupPage);

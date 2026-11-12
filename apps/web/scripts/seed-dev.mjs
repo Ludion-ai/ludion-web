@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { imageSize } from '@ludion/rules';
 import { getPlatformProxy } from 'wrangler';
-import { PRIVATE_OWNER, privateFixtureId, privateRevisionId, sessionHash } from './private-fixture.mjs';
+import { PRIVATE_OWNER, privateFixtureId, privateRevisionId, sessionHash, sharedFixtureToken } from './private-fixture.mjs';
 
 const webDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 const seedDir = join(webDir, '../../seed');
@@ -269,10 +269,11 @@ try {
       ...malicious.flatMap((id) => [
         db
           .prepare(
-            `INSERT INTO works (id, creator_id, title, type, platform, category, subtype, tags, made_with, version, license, status, thumb_key, thumb_w, thumb_h, created_at)
-             SELECT ?2, ?3, title, type, platform, category, subtype, tags, made_with, version, license, 'private', thumb_key, thumb_w, thumb_h, created_at FROM works WHERE id = ?1`,
+            `INSERT INTO works (id, creator_id, title, type, platform, category, subtype, tags, made_with, version, license, status, thumb_key, thumb_w, thumb_h, created_at, share_token, shared_at)
+             SELECT ?2, ?3, title, type, platform, category, subtype, tags, made_with, version, license, 'private', thumb_key, thumb_w, thumb_h, created_at, ?4, created_at FROM works WHERE id = ?1`,
           )
-          .bind(id, privateFixtureId(id), PRIVATE_OWNER.creatorId),
+          // リンクで見せる見本（SHARE001）：同じ作品を /s/<合言葉> でも開ける。e2e/frame-escape.spec.ts の FORMS の shared
+          .bind(id, privateFixtureId(id), PRIVATE_OWNER.creatorId, sharedFixtureToken(id)),
         db
           .prepare(
             `INSERT INTO revisions (id, work_id, version, status, r2_prefix, title, type, platform, category, subtype, tags, made_with, thumb_w, thumb_h, created_at, updated_at)

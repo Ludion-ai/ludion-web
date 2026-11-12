@@ -119,12 +119,13 @@ const ITEM_CLASS = 'inline-flex min-h-8 shrink-0 items-center gap-1 rounded-chip
  * 「この作品について」（WS003）。版を置いたときに機械がコードを読んで作った地図から出す。
  * 印を押すと、本文のその行（本当のファイルの行。/p/<id>/code/<file>#L204）へ飛ぶ。幅767px以下では、印を横に流す。
  */
-export function WorkAbout({ about, workId }: { about: About; workId: string }) {
+/** base：作品の道（言語のない /p/<id>、リンクで見せるページは /s/<合言葉>。SHARE001） */
+export function WorkAbout({ about, base }: { about: About; base: string }) {
   const copy = useCopy();
   const text = copy.work.about;
   const headingId = useId();
   const a11yId = useId();
-  const { go } = useCodeLink(workId);
+  const { go } = useCodeLink(base);
   // 今開いている行（押した印に色を付ける）
   const location = useLocation();
   const openFile = fileOfSplat(useParams()['*']);
@@ -161,7 +162,7 @@ export function WorkAbout({ about, workId }: { about: About; workId: string }) {
               return (
                 <Link
                   key={item.key}
-                  to={codePath(workId, file, { start: line, end: line })}
+                  to={codePath(base, file, { start: line, end: line })}
                   data-about-item={item.key}
                   aria-current={current ? 'true' : undefined}
                   onClick={(event: MouseEvent<HTMLAnchorElement>) => {

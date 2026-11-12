@@ -309,6 +309,61 @@ export function ReviewPage() {
           </section>
         </>
       )}
+      <ShareBlock />
     </div>
+  );
+}
+
+/**
+ * リンクで見せる作品を止める（SHARE001「7」）。報告で届いた /s/ の住所か、作品の ID を入れる。
+ * 運営はここから作品の中身を読まない（T036）。返るのは ID と作者だけ。
+ */
+function ShareBlock() {
+  const text = useCopy().share.review;
+  const inputId = useId();
+  const [address, setAddress] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const send = async (action: 'block' | 'unblock') => {
+    if (!address.trim() || busy) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/review/shares/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address }) });
+      const body = (await response.json().catch(() => null)) as { work_id?: string; handle?: string | null } | null;
+      if (response.status === 404) setMessage(text.notFound);
+      else if (!response.ok || typeof body?.work_id !== 'string') setMessage(text.failed);
+      else setMessage(action === 'block' ? text.blocked(body.work_id, body.handle ?? null) : text.unblocked(body.work_id));
+    } catch {
+      setMessage(text.failed);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <section data-share-block="" className="mt-10 border-t border-site-line pt-5">
+      <h2 className="font-semibold">{text.heading}</h2>
+      <p className="mt-1 text-small text-site-fg-2">{text.intro}</p>
+      <label htmlFor={inputId} className="mt-3 block text-small font-semibold">
+        {text.address}
+      </label>
+      <div className="mt-1.5 flex flex-wrap gap-2">
+        <input
+          id={inputId}
+          value={address}
+          onChange={(event) => setAddress(event.target.value)}
+          className="h-11 min-w-0 flex-1 basis-64 rounded-control border border-site-line-2 bg-site-bg px-3 font-mono text-small"
+        />
+        <button type="button" disabled={busy} onClick={() => void send('block')} className="inline-flex h-11 items-center rounded-control bg-site-primary px-4 font-semibold text-site-bg disabled:opacity-60">
+          {text.block}
+        </button>
+        <button type="button" disabled={busy} onClick={() => void send('unblock')} className="inline-flex h-11 items-center rounded-control border border-site-line-2 bg-site-bg px-4 font-semibold hover:bg-site-hover disabled:opacity-60">
+          {text.unblock}
+        </button>
+      </div>
+      <p role="status" className="mt-2 text-small empty:hidden">
+        {message}
+      </p>
+    </section>
   );
 }

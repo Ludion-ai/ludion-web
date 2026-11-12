@@ -305,13 +305,19 @@ function mapResult(tool: 'get_work' | 'get_public_work', data: Record<string, un
   const how = hasCode
     ? 'Below: the map of the work, then its whole code.'
     : `Below is the map of the work, not its code (${size(Number(rest.bytes))} in all). To read code, call read_work_code with work_id "${id}", version "${String(rest.version)}" and either section (a selector from the map, exactly as written${example ? `, for example "${selectorNames(outline)(example)}"` : ''}) or file and lines (for example file "${outline.files[outline.files.length - 1]?.name ?? 'index.html'}", lines "1-200"). Up to ${KB(MAX_PART_READ_BYTES)} per call. For the whole code in one piece, call ${tool} again with code: true.`;
+  // リンクで見せる（SHARE001）：持ち主には、状態と住所だけを伝える。変えるのは人がサイトで（この口からは変えられない）
+  const share = rest.share as { state?: string; url?: string | null } | undefined;
+  const shared =
+    tool === 'get_work' && share?.state === 'on' && typeof share.url === 'string'
+      ? `\nShared by link: ${share.url} (anyone with this link can see the work; it is not listed or searchable). The person turns this on or off on the work's page on ludion.ai; it cannot be changed from here.`
+      : '';
   const next =
     tool === 'get_work'
       ? `To save changes as a new version, call save_work with work_id "${id}". Keep the credit lines at the top.`
       : `To remix: change only what needs to change, keep the credit lines at the top, and call save_work with from "${id}".`;
   const summary = { files: outline.files, tech: outline.tech.map((tech) => tech.id), map };
   return {
-    content: [{ type: 'text', text: `${head}\n${how}\n${next}\n\n${map}` }, ...(hasCode ? [{ type: 'text' as const, text: code }] : [])],
+    content: [{ type: 'text', text: `${head}${shared}\n${how}\n${next}\n\n${map}` }, ...(hasCode ? [{ type: 'text' as const, text: code }] : [])],
     structuredContent:
       tool === 'get_work'
         ? { ...rest, ...summary, ...(hasCode ? { code } : {}) }
