@@ -4,10 +4,12 @@
 // - part.js があれば、同じ1枚の中で mount(root) を呼ぶ。外のファイルは読まない。
 // - CSP の meta で、作品から外への通信を止める（書体だけは通す）。フォームの送信先への送信も止める。
 // - localStorage、sessionStorage、document.cookie は、投げるときだけメモリだけの代わりにする（storage.ts）。読み直すと消える。
+// - WebRTC は CSP では止まらないので、作品より先に使えなくし、入れ子の枠も作れなくする（guard.ts。FRAME002）。
 
 import { NEUTRAL_PALETTES, tokenDeclarations } from './tokens.ts';
 import { escapeRawText, stripExports } from './js.ts';
 import { ALLOW_MOTION_SCRIPT, allowMotionCss } from './motion.ts';
+import { FRAME_GUARD_SCRIPT } from './guard.ts';
 import { STORAGE_SCRIPT } from './storage.ts';
 import type { Palette, Work } from './types.ts';
 
@@ -191,7 +193,9 @@ export function buildFrameHtml(work: Work, options: FrameOptions): string {
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(meta.title)}</title>`,
     `<style>${outerCss}</style>`,
-    // 最初の Ludion のスクリプト。作品の JS より先に、投げる storage と cookie をメモリだけの代わりにする（storage.ts）。
+    // 最初の Ludion のスクリプト。作品の JS より先に、WebRTC を使えなくし、入れ子の枠を作れなくする（guard.ts）
+    `<script>${FRAME_GUARD_SCRIPT}</script>`,
+    // 次に、投げる storage と cookie をメモリだけの代わりにする（storage.ts）。
     // 別の <script> にして、万一ここで止まっても、次の知らせ（LOADED_SCRIPT）は仕掛ける
     `<script>${STORAGE_SCRIPT}</script>`,
     // 作品の JS が devicePixelRatio を読む前に、見えている細かさに置き換える

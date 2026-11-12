@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { ALL_TOKEN_NAMES, DPR_HASH_KEY, DPR_SCRIPT, FRAME_CSP, FRAME_RESPONSE_CSP, FRAME_SANDBOX, NEUTRAL_PALETTES, OPTIONAL_TOKEN_NAMES, STORAGE_SCRIPT, TOKEN_NAMES, authorBackground, buildCopySnippet, buildFrameHtml, stripExports } from '../src/index.ts';
+import { ALL_TOKEN_NAMES, DPR_HASH_KEY, DPR_SCRIPT, FRAME_CSP, FRAME_GUARD_SCRIPT, FRAME_RESPONSE_CSP, FRAME_SANDBOX, NEUTRAL_PALETTES, OPTIONAL_TOKEN_NAMES, STORAGE_SCRIPT, TOKEN_NAMES, authorBackground, buildCopySnippet, buildFrameHtml, stripExports } from '../src/index.ts';
 import type { Creator, Work } from '../src/index.ts';
 
 const ID = 'toggle-aurora';
@@ -71,10 +71,13 @@ test.describe('見えている細かさ（PREVIEW-DPR）：# の ldpr で device
   // 作品の JS が mount の時に読む devicePixelRatio を、根の属性に書く
   const probe: Work = { ...work, js: `export function mount(root) { root.setAttribute('data-dpr', String(window.devicePixelRatio)); return () => {}; }` };
 
-  test('最初のスクリプトが置き換える。作品の JS より先（前にあるのは storage の代わりだけ。FRAME001）', () => {
+  test('最初のスクリプトが置き換える。作品の JS より先（前にあるのは枠の守りと storage の代わりだけ。FRAME001、FRAME002）', () => {
     const html = buildFrameHtml(probe, { palette: 'author' });
-    expect(html.indexOf('<script')).toBe(html.indexOf(`<script>${STORAGE_SCRIPT}</script>`));
-    expect(html.indexOf(`<script>${DPR_SCRIPT}`)).toBe(html.indexOf('</script>') + '</script>'.length + 1);
+    const guard = `<script>${FRAME_GUARD_SCRIPT}</script>`;
+    const storage = `<script>${STORAGE_SCRIPT}</script>`;
+    expect(html.indexOf('<script')).toBe(html.indexOf(guard));
+    expect(html.indexOf(storage)).toBe(html.indexOf(guard) + guard.length + 1);
+    expect(html.indexOf(`<script>${DPR_SCRIPT}`)).toBe(html.indexOf(storage) + storage.length + 1);
     expect(html.indexOf(DPR_SCRIPT)).toBeLessThan(html.indexOf('<script type="module">'));
     expect(DPR_SCRIPT).toContain(`${DPR_HASH_KEY}=`);
   });

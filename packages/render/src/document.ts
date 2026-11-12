@@ -11,6 +11,7 @@ import { CAPTURE_SCRIPT } from './capture.ts';
 import { ALLOW_MOTION_SCRIPT } from './motion.ts';
 import { DPR_SCRIPT, FRAME_CSP, LOADED_SCRIPT } from './frame.ts';
 import { creditText, remixCreditText, type RemixSource } from './snippet.ts';
+import { FRAME_GUARD_SCRIPT } from './guard.ts';
 import { STORAGE_SCRIPT } from './storage.ts';
 
 /** 文書の作品を R2 に置くときのファイルの名前。part.html がなく、これがある版が文書の作品。 */
@@ -52,10 +53,11 @@ export interface DocumentFrameOptions {
   capture?: boolean;
 }
 
-/** 文書の頭に差し込むもの。順は、今の枠と同じ（storage の代わりが最初、次に DPR と「読み込めた」、次に「動きを見る」）。撮る仕掛けは最後。 */
+/** 文書の頭に差し込むもの。順は、今の枠と同じ（WebRTC と入れ子の枠の守りが最初、storage の代わり、DPR と「読み込めた」、「動きを見る」）。撮る仕掛けは最後。 */
 function headInsert(options: DocumentFrameOptions): string {
   return (
     `<meta http-equiv="Content-Security-Policy" content="${FRAME_CSP}">` +
+    `<script>${FRAME_GUARD_SCRIPT}</script>` +
     `<script>${STORAGE_SCRIPT}</script>` +
     `<script>${DPR_SCRIPT}${LOADED_SCRIPT}</script>` +
     (options.motion ? `<script>${ALLOW_MOTION_SCRIPT}</script>` : '') +
