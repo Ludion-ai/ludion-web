@@ -85,7 +85,7 @@ export default defineConfig({
     trace: process.env.CI ? 'retain-on-failure' : 'off',
   },
   projects: [
-    { name: 'home', testIgnore: /(upload|pages|accounts|account-page|api-v1|mcp|google|login-flow|post|private|own-nav|passkey|shots-t020|migration|frame-escape|motion|remix-scroll|wall-size|preview-dpr|frame-storage|frame-document|thumb-capture|nav-refresh|share)\.spec\.ts/, use: { baseURL: BASE_URL } },
+    { name: 'home', testIgnore: /(upload|pages|accounts|account-page|api-v1|mcp|google|login-flow|post|private|own-nav|passkey|shots-t020|migration|frame-escape|motion|remix-scroll|wall-size|preview-dpr|frame-storage|frame-document|thumb-capture|nav-refresh|share|share-ui)\.spec\.ts/, use: { baseURL: BASE_URL } },
     { name: 'upload', testMatch: /upload\.spec\.ts/, use: { baseURL: UPLOAD_URL } },
     { name: 'pages', testMatch: /pages\.spec\.ts/, use: { baseURL: PAGES_URL } },
     // 枠の移動を止めるのはブラウザなので、全部のブラウザで確かめる（docs/tasks/T022.md「1」）
@@ -135,6 +135,10 @@ export default defineConfig({
     // workers: 1 は、ファイルをまたいでも同時に走らせないため（1つの D1 を3つのファイルで使う）
     { name: 'accounts', testMatch: /(accounts|account-page|api-v1|mcp|google|login-flow|post|private|own-nav|share)\.spec\.ts/, fullyParallel: false, workers: 1, use: { baseURL: ACCOUNTS_URL } },
     { name: 'migration', testMatch: /migration\.spec\.ts/, fullyParallel: false, workers: 1, use: { baseURL: MIGRATION_URL } },
+    // リンクで見せる（SHARE001）の画面を3つのブラウザで。見本の持ち主と、合言葉つきの見本（scripts/private-fixture.mjs）を読むだけで、状態は変えない
+    { name: 'share-ui-chromium', testMatch: /share-ui\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'chromium' } },
+    { name: 'share-ui-webkit', testMatch: /share-ui\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'webkit' } },
+    { name: 'share-ui-firefox', testMatch: /share-ui\.spec\.ts/, use: { baseURL: PAGES_URL, browserName: 'firefox' } },
     { name: 'passkey', testMatch: /(passkey|shots-t020)\.spec\.ts/, fullyParallel: false, workers: 1, use: { baseURL: PASSKEY_URL, browserName: 'chromium' } },
   ],
   webServer: {

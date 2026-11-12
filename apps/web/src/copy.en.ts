@@ -1054,6 +1054,7 @@ ${code}
     badge: 'Shared by link',
     notice: 'This work is shared by link (it has not been reviewed).',
     ownerNotice: 'You are sharing this by link. Anyone with this address can see it.',
+    privateNotice: 'Shared by link. Anyone with the address can see it. Views and copies are not counted.',
     turnOff: 'Turn off',
     turningOff: 'Turning off…',
     offFailed: 'Could not turn it off. Please try again.',

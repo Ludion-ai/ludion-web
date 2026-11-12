@@ -915,7 +915,8 @@ post.post('/works/:id/make-private', async (c) => {
   if ((await countPrivateWorks(db, user.id, work.id)) >= PRIVATE_WORKS_LIMIT) return c.json({ error: 'private_limit', limit: PRIVATE_WORKS_LIMIT }, 409);
   const now = Date.now();
   const [changed] = await db.batch([
-    db.prepare(`UPDATE works SET status = 'private' WHERE id = ? AND status = 'approved'`).bind(work.id),
+    // 公開の前にリンクで見せていた合言葉は捨てる（SHARE001：古いリンクが、自分だけに戻した後でまた開かないように。見せるなら新しくオンにする）
+    db.prepare(`UPDATE works SET status = 'private', share_token = NULL, shared_at = NULL WHERE id = ? AND status = 'approved'`).bind(work.id),
     db.prepare(`UPDATE revisions SET status = 'draft', updated_at = ?1 WHERE work_id = ?2 AND status = 'submitted' AND changes() > 0`).bind(now, work.id),
   ]);
   if (changed.meta.changes === 0) return c.json({ error: 'not_public' }, 409);

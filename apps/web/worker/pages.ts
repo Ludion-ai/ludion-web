@@ -19,7 +19,7 @@ import { renderDocument } from './ssr';
 import { loadOutline } from './outline';
 import { buildAbout, buildTree, loadHistory } from './workAbout';
 import { isWorkFileName } from './workFile';
-import { SHARE_HEADERS, shareFrameUrls, sharedWork } from './share';
+import { SHARE_HEADERS, shareColumns, shareFrameUrls, shareStateOf, sharedWork } from './share';
 import { workFiles } from '@ludion/outline';
 
 type PageContext = Context<{ Bindings: Env }>;
@@ -127,6 +127,8 @@ export async function renderWorkPage(c: PageContext): Promise<Response> {
   ]);
   // 作品のページから行き止まりをなくす（docs/tasks/T018.md「1」）。同じ作者が先で、それぞれ Popular の順
   const rest = (await listApprovedWorks(db)).filter((other) => other.id !== work.id);
+  // 自分だけの作品のページは持ち主にだけ描き、残さないので、リンクで見せているかを HTML に入れてよい（札と知らせ。SHARE001）
+  const shareRow = loaded.private ? await shareColumns(db, work.id) : null;
 
   const response = await renderDocument(c, {
     page: {
@@ -138,7 +140,7 @@ export async function renderWorkPage(c: PageContext): Promise<Response> {
       snippet,
       background: authorBackground(files.css),
       source,
-      private: loaded.private && { frames: draftFrameUrls(loaded.private.revisionId) },
+      private: loaded.private && { frames: draftFrameUrls(loaded.private.revisionId), share: shareRow ? shareStateOf(shareRow) : 'off' },
       shared: null,
       stills: loaded.private ? [] : await wallStills(c.env.PARTS, work, loaded.prefix),
       about: outline && buildAbout(outline),

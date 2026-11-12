@@ -6,6 +6,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
+import { crc32, deflateSync } from 'node:zlib';
 import { Visitor, ownOrigin } from './visitor';
 
 const WEB = join(import.meta.dirname, '..');
@@ -34,11 +35,36 @@ function d1<T = Record<string, unknown>>(sql: string): T[] {
 const htmlOf = (id: string) => `<div data-ld-part="${id}"><button type="button">見せる見本</button></div>`;
 const cssOf = (id: string) => `[data-ld-part="${id}"] { color: #123456; border-radius: 3px; }`;
 
-function formOf(id: string, title: string, isNew = true) {
+/** 手元で作る PNG（公開に出すときのサムネイル）。 */
+function png(width: number, height: number): Buffer {
+  const chunk = (type: string, data: Buffer) => {
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const name = Buffer.from(type);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(Buffer.concat([name, data])) >>> 0);
+    return Buffer.concat([length, name, data, crc]);
+  };
+  const raw = Buffer.alloc((width * 4 + 1) * height);
+  let at = 0;
+  for (let y = 0; y < height; y += 1) {
+    raw[at++] = 0;
+    for (let x = 0; x < width; x += 1) for (const value of [x % 256, y % 256, 90, 255]) raw[at++] = value;
+  }
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', header), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+}
+
+function formOf(id: string, title: string, thumb = false) {
   const form = new FormData();
-  form.append('meta', JSON.stringify({ ...(isNew ? { id } : {}), title, category: 'Components', subtype: 'Toggle', tags: ['minimal'], motion: false, made_with: 'human' }));
+  form.append('meta', JSON.stringify({ id, title, category: 'Components', subtype: 'Toggle', tags: ['minimal'], motion: false, made_with: 'human' }));
   form.append('part.html', htmlOf(id));
   form.append('part.css', cssOf(id));
+  if (thumb) form.append('thumb', new Blob([new Uint8Array(png(900, 700))], { type: 'image/png' }), 'x.png');
   return form;
 }
 
@@ -58,10 +84,10 @@ async function operator() {
   return one;
 }
 
-/** 自分だけで置いた作品。 */
-async function privateWork(visitor: Visitor, label = 'shr') {
+/** 自分だけで置いた作品。thumb：サムネイルも付ける（公開に出せる） */
+async function privateWork(visitor: Visitor, label = 'shr', thumb = false) {
   const id = unique(`${label}-`);
-  const made = await visitor.fetch('/api/post/works', { method: 'POST', body: formOf(id, `見せる見本 ${id}`), headers: { Origin: ownOrigin() } });
+  const made = await visitor.fetch('/api/post/works', { method: 'POST', body: formOf(id, `見せる見本 ${id}`, thumb), headers: { Origin: ownOrigin() } });
   expect(made.status, await made.clone().text()).toBe(201);
   const { revision } = (await made.json()) as { revision: { id: string } };
   const placed = await visitor.post(`/api/post/revisions/${revision.id}/place`, CONFIRM);
@@ -298,6 +324,85 @@ test.describe('リンクで見せる（API と Worker の HTML）', () => {
     await missing(`/s/${token}`);
     expect(d1(`SELECT share_token FROM works WHERE id = ${quote(id)}`)).toEqual([{ share_token: null }]);
   });
+
+  test('公開になると /s/ は作品のページへ 302。「自分だけにする」と合言葉を捨て、古い住所は 404 のまま', async () => {
+    const { visitor } = await person();
+    const { visitor: reviewer } = await operator();
+    const id = await privateWork(visitor, 'pub', true);
+    const token = await turnOn(visitor, id);
+    const published = await visitor.post(`/api/post/works/${id}/publish`, CONFIRM);
+    expect(published.status, await published.clone().text()).toBe(200);
+    await published.arrayBuffer();
+    // 審査の間は、まだ自分だけの作品なので見せる
+    const during = await new Visitor().fetch(`/s/${token}`);
+    expect(during.status).toBe(200);
+    await during.arrayBuffer();
+    const [revision] = d1<{ id: string; content_hash: string }>(`SELECT id, content_hash FROM revisions WHERE work_id = ${quote(id)} AND status = 'submitted'`);
+    const approved = await reviewer.post(`/api/review/revisions/${revision.id}/approve`, { content_hash: revision.content_hash });
+    expect(approved.status).toBe(200);
+    await approved.arrayBuffer();
+    const moved = await new Visitor().fetch(`/s/${token}`);
+    expect(moved.status).toBe(302);
+    expect(moved.headers.get('location')).toBe(`/p/${id}`);
+    expect(moved.headers.get('cache-control')).toBe(NO_STORE);
+    expect(await (await visitor.fetch(`/api/post/works/${id}/share`)).json()).toEqual({ state: 'unavailable', url: null });
+    // 公開の作品はオンにできない
+    const refused = await share(visitor, id, true);
+    expect(refused.status).toBe(409);
+    await refused.arrayBuffer();
+
+    const back = await visitor.post(`/api/post/works/${id}/make-private`);
+    expect(back.status).toBe(200);
+    await back.arrayBuffer();
+    await missing(`/s/${token}`);
+    expect(await (await visitor.fetch(`/api/post/works/${id}/share`)).json()).toEqual({ state: 'off', url: null });
+  });
+
+  test('AI の口で置いた文書の作品（index.html）も、/s/ で文書のまま動き、本文と行の住所が開く', async () => {
+    const { visitor } = await person('doc');
+    const key = await visitor.post('/api/account/ai-keys', { name: 'Claude Code', ...CONFIRM });
+    const { secret } = (await key.json()) as { secret: string };
+    const title = unique('Shared Doc ');
+    const doc = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>${title}</title>
+<style>body { margin: 0; min-height: 100vh; display: grid; place-items: center; }</style>
+</head>
+<body>
+<button id="b" type="button">Count</button>
+<script>
+document.getElementById('b').addEventListener('click', () => { document.getElementById('b').textContent = 'Counted'; });
+</script>
+</body>
+</html>
+`;
+    const saved = await fetch(new URL('/api/v1/works', ownOrigin()), { method: 'POST', headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ html: doc }) });
+    expect(saved.status, await saved.clone().text()).toBe(201);
+    const { id, visibility } = (await saved.json()) as { id: string; visibility: string };
+    expect(visibility).toBe('private');
+    const token = await turnOn(visitor, id);
+
+    const anyone = new Visitor();
+    const page = await anyone.fetch(`/s/${token}`);
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    expect(html).toContain(`/share-frame/${token}/desktop.html`);
+    const frame = await anyone.fetch(`/share-frame/${token}/desktop.html`, { headers: FROM_IFRAME });
+    expect(frame.status).toBe(200);
+    const served = await frame.text();
+    // 文書を1文字も変えずに返す（頭にサイトの小さなスクリプトだけ）
+    expect(served.startsWith('<!doctype html><meta http-equiv="Content-Security-Policy"')).toBe(true);
+    expect(served.endsWith(doc.slice('<!doctype html>'.length))).toBe(true);
+    const file = await anyone.fetch(`/s/${token}/file/1/index.html`);
+    expect(file.status).toBe(200);
+    expect(await file.text()).toBe(doc);
+    const code = await anyone.fetch(`/s/${token}/code/index.html`);
+    expect(code.status).toBe(200);
+    await code.arrayBuffer();
+    await missing(`/s/${token}/code/part.html`, anyone);
+  });
 });
 
 async function logInPage(page: Page, path: string, login: string) {
@@ -324,6 +429,10 @@ test.describe('リンクで見せる（画面）', () => {
     const address = page.getByLabel('見せる住所');
     await expect(address).toHaveValue(TOKEN);
     const token = TOKEN.exec(await address.inputValue())![1];
+    // 札と知らせも、スイッチに合わせて「リンクで見せる」になる
+    await expect(page.locator('[data-private-notice]')).toContainText('リンクで見せています');
+    await expect(page.locator('[data-work-state="shared"]:visible')).toHaveText('リンクで見せる');
+    await expect(page.locator('[data-work-state="private"]')).toHaveCount(0);
 
     // ほかの人（ログインなし）の画面：作品が動き、札がある。持ち主の知らせはない
     const anon = await browser.newPage();

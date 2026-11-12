@@ -228,6 +228,9 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
   const isShareOwner = isShared && own !== undefined;
   const state: WorkState = own ? stateOf(own) : isPrivate ? 'private' : 'public';
   const StateIcon = state === 'public' ? Globe : state === 'private' ? Lock : Clock;
+  // 自分だけの作品をリンクで見せているか（SHARE001）。Worker の HTML から始め、設定のタブのスイッチに合わせる
+  const [privateShare, setPrivateShare] = useState(page.private?.share ?? 'off');
+  const sharingPrivate = isPrivate && privateShare === 'on' && state === 'private';
   const [offState, setOffState] = useState<'idle' | 'busy' | 'failed'>('idle');
   // 持ち主が /s/ で「オフにする」：住所を捨て、自分の作品のページへ移る（この住所はもう 404）
   const turnShareOff = async () => {
@@ -282,7 +285,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
   /** 状態と版の札。リンクで見せるページは「リンクで見せる」 */
   const stateBadges = (className: string) => (
     <>
-      {isShared ? (
+      {isShared || sharingPrivate ? (
         <span data-work-state="shared" className={`${BADGE} ${className}`}>
           <Link2 size={12} strokeWidth={2} aria-hidden="true" />
           {copy.share.badge}
@@ -421,7 +424,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
           {source && <SourceBand source={source} />}
           {isPrivate && (
             <p data-private-notice="" role="note" className="mt-3 rounded-control bg-site-field px-3 py-2.5 text-small">
-              <span className="font-semibold">{copy.work.privateNotice}</span>{' '}
+              <span className="font-semibold">{sharingPrivate ? copy.share.privateNotice : copy.work.privateNotice}</span>{' '}
               <a href={localizedPath(locale, '/account/works')} className="underline">
                 {copy.work.privateToWorks}
               </a>
@@ -590,7 +593,7 @@ function WorkDetail({ page }: { page: Extract<PageData, { kind: 'work' }> }) {
                 </a>
               </div>
               {/* リンクで見せる（SHARE001「1」）。自分だけの作品だけ */}
-              {page.private && <ShareSettings workId={work.id} />}
+              {page.private && <ShareSettings workId={work.id} onChange={setPrivateShare} />}
               {/* 画像を付ける（DOC002「3」）。画像を足した新しい版が今の版になるので、付けたら読み込み直す。自分だけの作品だけ */}
               {page.private && (
                 <section className="mt-5">

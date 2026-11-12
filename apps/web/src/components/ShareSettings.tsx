@@ -9,7 +9,7 @@ import { fetchShare, setShare, type ShareInfo } from '../lib/share';
  * オンにすると住所が出て、コピーできる。オフにすると住所は使えなくなり、次にオンにすると新しい住所になる。
  * 運営が止めた作品は、スイッチを押せない。
  */
-export function ShareSettings({ workId }: { workId: string }) {
+export function ShareSettings({ workId, onChange }: { workId: string; onChange?: (state: ShareInfo['state']) => void }) {
   const text = useCopy().share.settings;
   const labelId = useId();
   const noteId = useId();
@@ -31,6 +31,10 @@ export function ShareSettings({ workId }: { workId: string }) {
     };
   }, [workId]);
   useEffect(() => () => clearTimeout(timer.current), []);
+  // ページの札と知らせを、スイッチと同じ状態にする
+  useEffect(() => {
+    if (info) onChange?.(info.state);
+  }, [info, onChange]);
 
   const on = info?.state === 'on';
   const blocked = info?.state === 'blocked';
