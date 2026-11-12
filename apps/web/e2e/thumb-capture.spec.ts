@@ -1,13 +1,14 @@
 // DOC002：文書の作品に、枠から撮った画像を付けて、公開に回せるようにする。
 // playwright.config.ts の thumb-capture-* で、Chromium、WebKit、Firefox の全部で流す。サーバーは pages と同じ（悪意のある見本 mal-doc が入っている）。
 // 人と作品は HTTP だけで作る（偽の GitHub でログイン、AI の鍵、/api/v1）。手元の D1 のファイルを直に開かないので、ほかの pages のテストと並んで走ってよい。
-import { buildDocumentFrameHtml, CAPTURE_SCRIPT, FRAME_RESPONSE_CSP } from '@ludion/render';
+import { buildDocumentFrameHtml, CAPTURE_READY, CAPTURE_REQUEST, CAPTURE_RESULT, CAPTURE_SCRIPT, FRAME_RESPONSE_CSP } from '@ludion/render';
 import { expect, test, type Page } from '@playwright/test';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deflateSync, crc32 } from 'node:zlib';
 import { PRIVATE_OWNER, privateRevisionId } from '../scripts/private-fixture.mjs';
+import * as site from '../src/lib/post';
 import { Visitor, ownOrigin } from './visitor';
 
 const FROM_IFRAME = { 'Sec-Fetch-Dest': 'iframe' };
@@ -259,6 +260,8 @@ test.describe('画像を付ける（DOC002）', () => {
     const captured = await (await owner.fetch(`${draft}?capture=1`, { headers: FROM_IFRAME })).text();
     expect(captured).toBe(buildDocumentFrameHtml(doc, { capture: true }));
     expect(captured).toContain(CAPTURE_SCRIPT);
+    // 画面（src/lib/post.ts）の知らせの形は、撮る仕掛けと同じ
+    expect([site.CAPTURE_REQUEST, site.CAPTURE_RESULT, site.CAPTURE_READY]).toEqual([CAPTURE_REQUEST, CAPTURE_RESULT, CAPTURE_READY]);
     // 枠の外から開くと、今までどおり戻す
     expect((await owner.fetch(`${draft}?capture=1`)).status).toBe(302);
   });

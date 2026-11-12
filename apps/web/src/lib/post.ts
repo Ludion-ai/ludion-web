@@ -282,6 +282,14 @@ export async function uploadThumb(id: string, thumb: Blob): Promise<ThumbAnswer>
   return { ok: false, error: body?.error ?? (response.status === 413 ? 'too_large' : 'failed'), limit: body?.limit };
 }
 
+/**
+ * 撮る仕掛けとのやりとりの形（packages/render/src/capture.ts と同じ値。e2e/thumb-capture.spec.ts が同じことを確かめる）。
+ * ブラウザの組み立てに packages/render を入れない（撮る仕掛けの文字列がサイトの JS に入るため）。
+ */
+export const CAPTURE_REQUEST = 'ld-thumb-capture';
+export const CAPTURE_RESULT = 'ld-thumb-captured';
+export const CAPTURE_READY = 'ld-thumb-ready';
+
 /** 枠から撮った絵（PNG の data URL）の上限。1280×800 の PNG は、細かい絵でも数 MB。これより大きいものは受けない。 */
 export const MAX_CAPTURE_URL_CHARS = 12 * 1024 * 1024;
 const CAPTURE_PREFIX = 'data:image/png;base64,';

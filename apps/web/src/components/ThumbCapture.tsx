@@ -1,9 +1,8 @@
-import { CAPTURE_READY, CAPTURE_REQUEST, CAPTURE_RESULT } from '@ludion/render';
 import { X } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { useCopy } from '../hooks/useCopy';
 import { BOX_CLASS, FRAME_CLASS, FRAME_SIZES, frameScale } from '../lib/frame';
-import { captureToBlob, normalizeThumb, uploadThumb } from '../lib/post';
+import { CAPTURE_READY, CAPTURE_REQUEST, CAPTURE_RESULT, captureToBlob, normalizeThumb, uploadThumb } from '../lib/post';
 import { SANDBOX } from './FramePreview';
 
 const WHITE_BUTTON = 'inline-flex h-11 items-center justify-center rounded-control border border-site-line-2 bg-site-bg px-4 text-body font-semibold text-site-fg hover:bg-site-hover disabled:opacity-60';
